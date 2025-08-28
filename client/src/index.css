@@ -1,0 +1,111 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(240, 10%, 94%);
+  --foreground: hsl(0, 0%, 10%);
+  --card: hsl(0, 0%, 99%);
+  --card-foreground: hsl(0, 0%, 0%);
+  --popover: hsl(45, 25%, 97%);
+  --popover-foreground: hsl(0, 0%, 100%);
+  --primary: hsl(344, 79%, 52%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(0, 0%, 77%);
+  --secondary-foreground: hsl(0, 0%, 10%);
+  --muted: hsl(0, 0%, 89%);
+  --muted-foreground: hsl(0, 0%, 13%);
+  --accent: hsl(0, 0%, 100%);
+  --accent-foreground: hsl(0, 0%, 6%);
+  --destructive: hsl(0, 0%, 0%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --border: hsl(0, 0%, 91%);
+  --input: hsl(0, 0%, 71%);
+  --ring: hsl(0, 0%, 26%);
+  --chart-1: hsl(204, 88%, 53%);
+  --chart-2: hsl(160, 100%, 36%);
+  --chart-3: hsl(42, 92%, 56%);
+  --chart-4: hsl(147, 78%, 42%);
+  --chart-5: hsl(341, 75%, 51%);
+  --sidebar: hsl(45, 25%, 97%);
+  --sidebar-foreground: hsl(20, 14%, 17%);
+  --sidebar-primary: hsl(9, 75%, 61%);
+  --sidebar-primary-foreground: hsl(0, 0%, 100%);
+  --sidebar-accent: hsl(25, 45%, 80%);
+  --sidebar-accent-foreground: hsl(20, 14%, 17%);
+  --sidebar-border: hsl(45, 15%, 80%);
+  --sidebar-ring: hsl(9, 75%, 61%);
+  --font-sans: 'Poppins', sans-serif;
+  --font-serif: 'Poppins', sans-serif;
+  --font-mono: Menlo, monospace;
+  --radius: 0.8rem;
+  --shadow-2xs: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00);
+  --shadow-sm: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00), 0px 1px 2px -1px hsl(9, 75%, 61% / 0.00);
+  --shadow: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00), 0px 1px 2px -1px hsl(9, 75%, 61% / 0.00);
+  --shadow-md: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00), 0px 2px 4px -1px hsl(9, 75%, 61% / 0.00);
+  --shadow-lg: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00), 0px 4px 6px -1px hsl(9, 75%, 61% / 0.00);
+  --shadow-xl: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00), 0px 8px 10px -1px hsl(9, 75%, 61% / 0.00);
+  --shadow-2xl: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+}
+
+.dark {
+  --background: hsl(20, 14%, 4%);
+  --foreground: hsl(45, 25%, 91%);
+  --card: hsl(20, 14%, 8%);
+  --card-foreground: hsl(45, 25%, 85%);
+  --popover: hsl(20, 14%, 4%);
+  --popover-foreground: hsl(45, 25%, 91%);
+  --primary: hsl(9, 75%, 61%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(30, 15%, 52%);
+  --secondary-foreground: hsl(0, 0%, 100%);
+  --muted: hsl(20, 14%, 15%);
+  --muted-foreground: hsl(45, 15%, 46%);
+  --accent: hsl(25, 45%, 20%);
+  --accent-foreground: hsl(45, 25%, 85%);
+  --destructive: hsl(356, 91%, 54%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --border: hsl(20, 14%, 15%);
+  --input: hsl(20, 14%, 18%);
+  --ring: hsl(9, 75%, 61%);
+  --chart-1: hsl(204, 88%, 53%);
+  --chart-2: hsl(160, 100%, 36%);
+  --chart-3: hsl(42, 92%, 56%);
+  --chart-4: hsl(147, 78%, 42%);
+  --chart-5: hsl(341, 75%, 51%);
+  --sidebar: hsl(20, 14%, 8%);
+  --sidebar-foreground: hsl(45, 25%, 85%);
+  --sidebar-primary: hsl(9, 75%, 61%);
+  --sidebar-primary-foreground: hsl(0, 0%, 100%);
+  --sidebar-accent: hsl(25, 45%, 20%);
+  --sidebar-accent-foreground: hsl(45, 25%, 85%);
+  --sidebar-border: hsl(20, 14%, 15%);
+  --sidebar-ring: hsl(9, 75%, 61%);
+  --font-sans: 'Poppins', sans-serif;
+  --font-serif: 'Poppins', sans-serif;
+  --font-mono: Menlo, monospace;
+  --radius: 0.8rem;
+  --shadow-2xs: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00);
+  --shadow-sm: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00), 0px 1px 2px -1px hsl(9, 75%, 61% / 0.00);
+  --shadow: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00), 0px 1px 2px -1px hsl(9, 75%, 61% / 0.00);
+  --shadow-md: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00), 0px 2px 4px -1px hsl(9, 75%, 61% / 0.00);
+  --shadow-lg: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00), 0px 4px 6px -1px hsl(9, 75%, 61% / 0.00);
+  --shadow-xl: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00), 0px 8px 10px -1px hsl(9, 75%, 61% / 0.00);
+  --shadow-2xl: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+}
