@@ -11,6 +11,8 @@ import Inventory from "@/pages/inventory";
 import Products from "@/pages/products";
 import Accounting from "@/pages/accounting";
 import QRCodes from "@/pages/qr-codes";
+import Reports from "@/pages/reports";
+import Settings from "@/pages/settings";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -26,6 +28,8 @@ function Router() {
           <Route path="/products" component={Products} />
           <Route path="/accounting" component={Accounting} />
           <Route path="/qr-codes" component={QRCodes} />
+          <Route path="/reports" component={Reports} />
+          <Route path="/settings" component={Settings} />
         </>
       )}
       <Route component={NotFound} />
