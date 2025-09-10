@@ -264,4 +264,255 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-export const storage = new DatabaseStorage();
+// Temporary in-memory storage for development
+export class MemStorage implements IStorage {
+  private users = new Map<string, User>();
+  private categories = new Map<string, Category>();
+  private products = new Map<string, Product>();
+  private inventoryTransactions = new Map<string, InventoryTransaction>();
+  private accountingEntries = new Map<string, AccountingEntry>();
+  private chatMessages = new Map<string, ChatMessage[]>();
+
+  // User operations (IMPORTANT - mandatory for Replit Auth)
+  async getUser(id: string): Promise<User | undefined> {
+    return this.users.get(id);
+  }
+
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const user: User = {
+      id: userData.id || this.generateId(),
+      email: userData.email || null,
+      firstName: userData.firstName || null,
+      lastName: userData.lastName || null,
+      profileImageUrl: userData.profileImageUrl || null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.users.set(user.id, user);
+    return user;
+  }
+
+  // Category operations
+  async getCategories(): Promise<Category[]> {
+    return Array.from(this.categories.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async createCategory(category: InsertCategory): Promise<Category> {
+    const newCategory: Category = {
+      id: this.generateId(),
+      name: category.name,
+      description: category.description || null,
+      createdAt: new Date(),
+    };
+    this.categories.set(newCategory.id, newCategory);
+    return newCategory;
+  }
+
+  async updateCategory(id: string, category: Partial<InsertCategory>): Promise<Category> {
+    const existing = this.categories.get(id);
+    if (!existing) throw new Error('Category not found');
+    
+    const updated: Category = { ...existing, ...category };
+    this.categories.set(id, updated);
+    return updated;
+  }
+
+  async deleteCategory(id: string): Promise<void> {
+    this.categories.delete(id);
+  }
+
+  // Product operations
+  async getProducts(search?: string): Promise<Product[]> {
+    let products = Array.from(this.products.values()).filter(p => p.isActive);
+    
+    if (search) {
+      products = products.filter(p => 
+        p.name.toLowerCase().includes(search.toLowerCase()) ||
+        p.sku.toLowerCase().includes(search.toLowerCase())
+      );
+    }
+    
+    return products.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async getProduct(id: string): Promise<Product | undefined> {
+    return this.products.get(id);
+  }
+
+  async createProduct(product: InsertProduct): Promise<Product> {
+    const qrCode = `QR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    const newProduct: Product = {
+      id: this.generateId(),
+      name: product.name,
+      description: product.description || null,
+      sku: product.sku,
+      categoryId: product.categoryId || null,
+      price: product.price,
+      costPrice: product.costPrice || null,
+      quantity: product.quantity || 0,
+      minStockLevel: product.minStockLevel || 0,
+      maxStockLevel: product.maxStockLevel || null,
+      barcode: product.barcode || null,
+      qrCode,
+      isActive: product.isActive ?? true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    
+    this.products.set(newProduct.id, newProduct);
+    return newProduct;
+  }
+
+  async updateProduct(id: string, product: Partial<InsertProduct>): Promise<Product> {
+    const existing = this.products.get(id);
+    if (!existing) throw new Error('Product not found');
+    
+    const updated: Product = { ...existing, ...product, updatedAt: new Date() };
+    this.products.set(id, updated);
+    return updated;
+  }
+
+  async deleteProduct(id: string): Promise<void> {
+    const product = this.products.get(id);
+    if (product) {
+      product.isActive = false;
+      this.products.set(id, product);
+    }
+  }
+
+  async getLowStockProducts(): Promise<Product[]> {
+    return Array.from(this.products.values()).filter(p => 
+      p.isActive && (p.quantity || 0) <= (p.minStockLevel || 0)
+    );
+  }
+
+  async generateQRCode(productId: string): Promise<string> {
+    const product = this.products.get(productId);
+    if (!product) throw new Error('Product not found');
+    
+    const qrCode = `QR-${productId}-${Date.now()}`;
+    product.qrCode = qrCode;
+    this.products.set(productId, product);
+    return qrCode;
+  }
+
+  // Inventory transaction operations
+  async getInventoryTransactions(productId?: string): Promise<InventoryTransaction[]> {
+    let transactions = Array.from(this.inventoryTransactions.values());
+    
+    if (productId) {
+      transactions = transactions.filter(t => t.productId === productId);
+    }
+    
+    return transactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async createInventoryTransaction(transaction: InsertInventoryTransaction): Promise<InventoryTransaction> {
+    const newTransaction: InventoryTransaction = {
+      id: this.generateId(),
+      productId: transaction.productId,
+      type: transaction.type,
+      quantity: transaction.quantity,
+      previousQuantity: transaction.previousQuantity,
+      newQuantity: transaction.newQuantity,
+      unitPrice: transaction.unitPrice || null,
+      totalValue: transaction.totalValue || null,
+      reason: transaction.reason || null,
+      reference: transaction.reference || null,
+      notes: transaction.notes || null,
+      createdBy: transaction.createdBy || null,
+      createdAt: new Date(),
+    };
+    
+    this.inventoryTransactions.set(newTransaction.id, newTransaction);
+    
+    // Update product quantity
+    const product = await this.getProduct(transaction.productId);
+    if (product) {
+      await this.updateProduct(transaction.productId, {
+        quantity: transaction.newQuantity,
+      });
+    }
+    
+    return newTransaction;
+  }
+
+  // Accounting operations
+  async getAccountingEntries(): Promise<AccountingEntry[]> {
+    return Array.from(this.accountingEntries.values()).sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+
+  async createAccountingEntry(entry: InsertAccountingEntry): Promise<AccountingEntry> {
+    const newEntry: AccountingEntry = {
+      id: this.generateId(),
+      transactionId: entry.transactionId || null,
+      accountType: entry.accountType,
+      accountName: entry.accountName,
+      debitAmount: entry.debitAmount || "0",
+      creditAmount: entry.creditAmount || "0",
+      description: entry.description || null,
+      createdAt: new Date(),
+    };
+    
+    this.accountingEntries.set(newEntry.id, newEntry);
+    return newEntry;
+  }
+
+  // Chat operations
+  async getChatMessages(userId: string): Promise<ChatMessage[]> {
+    return this.chatMessages.get(userId) || [];
+  }
+
+  async createChatMessage(message: InsertChatMessage): Promise<ChatMessage> {
+    const newMessage: ChatMessage = {
+      id: this.generateId(),
+      userId: message.userId,
+      message: message.message,
+      response: message.response || null,
+      isFromUser: message.isFromUser,
+      createdAt: new Date(),
+    };
+    
+    const userMessages = this.chatMessages.get(message.userId) || [];
+    userMessages.push(newMessage);
+    this.chatMessages.set(message.userId, userMessages);
+    
+    return newMessage;
+  }
+
+  // Dashboard statistics
+  async getDashboardStats(): Promise<{
+    totalProducts: number;
+    lowStockItems: number;
+    totalValue: string;
+    ordersToday: number;
+  }> {
+    const products = Array.from(this.products.values()).filter(p => p.isActive);
+    const lowStockProducts = await this.getLowStockProducts();
+    
+    const totalValue = products.reduce((sum, product) => {
+      return sum + (parseFloat(product.price) * (product.quantity || 0));
+    }, 0);
+
+    const today = new Date().toDateString();
+    const ordersToday = Array.from(this.inventoryTransactions.values()).filter(t => 
+      t.type === 'out' && new Date(t.createdAt).toDateString() === today
+    ).length;
+
+    return {
+      totalProducts: products.length,
+      lowStockItems: lowStockProducts.length,
+      totalValue: `$${totalValue.toLocaleString()}`,
+      ordersToday,
+    };
+  }
+
+  private generateId(): string {
+    return Math.random().toString(36).substr(2, 9);
+  }
+}
+
+export const storage = new MemStorage();
