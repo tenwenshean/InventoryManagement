@@ -2,11 +2,11 @@ import { Package, Home, Box, Calculator, BarChart3, QrCode, Settings, LogOut, Us
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
-import type { User } from "@shared/schema";
+import type { User as UserType } from "@shared/schema";
 
 export default function Sidebar() {
   const [location, setLocation] = useLocation();
-  const { user } = useAuth() as { user?: User };
+  const { user } = useAuth() as { user?: UserType };
 
   const handleLogout = () => {
     window.location.href = "/api/logout";
