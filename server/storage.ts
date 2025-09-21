@@ -109,7 +109,7 @@ export class DatabaseStorage implements IStorage {
 
   // Product operations
   async getProducts(search?: string): Promise<Product[]> {
-    let query = db.select().from(products).where(eq(products.isActive, true));
+    let query = db.select().from(products);
     
     if (search) {
       query = query.where(
@@ -118,6 +118,8 @@ export class DatabaseStorage implements IStorage {
           like(products.name, `%${search}%`)
         )
       );
+    } else {
+      query = query.where(eq(products.isActive, true));
     }
     
     return await query.orderBy(desc(products.createdAt));
@@ -171,11 +173,9 @@ export class DatabaseStorage implements IStorage {
 
   // Inventory transaction operations
   async getInventoryTransactions(productId?: string): Promise<InventoryTransaction[]> {
-    let query = db.select().from(inventoryTransactions);
-    
-    if (productId) {
-      query = query.where(eq(inventoryTransactions.productId, productId));
-    }
+    const query = productId 
+      ? db.select().from(inventoryTransactions).where(eq(inventoryTransactions.productId, productId))
+      : db.select().from(inventoryTransactions);
     
     return await query.orderBy(desc(inventoryTransactions.createdAt));
   }
@@ -332,7 +332,7 @@ export class MemStorage implements IStorage {
       );
     }
     
-    return products.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return products.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   }
 
   async getProduct(id: string): Promise<Product | undefined> {
@@ -405,7 +405,7 @@ export class MemStorage implements IStorage {
       transactions = transactions.filter(t => t.productId === productId);
     }
     
-    return transactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return transactions.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   }
 
   async createInventoryTransaction(transaction: InsertInventoryTransaction): Promise<InventoryTransaction> {
@@ -441,7 +441,7 @@ export class MemStorage implements IStorage {
   // Accounting operations
   async getAccountingEntries(): Promise<AccountingEntry[]> {
     return Array.from(this.accountingEntries.values()).sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
     );
   }
 
@@ -499,7 +499,7 @@ export class MemStorage implements IStorage {
 
     const today = new Date().toDateString();
     const ordersToday = Array.from(this.inventoryTransactions.values()).filter(t => 
-      t.type === 'out' && new Date(t.createdAt).toDateString() === today
+      t.type === 'out' && new Date(t.createdAt || 0).toDateString() === today
     ).length;
 
     return {
@@ -516,3 +516,196 @@ export class MemStorage implements IStorage {
 }
 
 export const storage = new MemStorage();
+
+// Sample data seeding function
+export async function seedSampleData() {
+  // Check if data already exists
+  const existingProducts = await storage.getProducts();
+  if (existingProducts.length > 0) {
+    return; // Data already seeded
+  }
+
+  console.log('Seeding sample data...');
+
+  // Create categories
+  const categories = [
+    { name: "Electronics", description: "Electronic devices and accessories" },
+    { name: "Office Supplies", description: "Office and business supplies" },
+    { name: "Books", description: "Books and educational materials" },
+    { name: "Home & Garden", description: "Home and garden products" }
+  ];
+
+  const createdCategories = [];
+  for (const category of categories) {
+    const created = await storage.createCategory(category);
+    createdCategories.push(created);
+  }
+
+  // Create sample products with suppliers and realistic data
+  const products = [
+    {
+      name: "Wireless Bluetooth Headphones",
+      description: "Premium wireless headphones with noise cancellation",
+      sku: "WBH-001",
+      categoryId: createdCategories[0].id,
+      price: "89.99",
+      costPrice: "45.00",
+      quantity: 45,
+      minStockLevel: 10,
+      maxStockLevel: 100,
+      barcode: "1234567890123",
+      supplier: "TechSound Corp"
+    },
+    {
+      name: "USB-C Cable 6ft",
+      description: "High-speed USB-C charging and data cable",
+      sku: "USB-C-6FT",
+      categoryId: createdCategories[0].id,
+      price: "12.99",
+      costPrice: "6.50",
+      quantity: 125,
+      minStockLevel: 25,
+      maxStockLevel: 200,
+      barcode: "1234567890124",
+      supplier: "Cable Solutions Ltd"
+    },
+    {
+      name: "Wireless Mouse",
+      description: "Ergonomic wireless optical mouse",
+      sku: "WM-2024",
+      categoryId: createdCategories[0].id,
+      price: "24.99",
+      costPrice: "12.00",
+      quantity: 8,
+      minStockLevel: 15,
+      maxStockLevel: 75,
+      barcode: "1234567890125",
+      supplier: "Input Devices Inc"
+    },
+    {
+      name: "Office Desk Organizer",
+      description: "Bamboo desk organizer with multiple compartments",
+      sku: "ODO-BAM-01",
+      categoryId: createdCategories[1].id,
+      price: "34.99",
+      costPrice: "18.00",
+      quantity: 32,
+      minStockLevel: 10,
+      maxStockLevel: 50,
+      barcode: "1234567890126",
+      supplier: "Office Pro Supply"
+    },
+    {
+      name: "Sticky Notes Pack",
+      description: "Multi-color sticky notes, 12 pads per pack",
+      sku: "SN-PACK-12",
+      categoryId: createdCategories[1].id,
+      price: "8.99",
+      costPrice: "4.25",
+      quantity: 78,
+      minStockLevel: 20,
+      maxStockLevel: 100,
+      barcode: "1234567890127",
+      supplier: "Paper Solutions Co"
+    },
+    {
+      name: "JavaScript Programming Guide",
+      description: "Complete guide to modern JavaScript programming",
+      sku: "JS-GUIDE-2024",
+      categoryId: createdCategories[2].id,
+      price: "49.99",
+      costPrice: "28.00",
+      quantity: 23,
+      minStockLevel: 5,
+      maxStockLevel: 30,
+      barcode: "1234567890128",
+      supplier: "Educational Books Ltd"
+    },
+    {
+      name: "LED Desk Lamp",
+      description: "Adjustable LED desk lamp with USB charging port",
+      sku: "LED-LAMP-USB",
+      categoryId: createdCategories[3].id,
+      price: "42.99",
+      costPrice: "22.50",
+      quantity: 18,
+      minStockLevel: 8,
+      maxStockLevel: 40,
+      barcode: "1234567890129",
+      supplier: "Home Lighting Solutions"
+    },
+    {
+      name: "Bluetooth Speaker",
+      description: "Portable waterproof Bluetooth speaker",
+      sku: "BT-SPK-W01",
+      categoryId: createdCategories[0].id,
+      price: "67.99",
+      costPrice: "35.00",
+      quantity: 28,
+      minStockLevel: 12,
+      maxStockLevel: 60,
+      barcode: "1234567890130",
+      supplier: "Audio Tech Corp"
+    }
+  ];
+
+  const createdProducts = [];
+  for (const product of products) {
+    const created = await storage.createProduct(product);
+    createdProducts.push(created);
+  }
+
+  // Create sample inventory transactions (sales and restocks)
+  const transactions = [
+    // Recent sales
+    { productId: createdProducts[0].id, type: 'out', quantity: 5, previousQuantity: 50, newQuantity: 45, unitPrice: "89.99", totalValue: "449.95", reason: "Sale", reference: "ORD-001", notes: "Online order" },
+    { productId: createdProducts[1].id, type: 'out', quantity: 15, previousQuantity: 140, newQuantity: 125, unitPrice: "12.99", totalValue: "194.85", reason: "Sale", reference: "ORD-002", notes: "Bulk order" },
+    { productId: createdProducts[2].id, type: 'out', quantity: 12, previousQuantity: 20, newQuantity: 8, unitPrice: "24.99", totalValue: "299.88", reason: "Sale", reference: "ORD-003", notes: "Retail sales" },
+    { productId: createdProducts[3].id, type: 'out', quantity: 3, previousQuantity: 35, newQuantity: 32, unitPrice: "34.99", totalValue: "104.97", reason: "Sale", reference: "ORD-004", notes: "Office supply order" },
+    { productId: createdProducts[4].id, type: 'out', quantity: 22, previousQuantity: 100, newQuantity: 78, unitPrice: "8.99", totalValue: "197.78", reason: "Sale", reference: "ORD-005", notes: "School order" },
+    { productId: createdProducts[5].id, type: 'out', quantity: 7, previousQuantity: 30, newQuantity: 23, unitPrice: "49.99", totalValue: "349.93", reason: "Sale", reference: "ORD-006", notes: "Bookstore order" },
+    { productId: createdProducts[6].id, type: 'out', quantity: 2, previousQuantity: 20, newQuantity: 18, unitPrice: "42.99", totalValue: "85.98", reason: "Sale", reference: "ORD-007", notes: "Home office setup" },
+    { productId: createdProducts[7].id, type: 'out', quantity: 7, previousQuantity: 35, newQuantity: 28, unitPrice: "67.99", totalValue: "475.93", reason: "Sale", reference: "ORD-008", notes: "Electronics sale" },
+    
+    // Restocks
+    { productId: createdProducts[0].id, type: 'in', quantity: 30, previousQuantity: 20, newQuantity: 50, unitPrice: "45.00", totalValue: "1350.00", reason: "Restock", reference: "PO-101", notes: "Monthly restock from TechSound Corp" },
+    { productId: createdProducts[1].id, type: 'in', quantity: 50, previousQuantity: 90, newQuantity: 140, unitPrice: "6.50", totalValue: "325.00", reason: "Restock", reference: "PO-102", notes: "Bulk purchase from Cable Solutions" }
+  ];
+
+  for (const transaction of transactions) {
+    await storage.createInventoryTransaction(transaction);
+  }
+
+  // Create corresponding accounting entries for each transaction
+  const accountingEntries = [
+    // Sales entries
+    { accountType: "revenue", accountName: "Product Sales", creditAmount: "449.95", debitAmount: "0", description: "Sale of Wireless Bluetooth Headphones" },
+    { accountType: "asset", accountName: "Cash", debitAmount: "449.95", creditAmount: "0", description: "Cash from headphones sale" },
+    { accountType: "revenue", accountName: "Product Sales", creditAmount: "194.85", debitAmount: "0", description: "Sale of USB-C Cables" },
+    { accountType: "asset", accountName: "Cash", debitAmount: "194.85", creditAmount: "0", description: "Cash from cable sale" },
+    { accountType: "revenue", accountName: "Product Sales", creditAmount: "299.88", debitAmount: "0", description: "Sale of Wireless Mouse" },
+    { accountType: "asset", accountName: "Cash", debitAmount: "299.88", creditAmount: "0", description: "Cash from mouse sale" },
+    { accountType: "revenue", accountName: "Product Sales", creditAmount: "104.97", debitAmount: "0", description: "Sale of Office Desk Organizer" },
+    { accountType: "asset", accountName: "Cash", debitAmount: "104.97", creditAmount: "0", description: "Cash from organizer sale" },
+    { accountType: "revenue", accountName: "Product Sales", creditAmount: "197.78", debitAmount: "0", description: "Sale of Sticky Notes Pack" },
+    { accountType: "asset", accountName: "Cash", debitAmount: "197.78", creditAmount: "0", description: "Cash from notes sale" },
+    { accountType: "revenue", accountName: "Product Sales", creditAmount: "349.93", debitAmount: "0", description: "Sale of JavaScript Programming Guide" },
+    { accountType: "asset", accountName: "Cash", debitAmount: "349.93", creditAmount: "0", description: "Cash from book sale" },
+    { accountType: "revenue", accountName: "Product Sales", creditAmount: "85.98", debitAmount: "0", description: "Sale of LED Desk Lamp" },
+    { accountType: "asset", accountName: "Cash", debitAmount: "85.98", creditAmount: "0", description: "Cash from lamp sale" },
+    { accountType: "revenue", accountName: "Product Sales", creditAmount: "475.93", debitAmount: "0", description: "Sale of Bluetooth Speaker" },
+    { accountType: "asset", accountName: "Cash", debitAmount: "475.93", creditAmount: "0", description: "Cash from speaker sale" },
+    
+    // Purchase entries
+    { accountType: "asset", accountName: "Inventory", debitAmount: "1350.00", creditAmount: "0", description: "Purchase of Wireless Bluetooth Headphones inventory" },
+    { accountType: "liability", accountName: "Accounts Payable", creditAmount: "1350.00", debitAmount: "0", description: "Payment due to TechSound Corp" },
+    { accountType: "asset", accountName: "Inventory", debitAmount: "325.00", creditAmount: "0", description: "Purchase of USB-C Cables inventory" },
+    { accountType: "liability", accountName: "Accounts Payable", creditAmount: "325.00", debitAmount: "0", description: "Payment due to Cable Solutions" }
+  ];
+
+  for (const entry of accountingEntries) {
+    await storage.createAccountingEntry(entry);
+  }
+
+  console.log('Sample data seeded successfully!');
+}

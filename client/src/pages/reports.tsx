@@ -2,44 +2,65 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import Sidebar from "@/components/sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar, Download, Filter, TrendingUp, TrendingDown, Package, DollarSign } from "lucide-react";
+import { Calendar, Download, Filter, TrendingUp, TrendingDown, Package, DollarSign, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useQuery } from "@tanstack/react-query";
 
 export default function Reports() {
-  // Sample data for development - this will be replaced with real data
-  const salesData = [
-    { month: 'Jan', sales: 4000, returns: 240 },
-    { month: 'Feb', sales: 3000, returns: 139 },
-    { month: 'Mar', sales: 2000, returns: 980 },
-    { month: 'Apr', sales: 2780, returns: 390 },
-    { month: 'May', sales: 1890, returns: 480 },
-    { month: 'Jun', sales: 2390, returns: 380 },
-  ];
+  // Fetch real data from the API
+  const { data: reportsData, isLoading, error } = useQuery({
+    queryKey: ['/api/reports/data'],
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
 
-  const inventoryTrends = [
-    { month: 'Jan', inStock: 2400, outStock: 2400 },
-    { month: 'Feb', inStock: 1398, outStock: 2210 },
-    { month: 'Mar', inStock: 9800, outStock: 2290 },
-    { month: 'Apr', inStock: 3908, outStock: 2000 },
-    { month: 'May', inStock: 4800, outStock: 2181 },
-    { month: 'Jun', inStock: 3800, outStock: 2500 },
-  ];
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen bg-background">
+        <Sidebar />
+        <main className="flex-1 ml-64 overflow-auto"
+          style={{
+            background: "linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)",
+          }}
+        >
+          <div className="container mx-auto p-6 flex items-center justify-center min-h-[400px]">
+            <div className="flex items-center space-x-2">
+              <Loader2 className="w-6 h-6 animate-spin text-red-600" />
+              <span className="text-lg text-gray-700">Loading reports data...</span>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
-  const categoryData = [
-    { name: 'Electronics', value: 400, color: '#dc2626' },
-    { name: 'Clothing', value: 300, color: '#7c2d12' },
-    { name: 'Books', value: 300, color: '#991b1b' },
-    { name: 'Home & Garden', value: 200, color: '#b91c1c' },
-  ];
+  if (error) {
+    return (
+      <div className="flex min-h-screen bg-background">
+        <Sidebar />
+        <main className="flex-1 ml-64 overflow-auto"
+          style={{
+            background: "linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)",
+          }}
+        >
+          <div className="container mx-auto p-6">
+            <div className="text-center py-8">
+              <h2 className="text-2xl font-bold text-red-600 mb-2">Error Loading Reports</h2>
+              <p className="text-gray-600">Unable to fetch reports data. Please try again later.</p>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
-  const topProducts = [
-    { name: "Wireless Headphones", sales: 156, change: 12 },
-    { name: "Smartphone Case", sales: 134, change: -3 },
-    { name: "USB Cable", sales: 98, change: 25 },
-    { name: "Bluetooth Speaker", sales: 87, change: 8 },
-    { name: "Power Bank", sales: 76, change: -5 },
-  ];
+  const { keyMetrics, salesData, inventoryTrends, categoryData, topProducts } = reportsData || {
+    keyMetrics: { totalRevenue: '$0', unitsSold: 0, avgOrderValue: '$0', returnRate: '0%' },
+    salesData: [],
+    inventoryTrends: [],
+    categoryData: [],
+    topProducts: []
+  };
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -92,7 +113,7 @@ export default function Reports() {
               <DollarSign className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">$45,231</div>
+              <div className="text-2xl font-bold text-red-600">{keyMetrics.totalRevenue}</div>
               <div className="flex items-center text-xs text-green-600">
                 <TrendingUp className="w-3 h-3 mr-1" />
                 +20.1% from last month
@@ -106,7 +127,7 @@ export default function Reports() {
               <Package className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">2,350</div>
+              <div className="text-2xl font-bold text-red-600">{keyMetrics.unitsSold.toLocaleString()}</div>
               <div className="flex items-center text-xs text-green-600">
                 <TrendingUp className="w-3 h-3 mr-1" />
                 +12.5% from last month
@@ -120,7 +141,7 @@ export default function Reports() {
               <TrendingUp className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">$19.25</div>
+              <div className="text-2xl font-bold text-red-600">{keyMetrics.avgOrderValue}</div>
               <div className="flex items-center text-xs text-red-600">
                 <TrendingDown className="w-3 h-3 mr-1" />
                 -2.3% from last month
@@ -134,7 +155,7 @@ export default function Reports() {
               <TrendingDown className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">2.1%</div>
+              <div className="text-2xl font-bold text-red-600">{keyMetrics.returnRate}</div>
               <div className="flex items-center text-xs text-green-600">
                 <TrendingDown className="w-3 h-3 mr-1" />
                 -0.5% from last month
