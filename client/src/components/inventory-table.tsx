@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,19 @@ import { Search, Edit, QrCode, Trash2, Package, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Product } from "@shared/schema";
 import { isUnauthorizedError } from "@/lib/authUtils";
+import { apiRequest } from "@/lib/queryClient";
+import EditProductModal from "@/components/edit-product-modal";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface InventoryTableProps {
   showAll?: boolean;
@@ -15,7 +28,9 @@ interface InventoryTableProps {
 
 export default function InventoryTable({ showAll = false }: InventoryTableProps) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: products, isLoading, error } = useQuery<Product[]>({
     queryKey: ["/api/products", searchTerm],
@@ -35,6 +50,72 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
   }, [error, toast]);
 
   const displayProducts = showAll ? products : products?.slice(0, 5);
+
+  // Delete product mutation
+  const deleteProductMutation = useMutation({
+    mutationFn: async (productId: string) => {
+      await apiRequest("DELETE", `/api/products/${productId}`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({
+        title: "Success",
+        description: "Product deleted successfully",
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Error",
+        description: "Failed to delete product",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Generate QR code mutation
+  const generateQRMutation = useMutation({
+    mutationFn: async (productId: string) => {
+      const response = await apiRequest("POST", `/api/products/${productId}/qr`, {});
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      toast({
+        title: "Success",
+        description: "QR code generated successfully",
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Error",
+        description: "Failed to generate QR code",
+        variant: "destructive",
+      });
+    },
+  });
 
   const getStockStatus = (quantity: number, minStockLevel: number) => {
     if (quantity <= minStockLevel) {
@@ -148,6 +229,7 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
                             variant="ghost"
                             size="sm"
                             className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                            onClick={() => setEditingProductId(product.id)}
                             data-testid={`button-edit-${product.id}`}
                           >
                             <Edit size={16} />
@@ -156,18 +238,41 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
                             variant="ghost"
                             size="sm"
                             className="p-1 text-muted-foreground hover:text-primary transition-colors"
+                            onClick={() => generateQRMutation.mutate(product.id)}
+                            disabled={generateQRMutation.isPending}
                             data-testid={`button-qr-${product.id}`}
                           >
                             <QrCode size={16} />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="p-1 text-muted-foreground hover:text-destructive transition-colors"
-                            data-testid={`button-delete-${product.id}`}
-                          >
-                            <Trash2 size={16} />
-                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                                data-testid={`button-delete-${product.id}`}
+                              >
+                                <Trash2 size={16} />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Product</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete "{product.name}"? This action will mark the product as inactive but preserve all transaction history.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteProductMutation.mutate(product.id)}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </div>
                       </td>
                     </tr>
@@ -213,6 +318,14 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
           </div>
         )}
       </CardContent>
+      
+      {editingProductId && (
+        <EditProductModal
+          isOpen={true}
+          onClose={() => setEditingProductId(null)}
+          productId={editingProductId}
+        />
+      )}
     </Card>
   );
 }

@@ -1,7 +1,20 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import EditProductModal from "@/components/edit-product-modal";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import Sidebar from "@/components/sidebar";
 import AddProductModal from "@/components/add-product-modal";
 import { Button } from "@/components/ui/button";
@@ -17,6 +30,8 @@ export default function Products() {
   const { isAuthenticated, isLoading } = useAuth();
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -53,6 +68,72 @@ export default function Products() {
   if (isLoading || !isAuthenticated) {
     return <div>Loading...</div>;
   }
+
+  // Delete product mutation
+  const deleteProductMutation = useMutation({
+    mutationFn: async (productId: string) => {
+      await apiRequest("DELETE", `/api/products/${productId}`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({
+        title: "Success",
+        description: "Product deleted successfully",
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Error",
+        description: "Failed to delete product",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Generate QR code mutation
+  const generateQRMutation = useMutation({
+    mutationFn: async (productId: string) => {
+      const response = await apiRequest("POST", `/api/products/${productId}/qr`, {});
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      toast({
+        title: "Success",
+        description: "QR code generated successfully",
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Error",
+        description: "Failed to generate QR code",
+        variant: "destructive",
+      });
+    },
+  });
 
   const getStockStatus = (quantity: number, minStockLevel: number) => {
     if (quantity <= minStockLevel) {
@@ -160,6 +241,7 @@ export default function Products() {
                             variant="outline"
                             size="sm"
                             className="flex-1"
+                            onClick={() => setEditingProductId(product.id)}
                             data-testid={`button-edit-product-${product.id}`}
                           >
                             <Edit size={14} className="mr-1" />
@@ -168,18 +250,41 @@ export default function Products() {
                           <Button
                             variant="outline"
                             size="sm"
+                            onClick={() => generateQRMutation.mutate(product.id)}
+                            disabled={generateQRMutation.isPending}
                             data-testid={`button-qr-product-${product.id}`}
                           >
                             <QrCode size={14} />
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            data-testid={`button-delete-product-${product.id}`}
-                          >
-                            <Trash2 size={14} />
-                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-destructive hover:text-destructive"
+                                data-testid={`button-delete-product-${product.id}`}
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Product</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete "{product.name}"? This action will mark the product as inactive but preserve all transaction history.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteProductMutation.mutate(product.id)}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </div>
                       </CardContent>
                     </Card>
@@ -212,6 +317,14 @@ export default function Products() {
         <AddProductModal
           isOpen={showAddProduct}
           onClose={() => setShowAddProduct(false)}
+        />
+      )}
+      
+      {editingProductId && (
+        <EditProductModal
+          isOpen={true}
+          onClose={() => setEditingProductId(null)}
+          productId={editingProductId}
         />
       )}
     </div>
