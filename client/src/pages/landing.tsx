@@ -1,10 +1,19 @@
 import { Package, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { loginWithGoogle } from "../../../firebaseClient"; // ✅ adjust this path if needed
 
 export default function Landing() {
-  const handleLogin = () => {
-    window.location.href = "/api/login";
+  const handleLogin = async () => {
+    try {
+      const { user, idToken } = await loginWithGoogle();
+      console.log("✅ Logged in:", user.displayName);
+      console.log("🪪 Token:", idToken);
+      // Optionally send idToken to backend for verification
+      window.location.href = "/dashboard"; // Redirect after login
+    } catch (error) {
+      console.error("❌ Login failed:", error);
+    }
   };
 
   return (
@@ -30,43 +39,15 @@ export default function Landing() {
               <p className="text-muted-foreground mb-6">
                 Comprehensive inventory management with integrated accounting and AI-powered insights.
               </p>
-              
+
               <Button 
                 onClick={handleLogin}
                 className="w-full bg-primary text-primary-foreground hover:bg-primary/90 focus:ring-2 focus:ring-primary"
                 data-testid="button-login"
               >
                 <LogIn className="mr-2" size={18} />
-                Sign In
+                Sign In with Google
               </Button>
-            </div>
-
-            <div className="pt-6 border-t border-border">
-              <div className="grid grid-cols-2 gap-4 text-center">
-                <div>
-                  <h3 className="font-semibold text-foreground mb-1">Real-time Tracking</h3>
-                  <p className="text-sm text-muted-foreground">Monitor inventory levels instantly</p>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-foreground mb-1">QR Integration</h3>
-                  <p className="text-sm text-muted-foreground">Mobile scanning & tracking</p>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-foreground mb-1">Smart Analytics</h3>
-                  <p className="text-sm text-muted-foreground">AI-powered insights</p>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-foreground mb-1">Accounting</h3>
-                  <p className="text-sm text-muted-foreground">Integrated financial tracking</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="text-center pt-4">
-              <p className="text-sm text-muted-foreground">
-                Don't have an account? 
-                <span className="text-primary font-medium ml-1">Contact Administrator</span>
-              </p>
             </div>
           </div>
         </CardContent>

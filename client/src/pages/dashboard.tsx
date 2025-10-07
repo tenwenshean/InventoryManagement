@@ -1,6 +1,4 @@
-import { useEffect } from "react";
-import { useAuth } from "@/hooks/useAuth";
-import { useToast } from "@/hooks/use-toast";
+import { useEffect, useState } from "react";
 import Sidebar from "@/components/sidebar";
 import DashboardStats from "@/components/dashboard-stats";
 import InventoryTable from "@/components/inventory-table";
@@ -8,15 +6,19 @@ import Chatbot from "@/components/chatbot";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Upload, QrCode, Bell, Bot } from "lucide-react";
-import { useState } from "react";
 import AddProductModal from "@/components/add-product-modal";
-import { isUnauthorizedError } from "@/lib/authUtils";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 
 export default function Dashboard() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showChatbot, setShowChatbot] = useState(false);
+
+  // Use wouter's useLocation for navigation
+  const [, navigate] = useLocation();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -26,11 +28,11 @@ export default function Dashboard() {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        navigate("/login"); // Proper wouter navigation to login page
       }, 500);
       return;
     }
-  }, [isAuthenticated, isLoading, toast]);
+  }, [isAuthenticated, isLoading, toast, navigate]);
 
   if (isLoading || !isAuthenticated) {
     return <div>Loading...</div>;
@@ -39,9 +41,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background flex">
       <Sidebar />
-      
       <main className="flex-1 ml-64 p-6">
-        {/* Header */}
         <header className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-foreground" data-testid="text-page-title">
@@ -52,32 +52,17 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="flex items-center space-x-4">
-            <Button
-              variant="outline"
-              size="sm"
-              className="relative"
-              data-testid="button-notifications"
-            >
+            <Button variant="outline" size="sm" className="relative" data-testid="button-notifications">
               <Bell size={18} />
-              <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                3
-              </span>
+              <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center">3</span>
             </Button>
-            <Button
-              onClick={() => setShowChatbot(!showChatbot)}
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
-              data-testid="button-chatbot-toggle"
-            >
+            <Button onClick={() => setShowChatbot(!showChatbot)} className="bg-primary text-primary-foreground hover:bg-primary/90" data-testid="button-chatbot-toggle">
               <Bot className="mr-2" size={18} />
               AI Assistant
             </Button>
           </div>
         </header>
-
-        {/* Dashboard Stats */}
         <DashboardStats />
-
-        {/* Quick Actions */}
         <Card className="mb-8">
           <CardHeader>
             <CardTitle className="text-lg font-semibold text-foreground">
@@ -100,7 +85,6 @@ export default function Dashboard() {
                   <p className="text-sm text-muted-foreground">Create new inventory item</p>
                 </div>
               </Button>
-
               <Button
                 variant="outline"
                 className="flex items-center space-x-3 p-4 h-auto justify-start"
@@ -114,7 +98,6 @@ export default function Dashboard() {
                   <p className="text-sm text-muted-foreground">Upload CSV file</p>
                 </div>
               </Button>
-
               <Button
                 variant="outline"
                 className="flex items-center space-x-3 p-4 h-auto justify-start"
@@ -131,24 +114,13 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Recent Inventory Table */}
         <InventoryTable />
       </main>
-
-      {/* Modals and overlays */}
       {showAddProduct && (
-        <AddProductModal
-          isOpen={showAddProduct}
-          onClose={() => setShowAddProduct(false)}
-        />
+        <AddProductModal isOpen={showAddProduct} onClose={() => setShowAddProduct(false)} />
       )}
-
       {showChatbot && (
-        <Chatbot
-          isOpen={showChatbot}
-          onClose={() => setShowChatbot(false)}
-        />
+        <Chatbot isOpen={showChatbot} onClose={() => setShowChatbot(false)} />
       )}
     </div>
   );

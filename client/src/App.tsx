@@ -14,6 +14,7 @@ import QRCodes from "@/pages/qr-codes";
 import Reports from "@/pages/reports";
 import Settings from "@/pages/settings";
 
+
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
 
@@ -24,6 +25,8 @@ function Router() {
       ) : (
         <>
           <Route path="/" component={Dashboard} />
+          <Route path="/dashboard" component={Dashboard} />
+
           <Route path="/inventory" component={Inventory} />
           <Route path="/products" component={Products} />
           <Route path="/accounting" component={Accounting} />

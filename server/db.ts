@@ -1,15 +1,23 @@
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-serverless';
-import ws from "ws";
-import * as schema from "@shared/schema";
+import admin from "firebase-admin";
+import fs from "fs";
 
-neonConfig.webSocketConstructor = ws;
 
-if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
-  );
+// 🔹 Load Firebase Service Account Key
+const serviceAccount = JSON.parse(
+  fs.readFileSync("firebase-key.json", "utf8")
+);
+
+// 🔹 Initialize Firebase App
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-export const db = drizzle({ client: pool, schema });
+
+// 🔹 Export Firestore Database Instance
+export const db = admin.firestore();
+export const auth = admin.auth();
+
+
+console.log("✅ Connected to Firebase Firestore successfully.");
