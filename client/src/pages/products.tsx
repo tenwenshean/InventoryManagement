@@ -41,16 +41,20 @@ export default function Products() {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        window.location.href = "/login";
       }, 500);
       return;
     }
   }, [isAuthenticated, isLoading, toast]);
 
   const { data: products, isLoading: productsLoading, error } = useQuery<Product[]>({
-    queryKey: ["/api/products", searchTerm],
-    enabled: isAuthenticated,
-  });
+  queryKey: ["/api/products", searchTerm],
+  queryFn: async () => {
+    const res = await apiRequest("GET", `/api/products?search=${searchTerm}`);
+    return res.json();
+  },
+  enabled: isAuthenticated,
+});
 
   useEffect(() => {
     if (error && isUnauthorizedError(error as Error)) {
@@ -60,7 +64,7 @@ export default function Products() {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        window.location.href = "/login";
       }, 500);
     }
   }, [error, toast]);
@@ -90,7 +94,7 @@ export default function Products() {
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
+          window.location.href = "/login";
         }, 500);
         return;
       }
@@ -123,7 +127,7 @@ export default function Products() {
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
+          window.location.href = "/login";
         }, 500);
         return;
       }

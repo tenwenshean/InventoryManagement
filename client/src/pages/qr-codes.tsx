@@ -16,6 +16,7 @@ export default function QRCodes() {
   const { isAuthenticated, isLoading } = useAuth();
   const queryClient = useQueryClient();
 
+  // 🔒 Redirect if unauthenticated
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       toast({
@@ -23,18 +24,26 @@ export default function QRCodes() {
         description: "You are logged out. Logging in again...",
         variant: "destructive",
       });
-      setTimeout(() => {
-        window.location.href = "/api/login";
-      }, 500);
-      return;
+      setTimeout(() => (window.location.href = "/login"), 500);
     }
   }, [isAuthenticated, isLoading, toast]);
 
-  const { data: products, isLoading: productsLoading, error } = useQuery<Product[]>({
+  // ✅ Added missing queryFn
+  const {
+    data: products,
+    isLoading: productsLoading,
+    error,
+  } = useQuery<Product[]>({
     queryKey: ["/api/products"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/products");
+      if (!response.ok) throw new Error("Failed to fetch products");
+      return response.json();
+    },
     enabled: isAuthenticated,
   });
 
+  // 🔒 Handle expired login
   useEffect(() => {
     if (error && isUnauthorizedError(error as Error)) {
       toast({
@@ -42,15 +51,15 @@ export default function QRCodes() {
         description: "You are logged out. Logging in again...",
         variant: "destructive",
       });
-      setTimeout(() => {
-        window.location.href = "/api/login";
-      }, 500);
+      setTimeout(() => (window.location.href = "/login"), 500);
     }
   }, [error, toast]);
 
+  // ✅ QR code generation
   const generateQRMutation = useMutation({
     mutationFn: async (productId: string) => {
-      const response = await apiRequest("POST", `/api/products/${productId}/qr`, {});
+      const response = await apiRequest("POST", `/api/products/${productId}/qr`);
+      if (!response.ok) throw new Error("Failed to generate QR code");
       return response.json();
     },
     onSuccess: () => {
@@ -67,9 +76,7 @@ export default function QRCodes() {
           description: "You are logged out. Logging in again...",
           variant: "destructive",
         });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
+        setTimeout(() => (window.location.href = "/login"), 500);
         return;
       }
       toast({
@@ -84,13 +91,13 @@ export default function QRCodes() {
     return <div>Loading...</div>;
   }
 
-  const productsWithQR = products?.filter(product => product.qrCode) || [];
-  const productsWithoutQR = products?.filter(product => !product.qrCode) || [];
+  const productsWithQR = products?.filter((product) => product.qrCode) || [];
+  const productsWithoutQR = products?.filter((product) => !product.qrCode) || [];
 
   return (
     <div className="min-h-screen bg-background flex">
       <Sidebar />
-      
+
       <main className="flex-1 ml-64 p-6">
         <header className="mb-8">
           <h1 className="text-2xl font-bold text-foreground" data-testid="text-page-title">
@@ -168,7 +175,11 @@ export default function QRCodes() {
             ) : productsWithQR.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {productsWithQR.map((product) => (
-                  <Card key={product.id} className="hover:shadow-md transition-shadow" data-testid={`card-qr-product-${product.id}`}>
+                  <Card
+                    key={product.id}
+                    className="hover:shadow-md transition-shadow"
+                    data-testid={`card-qr-product-${product.id}`}
+                  >
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between mb-3">
                         <div>
@@ -183,7 +194,7 @@ export default function QRCodes() {
                           QR Ready
                         </Badge>
                       </div>
-                      
+
                       <div className="bg-muted p-4 rounded-lg mb-3 text-center">
                         <QrCode className="mx-auto text-muted-foreground mb-2" size={48} />
                         <p className="text-xs text-muted-foreground font-mono" data-testid={`text-qr-code-${product.id}`}>
@@ -192,12 +203,7 @@ export default function QRCodes() {
                       </div>
 
                       <div className="flex space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1"
-                          data-testid={`button-download-qr-${product.id}`}
-                        >
+                        <Button variant="outline" size="sm" className="flex-1" data-testid={`button-download-qr-${product.id}`}>
                           <Download size={14} className="mr-1" />
                           Download
                         </Button>

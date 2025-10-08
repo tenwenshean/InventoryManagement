@@ -1,18 +1,38 @@
-import { Package, LogIn } from "lucide-react";
+// pages/landing.tsx
+import { useState } from "react";
+import { loginWithGoogle } from "../../../firebaseClient";
+import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { loginWithGoogle } from "../../../firebaseClient"; // ✅ adjust this path if needed
+import { LogIn, Package } from "lucide-react";
 
 export default function Landing() {
-  const handleLogin = async () => {
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
     try {
-      const { user, idToken } = await loginWithGoogle();
-      console.log("✅ Logged in:", user.displayName);
-      console.log("🪪 Token:", idToken);
-      // Optionally send idToken to backend for verification
-      window.location.href = "/dashboard"; // Redirect after login
-    } catch (error) {
-      console.error("❌ Login failed:", error);
+      await loginWithGoogle();
+
+      toast({
+        title: "Success",
+        description: "Logged in successfully!",
+      });
+
+      // Navigate to dashboard after successful login
+      navigate("/");
+    } catch (error: any) {
+      console.error("Login error:", error);
+      toast({
+        title: "Login Failed",
+        description: error.message || "Failed to sign in with Google",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -40,13 +60,14 @@ export default function Landing() {
                 Comprehensive inventory management with integrated accounting and AI-powered insights.
               </p>
 
-              <Button 
-                onClick={handleLogin}
+              <Button
+                onClick={handleGoogleLogin}
+                disabled={isLoading}
                 className="w-full bg-primary text-primary-foreground hover:bg-primary/90 focus:ring-2 focus:ring-primary"
                 data-testid="button-login"
               >
                 <LogIn className="mr-2" size={18} />
-                Sign In with Google
+                {isLoading ? "Signing In..." : "Sign In with Google"}
               </Button>
             </div>
           </div>

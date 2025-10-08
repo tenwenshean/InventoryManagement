@@ -13,30 +13,9 @@ import { useLocation } from "wouter";
 
 export default function Dashboard() {
   const { toast } = useToast();
-  const { isAuthenticated, isLoading } = useAuth();
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showChatbot, setShowChatbot] = useState(false);
 
-  // Use wouter's useLocation for navigation
-  const [, navigate] = useLocation();
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      toast({
-        title: "Unauthorized",
-        description: "You are logged out. Logging in again...",
-        variant: "destructive",
-      });
-      setTimeout(() => {
-        navigate("/login"); // Proper wouter navigation to login page
-      }, 500);
-      return;
-    }
-  }, [isAuthenticated, isLoading, toast, navigate]);
-
-  if (isLoading || !isAuthenticated) {
-    return <div>Loading...</div>;
-  }
 
   return (
     <div className="min-h-screen bg-background flex">

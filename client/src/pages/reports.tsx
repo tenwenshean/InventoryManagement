@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 import Sidebar from "@/components/sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,10 +8,57 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useQuery } from "@tanstack/react-query";
 
+// Type definitions
+interface KeyMetrics {
+  totalRevenue: string;
+  unitsSold: number;
+  avgOrderValue: string;
+  returnRate: string;
+}
+
+interface SalesDataItem {
+  month: string;
+  sales: number;
+  returns: number;
+}
+
+interface InventoryTrendItem {
+  month: string;
+  inStock: number;
+  outStock: number;
+}
+
+interface CategoryDataItem {
+  name: string;
+  value: number;
+  color?: string;
+}
+
+interface TopProductItem {
+  name: string;
+  sales: number;
+  change: number;
+}
+
+interface ReportsData {
+  keyMetrics: KeyMetrics;
+  salesData: SalesDataItem[];
+  inventoryTrends: InventoryTrendItem[];
+  categoryData: CategoryDataItem[];
+  topProducts: TopProductItem[];
+}
+
 export default function Reports() {
   // Fetch real data from the API
-  const { data: reportsData, isLoading, error } = useQuery({
+  const { data: reportsData, isLoading, error } = useQuery<ReportsData>({
     queryKey: ['/api/reports/data'],
+    queryFn: async () => {
+      const response = await fetch('/api/reports/data');
+      if (!response.ok) {
+        throw new Error('Failed to fetch reports data');
+      }
+      return response.json();
+    },
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
@@ -54,13 +102,21 @@ export default function Reports() {
     );
   }
 
-  const { keyMetrics, salesData, inventoryTrends, categoryData, topProducts } = reportsData || {
-    keyMetrics: { totalRevenue: '$0', unitsSold: 0, avgOrderValue: '$0', returnRate: '0%' },
-    salesData: [],
-    inventoryTrends: [],
-    categoryData: [],
-    topProducts: []
+  // Safely destructure with default values
+  const keyMetrics: KeyMetrics = reportsData?.keyMetrics || {
+    totalRevenue: '$0',
+    unitsSold: 0,
+    avgOrderValue: '$0',
+    returnRate: '0%'
   };
+
+  const salesData: SalesDataItem[] = reportsData?.salesData || [];
+  const inventoryTrends: InventoryTrendItem[] = reportsData?.inventoryTrends || [];
+  const categoryData: CategoryDataItem[] = reportsData?.categoryData || [];
+  const topProducts: TopProductItem[] = reportsData?.topProducts || [];
+
+  // Define default colors for pie chart if not provided by API
+  const COLORS = ['#dc2626', '#ef4444', '#f87171', '#fca5a5', '#fecaca'];
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -127,7 +183,7 @@ export default function Reports() {
               <Package className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{keyMetrics.unitsSold.toLocaleString()}</div>
+              <div className="text-2xl font-bold text-red-600">{keyMetrics.unitsSold?.toLocaleString() || '0'}</div>
               <div className="flex items-center text-xs text-green-600">
                 <TrendingUp className="w-3 h-3 mr-1" />
                 +12.5% from last month
@@ -224,8 +280,8 @@ export default function Reports() {
                     dataKey="value"
                     label
                   >
-                    {categoryData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    {categoryData.map((entry: CategoryDataItem, index: number) => (
+                      <Cell key={`cell-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip />
@@ -242,7 +298,7 @@ export default function Reports() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {topProducts.map((product, index) => (
+                {topProducts.map((product: TopProductItem, index: number) => (
                   <div key={index} className="flex items-center justify-between" data-testid={`product-${index}`}>
                     <div className="flex items-center space-x-2">
                       <Badge variant="outline" className="w-6 h-6 p-0 text-xs">

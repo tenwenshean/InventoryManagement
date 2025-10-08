@@ -1,21 +1,35 @@
 // apiClient.ts
-import { auth } from "./firebaseClient"; // adjust the path if needed
+import { auth } from "./firebaseClient";
 
 export async function apiFetch(path: string, options: RequestInit = {}) {
-  const token = await auth.currentUser?.getIdToken?.(); // get Firebase ID token if logged in
+  try {
+    const token = await auth.currentUser?.getIdToken(true);
 
-  const res = await fetch(`http://localhost:5000${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+    // Use relative URL - Vite proxy will forward to http://localhost:5000
+    const res = await fetch(path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+      credentials: 'include',
+    });
 
-  if (!res.ok) {
-    throw new Error(`API error ${res.status}: ${res.statusText}`);
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`API error ${res.status} for ${path}:`, errorText);
+      
+      if (res.status === 401) {
+        throw new Error("Unauthorized - Please log in again");
+      }
+      
+      throw new Error(`API error ${res.status}: ${errorText}`);
+    }
+
+    return res.json();
+  } catch (error) {
+    console.error('apiFetch error:', error);
+    throw error;
   }
-
-  return res.json();
 }

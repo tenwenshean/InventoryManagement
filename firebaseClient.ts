@@ -11,16 +11,18 @@ const firebaseConfig = {
   appId: "1:351419116007:web:46310847e979afc6b37542"
 };
 
-
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const provider = new GoogleAuthProvider();
 
 export async function loginWithGoogle() {
-  const result = await signInWithPopup(auth, provider);
-  const idToken = await result.user.getIdToken();
-
-  localStorage.setItem("idToken", idToken); 
-
-  return { user: result.user, idToken };
+  try {
+    const result = await signInWithPopup(auth, provider);
+    // Don't store token in localStorage - Firebase handles it automatically
+    // The token will be available via auth.currentUser.getIdToken()
+    return { user: result.user };
+  } catch (error) {
+    console.error("Error signing in with Google:", error);
+    throw error;
+  }
 }

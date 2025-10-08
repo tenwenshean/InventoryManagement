@@ -1,4 +1,14 @@
-import { Package, Home, Box, Calculator, BarChart3, QrCode, Settings, LogOut, User } from "lucide-react";
+import {
+  Package,
+  Home,
+  Box,
+  Calculator,
+  BarChart3,
+  QrCode,
+  Settings,
+  LogOut,
+  User,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
@@ -6,10 +16,10 @@ import type { User as UserType } from "@shared/schema";
 
 export default function Sidebar() {
   const [location, setLocation] = useLocation();
-  const { user } = useAuth() as { user?: UserType };
-
-  const handleLogout = () => {
-    window.location.href = "/api/logout";
+  const { user, logout } = useAuth();
+  const handleLogout = async () => {
+    await logout();
+    setLocation("/"); // safely route back to landing/login page
   };
 
   const navigation = [
@@ -30,7 +40,10 @@ export default function Sidebar() {
             <Package className="text-primary-foreground" size={20} />
           </div>
           <div>
-            <h2 className="font-bold text-lg text-foreground" data-testid="text-app-title">
+            <h2
+              className="font-bold text-lg text-foreground"
+              data-testid="text-app-title"
+            >
               InventoryPro
             </h2>
             <p className="text-xs text-muted-foreground">Enterprise Edition</p>
@@ -43,7 +56,7 @@ export default function Sidebar() {
           {navigation.map((item) => {
             const isActive = location === item.href;
             const Icon = item.icon;
-            
+
             return (
               <li key={item.name}>
                 <button
@@ -71,10 +84,11 @@ export default function Sidebar() {
               <User className="text-primary-foreground text-sm" size={16} />
             </div>
             <div>
-              <p className="text-sm font-medium text-foreground" data-testid="text-user-name">
-                {user?.firstName && user?.lastName 
-                  ? `${user.firstName} ${user.lastName}`
-                  : user?.email || "User"}
+              <p
+                className="text-sm font-medium text-foreground"
+                data-testid="text-user-name"
+              >
+                  {user?.displayName || user?.email || "User"}
               </p>
               <p className="text-xs text-muted-foreground">Administrator</p>
             </div>
