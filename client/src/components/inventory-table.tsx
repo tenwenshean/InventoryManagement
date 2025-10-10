@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Edit, QrCode, Trash2, Package, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Product } from "@shared/schema";
-import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest } from "@/lib/queryClient";
 import EditProductModal from "@/components/edit-product-modal";
 import {
@@ -36,19 +35,6 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
     queryKey: ["/api/products", searchTerm],
   });
 
-  useEffect(() => {
-    if (error && isUnauthorizedError(error as Error)) {
-      toast({
-        title: "Unauthorized",
-        description: "You are logged out. Logging in again...",
-        variant: "destructive",
-      });
-      setTimeout(() => {
-        window.location.href = "/login";
-      }, 500);
-    }
-  }, [error, toast]);
-
   const displayProducts = showAll ? products : products?.slice(0, 5);
 
   // Delete product mutation
@@ -65,22 +51,12 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
       });
     },
     onError: (error) => {
-      if (isUnauthorizedError(error as Error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
-        return;
-      }
       toast({
         title: "Error",
-        description: "Failed to delete product",
+        description: "Failed to delete product. Please try again.",
         variant: "destructive",
       });
+      console.error("Delete product error:", error);
     },
   });
 
@@ -98,22 +74,12 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
       });
     },
     onError: (error) => {
-      if (isUnauthorizedError(error as Error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/login";
-        }, 500);
-        return;
-      }
       toast({
         title: "Error",
-        description: "Failed to generate QR code",
+        description: "Failed to generate QR code. Please try again.",
         variant: "destructive",
       });
+      console.error("Generate QR error:", error);
     },
   });
 

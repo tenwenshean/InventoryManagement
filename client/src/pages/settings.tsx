@@ -8,19 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { 
-  Settings, 
-  User, 
-  Bell, 
-  Shield, 
-  Database, 
-  Mail, 
-  Palette, 
-  Package, 
-  DollarSign,
-  AlertTriangle,
-  Save,
-  RefreshCw
-} from "lucide-react";
+  Settings,  User, Bell, Shield,  Database,  Mail,  Palette,  Package,  DollarSign,AlertTriangle, Save, RefreshCw} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export default function SettingsPage() {

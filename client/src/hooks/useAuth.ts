@@ -6,25 +6,45 @@ import { auth } from "../../../firebaseClient";
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Listen for Firebase auth state changes
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      console.log("Auth state changed:", firebaseUser?.email || "Not logged in");
-      setUser(firebaseUser);
-      setIsLoading(false);
-    });
+    let isMounted = true;
 
-    return () => unsubscribe();
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (firebaseUser) => {
+        if (!isMounted) return;
+        console.log(
+          "Auth state changed:",
+          firebaseUser?.email || "Not logged in"
+        );
+        setUser(firebaseUser);
+        setIsLoading(false);
+      },
+      (err) => {
+        console.error("Auth listener error:", err);
+        if (isMounted) {
+          setError(err.message);
+          setIsLoading(false);
+        }
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
-  // ✅ Clean logout method
   const logout = async () => {
     try {
       await signOut(auth);
       console.log("User signed out");
-    } catch (error) {
-      console.error("Error during logout:", error);
+      setUser(null);
+    } catch (err: any) {
+      console.error("Error during logout:", err);
+      setError(err.message);
     }
   };
 
@@ -32,6 +52,7 @@ export function useAuth() {
     user,
     isAuthenticated: !!user,
     isLoading,
-    logout, // expose logout
+    error,
+    logout,
   };
 }

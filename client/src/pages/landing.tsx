@@ -23,7 +23,7 @@ export default function Landing() {
       });
 
       // Navigate to dashboard after successful login
-      navigate("/");
+      navigate("/dashboard");
     } catch (error: any) {
       console.error("Login error:", error);
       toast({

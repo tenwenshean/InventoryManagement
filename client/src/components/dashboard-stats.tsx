@@ -1,9 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Package, AlertTriangle, DollarSign, ShoppingCart } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { useEffect } from "react";
-import { isUnauthorizedError } from "@/lib/authUtils";
 
 interface DashboardStats {
   totalProducts: number;
@@ -13,24 +10,9 @@ interface DashboardStats {
 }
 
 export default function DashboardStats() {
-  const { toast } = useToast();
-  
   const { data: stats, isLoading, error } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
   });
-
-  useEffect(() => {
-    if (error && isUnauthorizedError(error as Error)) {
-      toast({
-        title: "Unauthorized",
-        description: "You are logged out. Logging in again...",
-        variant: "destructive",
-      });
-      setTimeout(() => {
-        window.location.href = "/login";
-      }, 500);
-    }
-  }, [error, toast]);
 
   if (isLoading) {
     return (

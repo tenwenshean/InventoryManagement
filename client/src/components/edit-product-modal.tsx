@@ -33,7 +33,6 @@ import { Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { insertProductSchema } from "@shared/schema";
 import type { Product, Category } from "@shared/schema";
-import { isUnauthorizedError } from "@/lib/authUtils";
 
 interface EditProductModalProps {
   isOpen: boolean;
@@ -108,22 +107,12 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
       onClose();
     },
     onError: (error) => {
-      if (isUnauthorizedError(error as Error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/login";
-        }, 500);
-        return;
-      }
       toast({
         title: "Error",
-        description: "Failed to update product",
+        description: "Failed to update product. Please try again.",
         variant: "destructive",
       });
+      console.error("Update product error:", error);
     },
   });
 

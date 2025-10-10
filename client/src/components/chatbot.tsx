@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bot, User, Send, X } from "lucide-react";
 import type { ChatMessage } from "@shared/schema";
-import { isUnauthorizedError } from "@/lib/authUtils";
 
 interface ChatbotProps {
   isOpen: boolean;
@@ -39,22 +38,12 @@ export default function Chatbot({ isOpen, onClose }: ChatbotProps) {
       setInputMessage("");
     },
     onError: (error) => {
-      if (isUnauthorizedError(error as Error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
-        return;
-      }
       toast({
         title: "Error",
-        description: "Failed to send message",
+        description: "Failed to send message. Please try again.",
         variant: "destructive",
       });
+      console.error("Send message error:", error);
     },
   });
 

@@ -30,7 +30,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
-import { isUnauthorizedError } from "@/lib/authUtils";
 
 interface AddProductModalProps {
   isOpen: boolean;
@@ -77,22 +76,12 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
       onClose();
     },
     onError: (error) => {
-      if (isUnauthorizedError(error as Error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
-        return;
-      }
       toast({
         title: "Error",
-        description: "Failed to create product",
+        description: "Failed to create product. Please try again.",
         variant: "destructive",
       });
+      console.error("Create product error:", error);
     },
   });
 
