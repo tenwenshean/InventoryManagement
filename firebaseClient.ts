@@ -7,6 +7,7 @@ import {
   setPersistence,
   browserLocalPersistence,
 } from "firebase/auth";
+import { getFirestore } from "firebase/firestore"; // ✅ Add this
 
 // --- Your Firebase configuration ---
 const firebaseConfig = {
@@ -21,6 +22,7 @@ const firebaseConfig = {
 // --- Initialize Firebase app ---
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getFirestore(app); // ✅ Initialize Firestore
 
 // ✅ Make sure login persists between sessions (even after refresh)
 setPersistence(auth, browserLocalPersistence).catch((err) => {
@@ -47,4 +49,4 @@ export async function loginWithGoogle() {
   }
 }
 
-export { auth, provider };
+export { auth, provider, db }; // ✅ Export db

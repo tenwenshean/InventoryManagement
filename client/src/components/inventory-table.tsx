@@ -6,8 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Search, Edit, QrCode, Trash2, Package, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Product } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import type { Product } from "@/types";
+import { getProducts, deleteProduct } from "@/services/productService";
 import EditProductModal from "@/components/edit-product-modal";
 import {
   AlertDialog,
@@ -31,52 +31,62 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Fetch products from Firestore
   const { data: products, isLoading, error } = useQuery<Product[]>({
-    queryKey: ["/api/products", searchTerm],
+    queryKey: ["products", searchTerm],
+    queryFn: getProducts,
   });
 
-  const displayProducts = showAll ? products : products?.slice(0, 5);
+  // Filter products based on search term
+  const filteredProducts = products?.filter(product => 
+    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    product.description?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const displayProducts = showAll ? filteredProducts : filteredProducts?.slice(0, 5);
 
   // Delete product mutation
   const deleteProductMutation = useMutation({
     mutationFn: async (productId: string) => {
-      await apiRequest("DELETE", `/api/products/${productId}`, {});
+      await deleteProduct(productId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       toast({
         title: "Success",
         description: "Product deleted successfully",
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "Error",
-        description: "Failed to delete product. Please try again.",
+        description: error.message || "Failed to delete product. Please try again.",
         variant: "destructive",
       });
       console.error("Delete product error:", error);
     },
   });
 
-  // Generate QR code mutation
+  // Generate QR code mutation (placeholder - implement based on your needs)
   const generateQRMutation = useMutation({
     mutationFn: async (productId: string) => {
-      const response = await apiRequest("POST", `/api/products/${productId}/qr`, {});
-      return response.json();
+      // TODO: Implement QR code generation with Firestore
+      console.log("Generate QR for product:", productId);
+      return productId;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["products"] });
       toast({
         title: "Success",
         description: "QR code generated successfully",
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "Error",
-        description: "Failed to generate QR code. Please try again.",
+        description: error.message || "Failed to generate QR code. Please try again.",
         variant: "destructive",
       });
       console.error("Generate QR error:", error);
@@ -130,6 +140,12 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <div className="text-muted-foreground">Loading inventory...</div>
+          </div>
+        ) : error ? (
+          <div className="text-center py-8">
+            <Package className="mx-auto text-destructive mb-4" size={48} />
+            <h3 className="text-lg font-semibold text-foreground mb-2">Error loading inventory</h3>
+            <p className="text-muted-foreground">{error instanceof Error ? error.message : "Failed to load products"}</p>
           </div>
         ) : displayProducts && displayProducts.length > 0 ? (
           <div className="overflow-x-auto">
@@ -225,7 +241,7 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
                               <AlertDialogHeader>
                                 <AlertDialogTitle>Delete Product</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Are you sure you want to delete "{product.name}"? This action will mark the product as inactive but preserve all transaction history.
+                                  Are you sure you want to delete "{product.name}"? This action cannot be undone.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
@@ -233,8 +249,9 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
                                 <AlertDialogAction
                                   onClick={() => deleteProductMutation.mutate(product.id)}
                                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  disabled={deleteProductMutation.isPending}
                                 >
-                                  Delete
+                                  {deleteProductMutation.isPending ? "Deleting..." : "Delete"}
                                 </AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
@@ -261,7 +278,7 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
           <div className="p-4 border-t border-border">
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground" data-testid="text-inventory-pagination">
-                Showing {displayProducts.length} of {products?.length || 0} products
+                Showing {displayProducts.length} of {filteredProducts?.length || 0} products
               </p>
               <div className="flex items-center space-x-2">
                 <Button variant="outline" size="sm" disabled data-testid="button-pagination-prev">

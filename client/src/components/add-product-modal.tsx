@@ -1,9 +1,10 @@
-import { useState } from "react";
+// client/src/components/add-product-modal.tsx
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
-import { insertProductSchema, type InsertProduct, type Category } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { insertProductSchema, type InsertProduct, type Category } from "@/types";
+import { createProduct } from "@/services/productService";
+import { getCategories } from "@/services/categoryService";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -57,35 +58,46 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
     },
   });
 
-  const { data: categories } = useQuery<Category[]>({
-    queryKey: ["/api/categories"],
+  // Fetch categories from Firestore
+  const { data: categories, isLoading: categoriesLoading } = useQuery<Category[]>({
+    queryKey: ["categories"],
+    queryFn: getCategories,
   });
 
+  // Create product mutation
   const createProductMutation = useMutation({
     mutationFn: async (productData: InsertProduct) => {
-      await apiRequest("POST", "/api/products", productData);
+      console.log("🚀 Submitting product:", productData);
+      return await createProduct(productData);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+    onSuccess: (productId) => {
+      console.log("✅ Product created successfully:", productId);
+      
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      
       toast({
         title: "Success",
         description: "Product created successfully",
       });
+      
       form.reset();
       onClose();
     },
-    onError: (error) => {
+    onError: (error: any) => {
+      console.error("❌ Create product error:", error);
+      
       toast({
         title: "Error",
-        description: "Failed to create product. Please try again.",
+        description: error.message || "Failed to create product. Please try again.",
         variant: "destructive",
       });
-      console.error("Create product error:", error);
     },
   });
 
   const onSubmit = (data: InsertProduct) => {
+    console.log("📝 Form validation passed:", data);
     createProductMutation.mutate(data);
   };
 
@@ -104,7 +116,7 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Product Name</FormLabel>
+                    <FormLabel>Product Name *</FormLabel>
                     <FormControl>
                       <Input placeholder="Enter product name" {...field} data-testid="input-product-name" />
                     </FormControl>
@@ -118,7 +130,7 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
                 name="sku"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>SKU</FormLabel>
+                    <FormLabel>SKU *</FormLabel>
                     <FormControl>
                       <Input placeholder="Enter SKU" {...field} data-testid="input-product-sku" />
                     </FormControl>
@@ -153,19 +165,27 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
                 name="categoryId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Category</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormLabel>Category *</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger data-testid="select-product-category">
                           <SelectValue placeholder="Select a category" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {categories?.map((category) => (
-                          <SelectItem key={category.id} value={category.id}>
-                            {category.name}
-                          </SelectItem>
-                        ))}
+                        {categoriesLoading ? (
+                          <div className="p-2 text-sm text-muted-foreground">Loading categories...</div>
+                        ) : categories && categories.length > 0 ? (
+                          categories.map((category) => (
+                            <SelectItem key={category.id} value={category.id}>
+                              {category.name}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <div className="p-2 text-sm text-destructive">
+                            No categories found. Please create a category first.
+                          </div>
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -194,7 +214,7 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
                 name="price"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Selling Price</FormLabel>
+                    <FormLabel>Selling Price *</FormLabel>
                     <FormControl>
                       <Input
                         type="number"
@@ -304,7 +324,7 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
               </Button>
               <Button
                 type="submit"
-                disabled={createProductMutation.isPending}
+                disabled={createProductMutation.isPending || categoriesLoading}
                 className="bg-primary text-primary-foreground hover:bg-primary/90"
                 data-testid="button-submit-add-product"
               >
