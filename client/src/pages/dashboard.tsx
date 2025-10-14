@@ -3,15 +3,17 @@ import { useEffect, useState } from "react";
 import DashboardStats from "@/components/dashboard-stats";
 import InventoryTable from "@/components/inventory-table";
 import Chatbot from "@/components/chatbot";
+import AddProductModal from "@/components/add-product-modal";
+import BulkUploadModal from "@/components/bulk-upload";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Upload, QrCode, Bell, Bot } from "lucide-react";
-import AddProductModal from "@/components/add-product-modal";
 import { useAuth } from "@/hooks/useAuth";
 
 export default function Dashboard() {
   const { isAuthenticated, isLoading } = useAuth();
   const [showAddProduct, setShowAddProduct] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [showChatbot, setShowChatbot] = useState(false);
 
   // Show loading state while checking auth
@@ -86,6 +88,7 @@ export default function Dashboard() {
             <Button
               variant="outline"
               className="flex items-center space-x-3 p-4 h-auto justify-start"
+              onClick={() => setShowBulkUpload(true)}
               data-testid="button-bulk-import"
             >
               <div className="bg-chart-2/10 p-2 rounded-lg">
@@ -116,8 +119,12 @@ export default function Dashboard() {
 
       <InventoryTable />
 
+      {/* Modals */}
       {showAddProduct && (
         <AddProductModal isOpen={showAddProduct} onClose={() => setShowAddProduct(false)} />
+      )}
+      {showBulkUpload && (
+        <BulkUploadModal isOpen={showBulkUpload} onClose={() => setShowBulkUpload(false)} />
       )}
       {showChatbot && (
         <Chatbot isOpen={showChatbot} onClose={() => setShowChatbot(false)} />
