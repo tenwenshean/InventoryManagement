@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Search, Edit, QrCode, Trash2, Package, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Product } from "@/types";
+import type { Product, Category } from "@/types";
 import { getProducts, deleteProduct } from "@/services/productService";
+import { getCategories } from "@/services/categoryService";
 import EditProductModal from "@/components/edit-product-modal";
 import {
   AlertDialog,
@@ -28,6 +30,7 @@ interface InventoryTableProps {
 const ITEMS_PER_PAGE = 8;
 
 export default function InventoryTable({ showAll = false }: InventoryTableProps) {
+  const [, setLocation] = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -39,6 +42,18 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
     queryKey: ["products", searchTerm],
     queryFn: getProducts,
   });
+
+  // Fetch categories to resolve category names
+  const { data: categories } = useQuery<Category[]>({
+    queryKey: ["categories"],
+    queryFn: getCategories,
+  });
+
+  const categoryNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    categories?.forEach((c) => map.set(c.id, c.name));
+    return map;
+  }, [categories]);
 
   // Filter products based on search term
   const filteredProducts = products?.filter(product => 
@@ -193,6 +208,7 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
               <Button
                 variant="default"
                 className="bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={() => setLocation("/inventory")}
                 data-testid="button-view-all-inventory"
               >
                 <Eye className="mr-2" size={16} />
@@ -256,7 +272,7 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
                         {product.sku}
                       </td>
                       <td className="p-4 text-foreground" data-testid={`text-product-category-${product.id}`}>
-                        {product.categoryId || "Uncategorized"}
+                        {categoryNameById.get(product.categoryId || "") || "Uncategorized"}
                       </td>
                       <td className="p-4">
                         <span className="text-foreground font-medium" data-testid={`text-product-stock-${product.id}`}>
