@@ -25,9 +25,12 @@ interface InventoryTableProps {
   showAll?: boolean;
 }
 
+const ITEMS_PER_PAGE = 8;
+
 export default function InventoryTable({ showAll = false }: InventoryTableProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -44,7 +47,71 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
     product.description?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const displayProducts = showAll ? filteredProducts : filteredProducts?.slice(0, 5);
+  // Calculate pagination
+  const totalItems = filteredProducts?.length || 0;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+
+  // Get products for current page
+  const displayProducts = showAll 
+    ? filteredProducts?.slice(startIndex, endIndex)
+    : filteredProducts?.slice(0, 5);
+
+  // Reset to page 1 when search term changes
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+    setCurrentPage(1);
+  };
+
+  // Pagination handlers
+  const goToPage = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const goToPreviousPage = () => {
+    setCurrentPage(prev => Math.max(1, prev - 1));
+  };
+
+  const goToNextPage = () => {
+    setCurrentPage(prev => Math.min(totalPages, prev + 1));
+  };
+
+  // Generate page numbers to display
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxPagesToShow = 5;
+    
+    if (totalPages <= maxPagesToShow) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      if (currentPage <= 3) {
+        for (let i = 1; i <= 4; i++) {
+          pages.push(i);
+        }
+        pages.push('...');
+        pages.push(totalPages);
+      } else if (currentPage >= totalPages - 2) {
+        pages.push(1);
+        pages.push('...');
+        for (let i = totalPages - 3; i <= totalPages; i++) {
+          pages.push(i);
+        }
+      } else {
+        pages.push(1);
+        pages.push('...');
+        pages.push(currentPage - 1);
+        pages.push(currentPage);
+        pages.push(currentPage + 1);
+        pages.push('...');
+        pages.push(totalPages);
+      }
+    }
+    
+    return pages;
+  };
 
   // Delete product mutation
   const deleteProductMutation = useMutation({
@@ -117,7 +184,7 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
                 type="text"
                 placeholder="Search products..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 className="pl-10 pr-4 py-2 w-64"
                 data-testid="input-inventory-search"
               />
@@ -274,29 +341,58 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
           </div>
         )}
 
-        {displayProducts && displayProducts.length > 0 && (
+        {showAll && displayProducts && displayProducts.length > 0 && totalPages > 1 && (
+          <div className="p-4 border-t border-border">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground" data-testid="text-inventory-pagination">
+                Showing {startIndex + 1}-{Math.min(endIndex, totalItems)} of {totalItems} products
+              </p>
+              <div className="flex items-center space-x-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={currentPage === 1}
+                  onClick={goToPreviousPage}
+                  data-testid="button-pagination-prev"
+                >
+                  Previous
+                </Button>
+                {getPageNumbers().map((page, index) => (
+                  page === '...' ? (
+                    <span key={`ellipsis-${index}`} className="px-2 text-muted-foreground">...</span>
+                  ) : (
+                    <Button
+                      key={page}
+                      variant={currentPage === page ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => goToPage(page as number)}
+                      className={currentPage === page ? "bg-primary text-primary-foreground" : ""}
+                      data-testid={`button-pagination-${page}`}
+                    >
+                      {page}
+                    </Button>
+                  )
+                ))}
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  disabled={currentPage === totalPages}
+                  onClick={goToNextPage}
+                  data-testid="button-pagination-next"
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!showAll && displayProducts && displayProducts.length > 0 && (
           <div className="p-4 border-t border-border">
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground" data-testid="text-inventory-pagination">
                 Showing {displayProducts.length} of {filteredProducts?.length || 0} products
               </p>
-              <div className="flex items-center space-x-2">
-                <Button variant="outline" size="sm" disabled data-testid="button-pagination-prev">
-                  Previous
-                </Button>
-                <Button variant="default" size="sm" className="bg-primary text-primary-foreground" data-testid="button-pagination-1">
-                  1
-                </Button>
-                <Button variant="outline" size="sm" data-testid="button-pagination-2">
-                  2
-                </Button>
-                <Button variant="outline" size="sm" data-testid="button-pagination-3">
-                  3
-                </Button>
-                <Button variant="outline" size="sm" data-testid="button-pagination-next">
-                  Next
-                </Button>
-              </div>
             </div>
           </div>
         )}
