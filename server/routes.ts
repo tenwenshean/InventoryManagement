@@ -169,6 +169,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===================== REPORTS ROUTE =====================
+  app.get("/api/reports/data", isAuthenticated, async (_req, res) => {
+    try {
+      // Basic reports derived from existing collections
+      const products = await storage.getProducts();
+      const categories = await storage.getCategories();
+      const transactions = await storage.getInventoryTransactions();
+
+      const unitsSold = transactions
+        .filter((t) => (t as any).type === "out")
+        .reduce((sum, t: any) => sum + (t.quantity || 0), 0);
+
+      // Approximate revenue using product price * quantity for 'out' transactions
+      const productById = new Map(products.map((p: any) => [p.id, p]));
+      const totalRevenueNumber = transactions
+        .filter((t: any) => t.type === "out")
+        .reduce((sum, t: any) => {
+          const product = productById.get(t.productId);
+          const price = product ? parseFloat((product.price as any) ?? 0) : 0;
+          return sum + price * (t.quantity || 0);
+        }, 0);
+
+      const keyMetrics = {
+        totalRevenue: `$${totalRevenueNumber.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+        unitsSold,
+        avgOrderValue: unitsSold > 0 ? `$${(totalRevenueNumber / unitsSold).toFixed(2)}` : "$0",
+        returnRate: "0%", // Returns not tracked separately in current model
+      };
+
+      // Group transactions by month for charts
+      const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      const byMonth: Record<string, { sales: number; returns: number; inStock: number; outStock: number }> = {};
+      for (const tx of transactions as any[]) {
+        const created = (tx.createdAt as any)?.toDate?.() || tx.createdAt || new Date();
+        const key = monthKey(new Date(created));
+        byMonth[key] ||= { sales: 0, returns: 0, inStock: 0, outStock: 0 };
+        if (tx.type === "in") byMonth[key].inStock += tx.quantity || 0;
+        if (tx.type === "out") {
+          byMonth[key].outStock += tx.quantity || 0;
+          byMonth[key].sales += tx.quantity || 0;
+        }
+      }
+      const sortedMonths = Object.keys(byMonth).sort();
+      const salesData = sortedMonths.map((m) => ({ month: m, sales: byMonth[m].sales, returns: byMonth[m].returns }));
+      const inventoryTrends = sortedMonths.map((m) => ({ month: m, inStock: byMonth[m].inStock, outStock: byMonth[m].outStock }));
+
+      // Category distribution by summing quantities of products per category
+      const categoryIdToName = new Map(categories.map((c: any) => [c.id, c.name]));
+      const categoryTotals: Record<string, number> = {};
+      for (const p of products as any[]) {
+        const name = categoryIdToName.get(p.categoryId) || "Uncategorized";
+        categoryTotals[name] = (categoryTotals[name] || 0) + (p.quantity || 0);
+      }
+      const categoryData = Object.entries(categoryTotals).map(([name, value]) => ({ name, value }));
+
+      // Top products by current quantity sold (approx via transactions)
+      const soldByProduct: Record<string, number> = {};
+      for (const tx of transactions as any[]) {
+        if (tx.type === "out") {
+          soldByProduct[tx.productId] = (soldByProduct[tx.productId] || 0) + (tx.quantity || 0);
+        }
+      }
+      const topProducts = Object.entries(soldByProduct)
+        .map(([productId, sales]) => ({
+          name: (productById.get(productId)?.name as string) || "Unknown",
+          sales,
+          change: 0,
+        }))
+        .sort((a, b) => b.sales - a.sales)
+        .slice(0, 10);
+
+      res.json({ keyMetrics, salesData, inventoryTrends, categoryData, topProducts });
+    } catch (error) {
+      console.error("Error building reports data:", error);
+      res.status(500).json({ message: "Failed to fetch reports" });
+    }
+  });
+
   // ===================== REMAINING ROUTES (inventory, accounting, chat, report) =====================
   // ⬆ keep your existing code unchanged below this point
 

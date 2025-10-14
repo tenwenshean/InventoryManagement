@@ -74,8 +74,8 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
       console.log("✅ Product created successfully:", productId);
       
       // Invalidate queries to refresh data
-      queryClient.invalidateQueries({ queryKey: ["products"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       
       toast({
         title: "Success",
