@@ -30,9 +30,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
-import { insertProductSchema } from "@shared/schema";
-import type { Product, Category } from "@shared/schema";
+import { getProduct, updateProduct } from "@/services/productService";
+import { getCategories } from "@/services/categoryService";
+import { insertProductSchema } from "@/types";
+import type { Product, Category } from "@/types";
 
 interface EditProductModalProps {
   isOpen: boolean;
@@ -46,15 +47,17 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Fetch product data
-  const { data: product, isLoading: productLoading } = useQuery<Product>({
-    queryKey: [`/api/products/${productId}`],
+  // Fetch product data from Firestore
+  const { data: product, isLoading: productLoading } = useQuery<Product | null>({
+    queryKey: ["product", productId],
+    queryFn: () => getProduct(productId),
     enabled: isOpen && !!productId,
   });
 
-  // Fetch categories
+  // Fetch categories from Firestore
   const { data: categories } = useQuery<Category[]>({
-    queryKey: ["/api/categories"],
+    queryKey: ["categories"],
+    queryFn: getCategories,
     enabled: isOpen,
   });
 
@@ -77,6 +80,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
   // Reset form when product data loads
   useEffect(() => {
     if (product) {
+      console.log("📝 Loading product data into form:", product);
       form.reset({
         name: product.name,
         description: product.description || "",
@@ -94,29 +98,32 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
 
   const updateProductMutation = useMutation({
     mutationFn: async (data: z.infer<typeof editProductSchema>) => {
-      const response = await apiRequest("PUT", `/api/products/${productId}`, data);
-      return response.json();
+      console.log("🔄 Updating product:", productId, data);
+      await updateProduct(productId, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      console.log("✅ Product updated successfully");
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["product", productId] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       toast({
         title: "Success",
         description: "Product updated successfully",
       });
       onClose();
     },
-    onError: (error) => {
+    onError: (error: any) => {
+      console.error("❌ Update product error:", error);
       toast({
         title: "Error",
-        description: "Failed to update product. Please try again.",
+        description: error.message || "Failed to update product. Please try again.",
         variant: "destructive",
       });
-      console.error("Update product error:", error);
     },
   });
 
   const onSubmit = (data: z.infer<typeof editProductSchema>) => {
+    console.log("📤 Form submitted with data:", data);
     updateProductMutation.mutate(data);
   };
 
@@ -125,8 +132,20 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="sm:max-w-[600px]">
           <div className="flex items-center justify-center p-6">
-            <Loader2 className="w-6 h-6 animate-spin text-red-600" />
+            <Loader2 className="w-6 h-6 animate-spin text-primary" />
             <span className="ml-2">Loading product...</span>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  if (!product) {
+    return (
+      <Dialog open={isOpen} onOpenChange={onClose}>
+        <DialogContent className="sm:max-w-[600px]">
+          <div className="flex items-center justify-center p-6">
+            <p className="text-destructive">Product not found</p>
           </div>
         </DialogContent>
       </Dialog>
@@ -346,6 +365,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
                 type="button"
                 variant="outline"
                 onClick={onClose}
+                disabled={updateProductMutation.isPending}
                 data-testid="button-cancel-edit-product"
               >
                 Cancel
