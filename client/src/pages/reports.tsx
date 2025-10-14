@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
-import Sidebar from "@/components/sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Calendar, Download, Filter, TrendingUp, TrendingDown, Package, DollarSign, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 
 // Type definitions
 interface KeyMetrics {
@@ -53,10 +53,7 @@ export default function Reports() {
   const { data: reportsData, isLoading, error } = useQuery<ReportsData>({
     queryKey: ['/api/reports/data'],
     queryFn: async () => {
-      const response = await fetch('/api/reports/data');
-      if (!response.ok) {
-        throw new Error('Failed to fetch reports data');
-      }
+      const response = await apiRequest('GET', '/api/reports/data');
       return response.json();
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
@@ -64,40 +61,22 @@ export default function Reports() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen bg-background">
-        <Sidebar />
-        <main className="flex-1 ml-64 overflow-auto"
-          style={{
-            background: "linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)",
-          }}
-        >
-          <div className="container mx-auto p-6 flex items-center justify-center min-h-[400px]">
-            <div className="flex items-center space-x-2">
-              <Loader2 className="w-6 h-6 animate-spin text-red-600" />
-              <span className="text-lg text-gray-700">Loading reports data...</span>
-            </div>
-          </div>
-        </main>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex items-center space-x-2">
+          <Loader2 className="w-6 h-6 animate-spin text-red-600" />
+          <span className="text-lg text-gray-700">Loading reports data...</span>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex min-h-screen bg-background">
-        <Sidebar />
-        <main className="flex-1 ml-64 overflow-auto"
-          style={{
-            background: "linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)",
-          }}
-        >
-          <div className="container mx-auto p-6">
-            <div className="text-center py-8">
-              <h2 className="text-2xl font-bold text-red-600 mb-2">Error Loading Reports</h2>
-              <p className="text-gray-600">Unable to fetch reports data. Please try again later.</p>
-            </div>
-          </div>
-        </main>
+      <div className="container mx-auto p-6">
+        <div className="text-center py-8">
+          <h2 className="text-2xl font-bold text-red-600 mb-2">Error Loading Reports</h2>
+          <p className="text-gray-600">Unable to fetch reports data. Please try again later.</p>
+        </div>
       </div>
     );
   }
@@ -119,14 +98,7 @@ export default function Reports() {
   const COLORS = ['#dc2626', '#ef4444', '#f87171', '#fca5a5', '#fecaca'];
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <Sidebar />
-      <main className="flex-1 ml-64 overflow-auto"
-        style={{
-          background: "linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)",
-        }}
-      >
-      <div className="container mx-auto p-6 space-y-6" data-testid="reports-page">
+    <div className="container mx-auto p-6 space-y-6" data-testid="reports-page">
         {/* Header */}
         <div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <div>
@@ -347,8 +319,6 @@ export default function Reports() {
             </div>
           </CardContent>
         </Card>
-      </div>
-      </main>
     </div>
   );
 }
