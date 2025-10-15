@@ -169,6 +169,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===================== QR CODE ROUTES =====================
+  // Generate or regenerate a unique QR code for a product
+  app.post("/api/products/:id/qr", isAuthenticated, async (req, res) => {
+    try {
+      const productId = req.params.id;
+      // Use product id + timestamp to ensure uniqueness; clients render the value into an image
+      const uniqueCode = `${productId}:${Date.now()}`;
+      await storage.setProductQrCode(productId, uniqueCode);
+      res.json({ productId, qrCode: uniqueCode });
+    } catch (error) {
+      console.error("Error generating QR:", error);
+      const message = (error as any)?.message === "PRODUCT_NOT_FOUND" ? "Product not found" : "Failed to generate QR code";
+      res.status(message === "Product not found" ? 404 : 500).json({ message });
+    }
+  });
+
+  // Resolve a QR code to product details (public, no auth)
+  app.get("/api/qr/:code", async (req, res) => {
+    try {
+      const code = decodeURIComponent(req.params.code);
+      const product = await storage.getProductByQrCode(code);
+      if (!product) return res.status(404).json({ message: "QR not found" });
+      res.json({ product });
+    } catch (error) {
+      console.error("Error resolving QR:", error);
+      res.status(500).json({ message: "Failed to resolve QR" });
+    }
+  });
+
+  // Confirm sale for a QR code (public, guarded by user confirmation on client)
+  app.post("/api/qr/:code/confirm-sale", async (req, res) => {
+    try {
+      const code = decodeURIComponent(req.params.code);
+      const product = await storage.getProductByQrCode(code);
+      if (!product) return res.status(404).json({ message: "QR not found" });
+
+      const result = await storage.decrementQuantityAndRecordSale(product.id);
+      if (!result) return res.status(404).json({ message: "Product not found" });
+
+      res.json({ success: true, product: result.updated });
+    } catch (error) {
+      console.error("Error confirming sale via QR:", error);
+      res.status(500).json({ message: "Failed to confirm sale" });
+    }
+  });
+
   // ===================== REPORTS ROUTE =====================
   app.get("/api/reports/data", isAuthenticated, async (_req, res) => {
     try {

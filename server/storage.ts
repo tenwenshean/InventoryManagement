@@ -89,6 +89,51 @@ export class DatabaseStorage {
     });
   }
 
+  async setProductQrCode(id: string, qrCode: string): Promise<void> {
+    const ref = db.collection("products").doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) throw new Error("PRODUCT_NOT_FOUND");
+    await ref.set({ qrCode, updatedAt: new Date() } as any, { merge: true });
+  }
+
+  async getProductByQrCode(qrCode: string): Promise<Product | null> {
+    const snap = await db.collection("products").where("qrCode", "==", qrCode).limit(1).get();
+    if (snap.empty) return null;
+    const doc = snap.docs[0];
+    return { id: doc.id, ...(doc.data() as Product) } as Product;
+  }
+
+  async decrementQuantityAndRecordSale(productId: string): Promise<{ updated: Product } | null> {
+    const ref = db.collection("products").doc(productId);
+    return await db.runTransaction(async (tx) => {
+      const doc = await tx.get(ref);
+      if (!doc.exists) return null;
+      const data = doc.data() as any as Product;
+      const currentQty = (data.quantity as any) ?? 0;
+      const newQty = Math.max(0, (currentQty as number) - 1);
+
+      tx.update(ref, { quantity: newQty, updatedAt: new Date() });
+
+      const txRef = db.collection("inventoryTransactions").doc();
+      tx.set(txRef, {
+        id: txRef.id,
+        productId,
+        type: "out",
+        quantity: 1,
+        previousQuantity: currentQty,
+        newQuantity: newQty,
+        unitPrice: (data.price as any) ?? null,
+        totalValue: data.price ? String(parseFloat(data.price as any) * 1) : null,
+        reason: "QR sale",
+        reference: `qr:${(data as any).qrCode ?? "unknown"}`,
+        createdBy: null,
+        createdAt: new Date(),
+      });
+
+      return { updated: { ...(data as any), id: productId, quantity: newQty } as Product };
+    });
+  }
+
   async deleteProduct(id: string): Promise<void> {
     await db.collection("products").doc(id).delete();
   }

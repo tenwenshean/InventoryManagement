@@ -4,14 +4,21 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { QrCode, Download, RefreshCw, Package } from "lucide-react";
+import { QrCode, Download, RefreshCw, Package, Printer } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import type { Product } from "@shared/schema";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useEffect, useMemo, useState } from "react";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - type defs may not be installed in this environment
+import QRCode from "qrcode";
 
 export default function QRCodes() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
   const queryClient = useQueryClient();
+  const [previewProduct, setPreviewProduct] = useState<Product | null>(null);
+  const [qrUrls, setQrUrls] = useState<Record<string, string>>({});
 
   const {
     data: products,
@@ -26,6 +33,64 @@ export default function QRCodes() {
     },
     enabled: isAuthenticated,
   });
+
+  const productsWithQR = useMemo(
+    () => (products || []).filter((product) => product.qrCode),
+    [products]
+  );
+  const productsWithoutQR = useMemo(
+    () => (products || []).filter((product) => !product.qrCode),
+    [products]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const genAll = async () => {
+      const map: Record<string, string> = {};
+      for (const p of productsWithQR) {
+        if (!p.qrCode) continue;
+        try {
+          map[p.id] = await QRCode.toDataURL(
+            `${window.location.origin}/scan/${encodeURIComponent(p.qrCode)}`,
+            { width: 240, margin: 1 }
+          );
+        } catch {}
+        if (cancelled) return;
+      }
+      if (!cancelled) setQrUrls(map);
+    };
+    genAll();
+    return () => {
+      cancelled = true;
+    };
+  }, [productsWithQR]);
+
+  const handleDownload = (product: Product) => {
+    const url = qrUrls[product.id];
+    if (!url) return;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${product.name}-qr.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const handlePrint = (product: Product) => {
+    const imgUrl = qrUrls[product.id];
+    if (!imgUrl) return;
+    const w = window.open("", "_blank", "noopener,noreferrer");
+    if (!w) return;
+    w.document.write(`<!doctype html><html><head><title>Print QR - ${product.name}</title></head><body style="margin:0;display:flex;align-items:center;justify-content:center;">`);
+    w.document.write(`<div style="text-align:center;font-family:sans-serif;padding:24px;">`);
+    w.document.write(`<h3 style="margin:0 0 12px;">${product.name}</h3>`);
+    w.document.write(`<img src="${imgUrl}" style="width:300px;height:300px;" />`);
+    w.document.write(`<p style="margin-top:8px;font-size:12px;color:#555;">Scan to continue</p>`);
+    w.document.write(`</div></body></html>`);
+    w.document.close();
+    w.focus();
+    w.print();
+  };
 
   // QR code generation mutation
   const generateQRMutation = useMutation({
@@ -62,9 +127,6 @@ export default function QRCodes() {
       </div>
     );
   }
-
-  const productsWithQR = products?.filter((product) => product.qrCode) || [];
-  const productsWithoutQR = products?.filter((product) => !product.qrCode) || [];
 
   return (
     <>
@@ -164,17 +226,25 @@ export default function QRCodes() {
                       </Badge>
                     </div>
 
-                    <div className="bg-muted p-4 rounded-lg mb-3 text-center">
-                      <QrCode className="mx-auto text-muted-foreground mb-2" size={48} />
+                    <button className="bg-muted p-4 rounded-lg mb-3 text-center w-full hover:bg-muted/70" onClick={() => setPreviewProduct(product)}>
+                      {qrUrls[product.id] ? (
+                        <img src={qrUrls[product.id]} alt={product.name} className="mx-auto mb-2 w-40 h-40 object-contain" />
+                      ) : (
+                        <QrCode className="mx-auto text-muted-foreground mb-2" size={48} />
+                      )}
                       <p className="text-xs text-muted-foreground font-mono" data-testid={`text-qr-code-${product.id}`}>
                         {product.qrCode}
                       </p>
-                    </div>
+                    </button>
 
                     <div className="flex space-x-2">
-                      <Button variant="outline" size="sm" className="flex-1" data-testid={`button-download-qr-${product.id}`}>
+                      <Button variant="outline" size="sm" className="flex-1" onClick={() => handleDownload(product)} data-testid={`button-download-qr-${product.id}`}>
                         <Download size={14} className="mr-1" />
                         Download
+                      </Button>
+                      <Button variant="outline" size="sm" className="flex-1" onClick={() => handlePrint(product)}>
+                        <Printer size={14} className="mr-1" />
+                        Print
                       </Button>
                       <Button
                         variant="outline"
@@ -242,6 +312,27 @@ export default function QRCodes() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={!!previewProduct} onOpenChange={() => setPreviewProduct(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{previewProduct?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-3">
+            {previewProduct && qrUrls[previewProduct.id] && (
+              <img src={qrUrls[previewProduct.id]} alt={previewProduct.name} className="w-72 h-72" />
+            )}
+            <div className="flex gap-2 w-full">
+              <Button className="flex-1" variant="outline" onClick={() => previewProduct && handleDownload(previewProduct)}>
+                <Download size={16} className="mr-2" /> Download
+              </Button>
+              <Button className="flex-1" variant="outline" onClick={() => previewProduct && handlePrint(previewProduct)}>
+                <Printer size={16} className="mr-2" /> Print
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
