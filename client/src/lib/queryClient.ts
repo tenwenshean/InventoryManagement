@@ -1,6 +1,8 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { auth } from "../../../firebaseClient";
 
+const API_BASE = (import.meta as any)?.env?.VITE_API_BASE || "";
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -14,7 +16,7 @@ export async function apiRequest(
   data?: unknown | undefined,
 ): Promise<Response> {
   const token = await auth.currentUser?.getIdToken?.();
-  const res = await fetch(url, {
+  const res = await fetch(`${API_BASE}${url}` as string, {
     method,
     headers: {
       ...(data ? { "Content-Type": "application/json" } : {}),
@@ -35,7 +37,7 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const token = await auth.currentUser?.getIdToken?.();
-    const res = await fetch(queryKey.join("/") as string, {
+    const res = await fetch(`${API_BASE}${queryKey.join("/")}` as string, {
       credentials: "include",
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
