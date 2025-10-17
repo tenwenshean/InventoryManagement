@@ -428,14 +428,12 @@ async function handleDashboardStats(req, res, user) {
   const { db } = await initializeFirebase();
   
   try {
-    // Get products for this user
     const productsSnap = await db.collection('products')
       .where('userId', '==', user.uid)
       .get();
     
     const products = productsSnap.docs.map(doc => doc.data());
     const totalProducts = products.length;
-    
     const lowStockItems = products.filter(p => 
       (p.quantity || 0) <= (p.minStockLevel || 0)
     ).length;
@@ -444,47 +442,15 @@ async function handleDashboardStats(req, res, user) {
       sum + parseFloat(p.price || 0) * (p.quantity || 0), 0
     );
     
-    // Get recent transactions for this user's products
-    const productIds = products.map(p => p.id);
-    let recentActivity = [];
-    
-    if (productIds.length > 0) {
-      // Firestore 'in' query limited to 10 items
-      const batchSize = 10;
-      for (let i = 0; i < productIds.length; i += batchSize) {
-        const batch = productIds.slice(i, i + batchSize);
-        const txSnap = await db.collection('inventoryTransactions')
-          .where('productId', 'in', batch)
-          .orderBy('createdAt', 'desc')
-          .limit(5)
-          .get();
-        
-        recentActivity.push(...txSnap.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })));
-      }
-      
-      // Sort and limit to 5 most recent
-      recentActivity = recentActivity
-        .sort((a, b) => {
-          const aDate = a.createdAt?.toDate?.() || new Date(a.createdAt);
-          const bDate = b.createdAt?.toDate?.() || new Date(b.createdAt);
-          return bDate - aDate;
-        })
-        .slice(0, 5);
-    }
-    
     return res.json({
       totalProducts,
       lowStockItems,
       totalValue: totalValue.toFixed(2),
-      ordersToday: 0,
-      recentActivity
+      ordersToday: 0
     });
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
-    return res.status(500).json({ message: 'Failed to fetch dashboard stats', error: error.message });
+    return res.status(500).json({ message: 'Failed to fetch dashboard stats' });
   }
 }
 
