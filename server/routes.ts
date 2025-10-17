@@ -113,6 +113,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Temporary public endpoint to verify server -> Firestore connectivity (no auth)
+  app.get("/api/public/products", async (_req, res) => {
+    try {
+      const products = await storage.getProducts();
+      res.json(products);
+    } catch (error) {
+      console.error("[public] Error fetching products:", error);
+      res.status(500).json({ error: (error as any)?.message || String(error) });
+    }
+  });
+
   app.get("/api/products/:id", isAuthenticated, async (req, res) => {
     try {
       const product = await storage.getProduct(req.params.id);
