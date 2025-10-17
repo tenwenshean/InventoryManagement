@@ -277,27 +277,15 @@ async function handleGetProducts(req, res, user) {
   try {
     const search = req.query.search;
     
-    // TEMPORARY: Fetch all products to debug
-    // TODO: Re-enable userId filter after confirming products have userId field
-    const snapshot = await db.collection('products').get();
+    // Filter products by userId for multi-user support
+    const snapshot = await db.collection('products')
+      .where('userId', '==', user.uid)
+      .get();
     
-    let products = snapshot.docs.map(doc => {
-      const data = doc.data();
-      return { 
-        id: doc.id, 
-        ...data,
-        // Add debug info
-        _hasUserId: !!data.userId,
-        _userIdMatches: data.userId === user.uid
-      };
-    });
-    
-    console.log(`Found ${products.length} total products for user ${user.uid}`);
-    console.log('Products with userId:', products.filter(p => p._hasUserId).length);
-    console.log('Products matching current user:', products.filter(p => p._userIdMatches).length);
-    
-    // Filter by userId if it exists
-    products = products.filter(p => !p.userId || p.userId === user.uid);
+    let products = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    }));
     
     if (search) {
       const s = search.toLowerCase();
