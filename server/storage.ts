@@ -23,7 +23,10 @@ export class DatabaseStorage {
   // ===============================
   async getUser(id: string): Promise<User | null> {
     const doc = await db.collection("users").doc(id).get();
-    return doc.exists ? ({ id: doc.id, ...doc.data() } as User) : null;
+    if (!doc.exists) return null;
+    const data = doc.data() as User;
+    (data as any).id = doc.id;
+    return data as User;
   }
 
   async upsertUser(id: string, data: Partial<User>): Promise<User> {
@@ -38,7 +41,9 @@ export class DatabaseStorage {
 
     await userRef.set(newData, { merge: true });
     const updated = await userRef.get();
-    return { id, ...(updated.data() as User) };
+    const u = updated.data() as User;
+    (u as any).id = id;
+    return u;
   }
 
   // ===============================
@@ -46,7 +51,11 @@ export class DatabaseStorage {
   // ===============================
   async getCategories(): Promise<Category[]> {
     const snapshot = await db.collection("categories").orderBy("createdAt", "desc").get();
-    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Category));
+    return snapshot.docs.map((doc) => {
+      const d = doc.data() as Category;
+      (d as any).id = doc.id;
+      return d as Category;
+    });
   }
 
   async addCategory(data: InsertCategory): Promise<Category> {
@@ -56,6 +65,11 @@ export class DatabaseStorage {
     return newData as Category;
   }
 
+  // Backwards-compatible alias used by routes
+  async createCategory(data: InsertCategory): Promise<Category> {
+    return this.addCategory(data);
+  }
+
   async deleteCategory(id: string): Promise<void> {
     await db.collection("categories").doc(id).delete();
   }
@@ -63,9 +77,32 @@ export class DatabaseStorage {
   // ===============================
   // PRODUCTS
   // ===============================
-  async getProducts(): Promise<Product[]> {
-    const snapshot = await db.collection("products").orderBy("createdAt", "desc").get();
-    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Product));
+  // Wrapper to support optional search parameter expected by routes
+  async getProducts(search?: string): Promise<Product[]> {
+    return this.getProductsBySearch(search);
+  }
+
+  // Support optional search parameter
+  async getProductsBySearch(search?: string): Promise<Product[]> {
+    let query: FirebaseFirestore.Query = db.collection("products").orderBy("createdAt", "desc");
+    if (search) {
+      // Simple search: match name or sku (case-insensitive)
+      // Firestore doesn't support OR or contains easily; for now, fallback to client-side filter
+      const snapshot = await query.get();
+      const all = snapshot.docs.map((d) => {
+        const dd = d.data() as Product;
+        (dd as any).id = d.id;
+        return dd as Product;
+      });
+      const s = search.toLowerCase();
+      return all.filter((p) => (p.name ?? "").toLowerCase().includes(s) || (p.sku ?? "").toLowerCase().includes(s));
+    }
+    const snapshot = await query.get();
+    return snapshot.docs.map((doc) => {
+      const d = doc.data() as Product;
+      (d as any).id = doc.id;
+      return d as Product;
+    });
   }
 
   async addProduct(data: InsertProduct): Promise<Product> {
@@ -80,6 +117,19 @@ export class DatabaseStorage {
     };
     await ref.set(newProduct);
     return newProduct as Product;
+  }
+
+  // Backwards-compatible alias used by routes
+  async createProduct(data: InsertProduct): Promise<Product> {
+    return this.addProduct(data);
+  }
+
+  async getProduct(id: string): Promise<Product | null> {
+    const doc = await db.collection("products").doc(id).get();
+    if (!doc.exists) return null;
+    const d = doc.data() as Product;
+    (d as any).id = doc.id;
+    return d as Product;
   }
 
   async updateProduct(id: string, data: Partial<Product>): Promise<void> {
@@ -100,7 +150,9 @@ export class DatabaseStorage {
     const snap = await db.collection("products").where("qrCode", "==", qrCode).limit(1).get();
     if (snap.empty) return null;
     const doc = snap.docs[0];
-    return { id: doc.id, ...(doc.data() as Product) } as Product;
+    const d = doc.data() as Product;
+    (d as any).id = doc.id;
+    return d as Product;
   }
 
   async decrementQuantityAndRecordSale(productId: string): Promise<{ updated: Product } | null> {
@@ -147,7 +199,11 @@ export class DatabaseStorage {
       query = query.where("productId", "==", productId);
     }
     const snapshot = await query.orderBy("createdAt", "desc").get();
-    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as InventoryTransaction));
+    return snapshot.docs.map((doc) => {
+      const d = doc.data() as InventoryTransaction;
+      (d as any).id = doc.id;
+      return d as InventoryTransaction;
+    });
   }
 
   async addInventoryTransaction(data: InsertInventoryTransaction): Promise<InventoryTransaction> {
@@ -161,12 +217,21 @@ export class DatabaseStorage {
     return newTx as InventoryTransaction;
   }
 
+  // Backwards-compatible alias
+  async createInventoryTransaction(data: InsertInventoryTransaction): Promise<InventoryTransaction> {
+    return this.addInventoryTransaction(data);
+  }
+
   // ===============================
   // ACCOUNTING ENTRIES
   // ===============================
   async getAccountingEntries(): Promise<AccountingEntry[]> {
     const snapshot = await db.collection("accountingEntries").orderBy("createdAt", "desc").get();
-    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as AccountingEntry));
+    return snapshot.docs.map((doc) => {
+      const d = doc.data() as AccountingEntry;
+      (d as any).id = doc.id;
+      return d as AccountingEntry;
+    });
   }
 
   async addAccountingEntry(data: InsertAccountingEntry): Promise<AccountingEntry> {
@@ -180,12 +245,21 @@ export class DatabaseStorage {
     return newEntry as AccountingEntry;
   }
 
+  // Backwards-compatible alias
+  async createAccountingEntry(data: InsertAccountingEntry): Promise<AccountingEntry> {
+    return this.addAccountingEntry(data);
+  }
+
   // ===============================
   // CHAT MESSAGES
   // ===============================
   async getChatMessages(): Promise<ChatMessage[]> {
     const snapshot = await db.collection("chatMessages").orderBy("createdAt", "asc").get();
-    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as ChatMessage));
+    return snapshot.docs.map((doc) => {
+      const d = doc.data() as ChatMessage;
+      (d as any).id = doc.id;
+      return d as ChatMessage;
+    });
   }
 
   async addChatMessage(data: InsertChatMessage): Promise<ChatMessage> {

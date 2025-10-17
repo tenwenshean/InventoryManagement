@@ -156,7 +156,7 @@ export default function Accounting() {
                     {entries.map((entry) => (
                       <tr key={entry.id} className="border-t border-border hover:bg-muted/50 transition-colors" data-testid={`row-entry-${entry.id}`}>
                         <td className="p-4 text-foreground text-sm" data-testid={`text-entry-date-${entry.id}`}>
-                          {new Date(entry.createdAt).toLocaleDateString()}
+                          {(((entry.createdAt as any)?.toDate ? (entry.createdAt as any).toDate() : entry.createdAt ? new Date(entry.createdAt as any) : null)?.toLocaleDateString()) ?? '-'}
                         </td>
                         <td className="p-4" data-testid={`badge-entry-type-${entry.id}`}>
                           <Badge variant="outline" className="capitalize">
