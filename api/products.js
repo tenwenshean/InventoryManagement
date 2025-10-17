@@ -1,4 +1,4 @@
-import { db, verifyAuth, admin } from '../firebaseAdmin';
+import { db, verifyAuth, admin } from '../firebaseAdmin.js';
 
 export default async function handler(req, res) {
   // CORS headers
