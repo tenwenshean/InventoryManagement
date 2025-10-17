@@ -37,6 +37,8 @@ Make sure `vercel.json` has `outputDirectory: "dist"` and `buildCommand: "npm ru
 
 ## Local development notes
 - You can run locally with `npm run dev` (needs `tsx` to run `server/index.ts`).
+
+Note: small harmless edit to this file to trigger a redeploy on Vercel.
 - To test server endpoints locally, set local env vars (e.g., create `.env.local` or use your shell):
   - $env:FIREBASE_PROJECT_ID = "..."; $env:FIREBASE_CLIENT_EMAIL = "..."; $env:FIREBASE_PRIVATE_KEY = "...";
 
