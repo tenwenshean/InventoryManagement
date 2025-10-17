@@ -1,54 +1,239 @@
-import express from 'express';
-import admin from 'firebase-admin';
-import fs from 'fs';
+// Initialize Firebase Admin for Vercel Serverless
+let admin, db, auth;
 
-// Initialize Firebase Admin
-let serviceAccount;
-try {
-  // Try reading from file (local dev)
-  serviceAccount = JSON.parse(fs.readFileSync('firebase-key.json', 'utf8'));
-} catch (e) {
-  // Fallback to environment variable (Vercel production)
-  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-}
+async function initializeFirebase() {
+  if (db && auth) return { db, auth };
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
-}
-
-const db = admin.firestore();
-const auth = admin.auth();
-
-const app = express();
-app.use(express.json());
-
-// Middleware for authentication
-async function isAuthenticated(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'Unauthorized - Missing token' });
+  // Dynamic import for serverless
+  if (!admin) {
+    admin = await import('firebase-admin');
   }
+
+  if (admin.default.apps.length) {
+    db = admin.default.firestore();
+    auth = admin.default.auth();
+    return { db, auth };
+  }
+
+  let serviceAccount;
+  
+  // Check if environment variable exists and is not empty
+  const firebaseEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
+  
+  if (!firebaseEnv || firebaseEnv === 'undefined' || firebaseEnv.trim() === '') {
+    console.error('FIREBASE_SERVICE_ACCOUNT is not set or empty');
+    throw new Error('FIREBASE_SERVICE_ACCOUNT environment variable not configured. Please add it in Vercel project settings.');
+  }
+  
+  try {
+    serviceAccount = JSON.parse(firebaseEnv);
+    
+    // Validate required fields
+    if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
+      throw new Error('Firebase service account is missing required fields');
+    }
+  } catch (e) {
+    console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT:', e.message);
+    throw new Error(`Invalid Firebase credentials: ${e.message}`);
+  }
+
+  admin.default.initializeApp({
+    credential: admin.default.credential.cert(serviceAccount)
+  });
+
+  db = admin.default.firestore();
+  auth = admin.default.auth();
+  
+  return { db, auth };
+}
+
+// CORS headers helper
+function setCorsHeaders(res) {
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+}
+
+// Parse request body
+async function parseBody(req) {
+  if (req.body) return req.body;
+  
+  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const bodyText = Buffer.concat(chunks).toString();
+    try {
+      return JSON.parse(bodyText);
+    } catch (e) {
+      return {};
+    }
+  }
+  return {};
+}
+
+// Parse query parameters
+function parseQuery(url) {
+  const urlParts = url.split('?');
+  if (urlParts.length < 2) return {};
+  
+  const params = new URLSearchParams(urlParts[1]);
+  const query = {};
+  for (const [key, value] of params) {
+    query[key] = value;
+  }
+  return query;
+}
+
+// Authentication middleware
+async function authenticate(req) {
+  const { auth } = await initializeFirebase();
+  
+  const authHeader = req.headers.authorization || req.headers.Authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    throw { status: 401, message: 'Unauthorized - Missing token' };
+  }
+  
   const token = authHeader.split('Bearer ')[1];
   try {
     const decoded = await auth.verifyIdToken(token);
-    req.user = decoded;
-    next();
+    return decoded;
   } catch (error) {
     console.error('Auth error:', error);
-    return res.status(401).json({ message: 'Unauthorized - Invalid token' });
+    throw { status: 401, message: 'Unauthorized - Invalid token' };
   }
 }
 
-// ===== ROUTES =====
+// Main handler
+export default async function handler(req, res) {
+  setCorsHeaders(res);
 
-// Auth routes
-app.post('/auth/login', async (req, res) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  try {
+    // Initialize Firebase
+    await initializeFirebase();
+
+    // Parse body and query
+    req.body = await parseBody(req);
+    req.query = parseQuery(req.url);
+
+    // Parse the path after /api/
+    const urlPath = req.url.split('?')[0];
+    const path = urlPath.replace(/^\/api\/?/, '');
+    const pathParts = path.split('/').filter(Boolean);
+
+    // ===== AUTH ROUTES (public) =====
+    if (pathParts[0] === 'auth' && pathParts[1] === 'login' && req.method === 'POST') {
+      return await handleLogin(req, res);
+    }
+
+    // ===== AUTH USER ROUTE (protected) =====
+    if (pathParts[0] === 'auth' && pathParts[1] === 'user' && req.method === 'GET') {
+      const user = await authenticate(req);
+      return await handleGetUser(req, res, user);
+    }
+
+    // ===== DASHBOARD ROUTES (protected) =====
+    if (pathParts[0] === 'dashboard' && pathParts[1] === 'stats' && req.method === 'GET') {
+      const user = await authenticate(req);
+      return await handleDashboardStats(req, res, user);
+    }
+
+    // ===== PRODUCTS ROUTES (protected) =====
+    if (pathParts[0] === 'products') {
+      const user = await authenticate(req);
+
+      // GET /api/products
+      if (pathParts.length === 1 && req.method === 'GET') {
+        return await handleGetProducts(req, res, user);
+      }
+
+      // POST /api/products
+      if (pathParts.length === 1 && req.method === 'POST') {
+        return await handleCreateProduct(req, res, user);
+      }
+
+      // GET /api/products/:id
+      if (pathParts.length === 2 && req.method === 'GET') {
+        return await handleGetProduct(req, res, user, pathParts[1]);
+      }
+
+      // PUT /api/products/:id
+      if (pathParts.length === 2 && req.method === 'PUT') {
+        return await handleUpdateProduct(req, res, user, pathParts[1]);
+      }
+
+      // DELETE /api/products/:id
+      if (pathParts.length === 2 && req.method === 'DELETE') {
+        return await handleDeleteProduct(req, res, user, pathParts[1]);
+      }
+
+      // POST /api/products/:id/qr
+      if (pathParts.length === 3 && pathParts[2] === 'qr' && req.method === 'POST') {
+        return await handleGenerateQR(req, res, user, pathParts[1]);
+      }
+    }
+
+    // ===== CATEGORIES ROUTES (protected) =====
+    if (pathParts[0] === 'categories') {
+      const user = await authenticate(req);
+      
+      if (req.method === 'GET') {
+        return await handleGetCategories(req, res, user);
+      }
+      if (req.method === 'POST') {
+        return await handleCreateCategory(req, res, user);
+      }
+    }
+
+    // ===== QR ROUTES (public) =====
+    if (pathParts[0] === 'qr' && pathParts.length >= 2) {
+      const code = decodeURIComponent(pathParts.slice(1).join('/'));
+      
+      if (req.method === 'GET') {
+        return await handleResolveQR(req, res, code);
+      }
+      
+      if (pathParts.includes('confirm-sale') && req.method === 'POST') {
+        const qrCode = pathParts.slice(1, pathParts.indexOf('confirm-sale')).join('/');
+        return await handleConfirmSale(req, res, decodeURIComponent(qrCode));
+      }
+    }
+
+    // Route not found
+    return res.status(404).json({ message: 'Route not found', path: pathParts.join('/') });
+
+  } catch (error) {
+    console.error('Handler error:', error);
+    
+    if (error.status) {
+      return res.status(error.status).json({ message: error.message });
+    }
+    
+    return res.status(500).json({ 
+      message: error.message || 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+}
+
+// ===== HANDLER FUNCTIONS =====
+
+async function handleLogin(req, res) {
+  const { auth } = await initializeFirebase();
+  const { db } = await initializeFirebase();
   const { token } = req.body;
+  
   if (!token) {
     return res.status(400).json({ message: 'Missing token' });
   }
+
   try {
     const decoded = await auth.verifyIdToken(token);
     const { uid, email, name, picture } = decoded;
@@ -66,31 +251,35 @@ app.post('/auth/login', async (req, res) => {
     }
     
     const userData = (await userRef.get()).data();
-    res.json({ message: 'Login successful', user: userData });
+    return res.json({ message: 'Login successful', user: userData });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(401).json({ message: 'Invalid or expired token' });
+    return res.status(401).json({ message: 'Invalid or expired token' });
   }
-});
+}
 
-app.get('/auth/user', isAuthenticated, async (req, res) => {
+async function handleGetUser(req, res, user) {
+  const { db } = await initializeFirebase();
+  
   try {
-    const userDoc = await db.collection('users').doc(req.user.uid).get();
-    const user = userDoc.exists ? userDoc.data() : { uid: req.user.uid, email: req.user.email };
-    res.json(user);
+    const userDoc = await db.collection('users').doc(user.uid).get();
+    const userData = userDoc.exists ? userDoc.data() : { uid: user.uid, email: user.email };
+    return res.json(userData);
   } catch (error) {
     console.error('Error fetching user:', error);
-    res.status(500).json({ message: 'Failed to fetch user' });
+    return res.status(500).json({ message: 'Failed to fetch user' });
   }
-});
+}
 
-// Products routes
-app.get('/products', isAuthenticated, async (req, res) => {
+async function handleGetProducts(req, res, user) {
+  const { db } = await initializeFirebase();
+  
   try {
     const search = req.query.search;
-    let query = db.collection('products').where('userId', '==', req.user.uid);
+    const snapshot = await db.collection('products')
+      .where('userId', '==', user.uid)
+      .get();
     
-    const snapshot = await query.get();
     let products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     
     if (search) {
@@ -101,39 +290,45 @@ app.get('/products', isAuthenticated, async (req, res) => {
       );
     }
     
-    res.json(products);
+    return res.json(products);
   } catch (error) {
     console.error('Error fetching products:', error);
-    res.status(500).json({ message: 'Failed to fetch products' });
+    return res.status(500).json({ message: 'Failed to fetch products', error: error.message });
   }
-});
+}
 
-app.get('/products/:id', isAuthenticated, async (req, res) => {
+async function handleGetProduct(req, res, user, productId) {
+  const { db } = await initializeFirebase();
+  
   try {
-    const doc = await db.collection('products').doc(req.params.id).get();
-    if (!doc.exists) return res.status(404).json({ message: 'Product not found' });
+    const doc = await db.collection('products').doc(productId).get();
+    if (!doc.exists) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
     
     const product = { id: doc.id, ...doc.data() };
-    if (product.userId !== req.user.uid) {
+    if (product.userId !== user.uid) {
       return res.status(403).json({ message: 'Forbidden' });
     }
     
-    res.json(product);
+    return res.json(product);
   } catch (error) {
     console.error('Error fetching product:', error);
-    res.status(500).json({ message: 'Failed to fetch product' });
+    return res.status(500).json({ message: 'Failed to fetch product' });
   }
-});
+}
 
-app.post('/products', isAuthenticated, async (req, res) => {
+async function handleCreateProduct(req, res, user) {
+  const { db, admin } = await initializeFirebase();
+  
   try {
     const productData = req.body;
     const ref = db.collection('products').doc();
     const newProduct = {
       ...productData,
       id: ref.id,
-      userId: req.user.uid,
-      userEmail: req.user.email,
+      userId: user.uid,
+      userEmail: user.email,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       isActive: productData.isActive ?? true,
@@ -141,20 +336,24 @@ app.post('/products', isAuthenticated, async (req, res) => {
     };
     
     await ref.set(newProduct);
-    res.status(201).json(newProduct);
+    return res.status(201).json(newProduct);
   } catch (error) {
     console.error('Error creating product:', error);
-    res.status(400).json({ message: 'Failed to create product' });
+    return res.status(400).json({ message: 'Failed to create product' });
   }
-});
+}
 
-app.put('/products/:id', isAuthenticated, async (req, res) => {
+async function handleUpdateProduct(req, res, user, productId) {
+  const { db, admin } = await initializeFirebase();
+  
   try {
-    const productRef = db.collection('products').doc(req.params.id);
+    const productRef = db.collection('products').doc(productId);
     const doc = await productRef.get();
     
-    if (!doc.exists) return res.status(404).json({ message: 'Product not found' });
-    if (doc.data().userId !== req.user.uid) {
+    if (!doc.exists) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    if (doc.data().userId !== user.uid) {
       return res.status(403).json({ message: 'Forbidden' });
     }
     
@@ -163,39 +362,47 @@ app.put('/products/:id', isAuthenticated, async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
     
-    res.json({ id: req.params.id, ...doc.data(), ...req.body });
+    const updated = { id: productId, ...doc.data(), ...req.body };
+    return res.json(updated);
   } catch (error) {
     console.error('Error updating product:', error);
-    res.status(400).json({ message: 'Failed to update product' });
+    return res.status(400).json({ message: 'Failed to update product' });
   }
-});
+}
 
-app.delete('/products/:id', isAuthenticated, async (req, res) => {
+async function handleDeleteProduct(req, res, user, productId) {
+  const { db } = await initializeFirebase();
+  
   try {
-    const productRef = db.collection('products').doc(req.params.id);
+    const productRef = db.collection('products').doc(productId);
     const doc = await productRef.get();
     
-    if (!doc.exists) return res.status(404).json({ message: 'Product not found' });
-    if (doc.data().userId !== req.user.uid) {
+    if (!doc.exists) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    if (doc.data().userId !== user.uid) {
       return res.status(403).json({ message: 'Forbidden' });
     }
     
     await productRef.delete();
-    res.status(204).send();
+    return res.status(204).send();
   } catch (error) {
     console.error('Error deleting product:', error);
-    res.status(500).json({ message: 'Failed to delete product' });
+    return res.status(500).json({ message: 'Failed to delete product' });
   }
-});
+}
 
-app.post('/products/:id/qr', isAuthenticated, async (req, res) => {
+async function handleGenerateQR(req, res, user, productId) {
+  const { db, admin } = await initializeFirebase();
+  
   try {
-    const productId = req.params.id;
     const productRef = db.collection('products').doc(productId);
     const doc = await productRef.get();
     
-    if (!doc.exists) return res.status(404).json({ message: 'Product not found' });
-    if (doc.data().userId !== req.user.uid) {
+    if (!doc.exists) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    if (doc.data().userId !== user.uid) {
       return res.status(403).json({ message: 'Forbidden' });
     }
     
@@ -205,18 +412,19 @@ app.post('/products/:id/qr', isAuthenticated, async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
     
-    res.json({ productId, qrCode: uniqueCode });
+    return res.json({ productId, qrCode: uniqueCode });
   } catch (error) {
     console.error('Error generating QR:', error);
-    res.status(500).json({ message: 'Failed to generate QR code' });
+    return res.status(500).json({ message: 'Failed to generate QR code' });
   }
-});
+}
 
-// Dashboard stats
-app.get('/dashboard/stats', isAuthenticated, async (req, res) => {
+async function handleDashboardStats(req, res, user) {
+  const { db } = await initializeFirebase();
+  
   try {
     const productsSnap = await db.collection('products')
-      .where('userId', '==', req.user.uid)
+      .where('userId', '==', user.uid)
       .get();
     
     const products = productsSnap.docs.map(doc => doc.data());
@@ -229,7 +437,7 @@ app.get('/dashboard/stats', isAuthenticated, async (req, res) => {
       sum + parseFloat(p.price || 0) * (p.quantity || 0), 0
     );
     
-    res.json({
+    return res.json({
       totalProducts,
       lowStockItems,
       totalValue: totalValue.toFixed(2),
@@ -237,9 +445,105 @@ app.get('/dashboard/stats', isAuthenticated, async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
-    res.status(500).json({ message: 'Failed to fetch dashboard stats' });
+    return res.status(500).json({ message: 'Failed to fetch dashboard stats' });
   }
-});
+}
 
-// Export for Vercel serverless
-export default app;
+async function handleGetCategories(req, res, user) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const snapshot = await db.collection('categories')
+      .where('userId', '==', user.uid)
+      .get();
+    
+    const categories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return res.json(categories);
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    return res.status(500).json({ message: 'Failed to fetch categories' });
+  }
+}
+
+async function handleCreateCategory(req, res, user) {
+  const { db, admin } = await initializeFirebase();
+  
+  try {
+    const categoryData = req.body;
+    const ref = db.collection('categories').doc();
+    const newCategory = {
+      ...categoryData,
+      id: ref.id,
+      userId: user.uid,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    
+    await ref.set(newCategory);
+    return res.status(201).json(newCategory);
+  } catch (error) {
+    console.error('Error creating category:', error);
+    return res.status(400).json({ message: 'Failed to create category' });
+  }
+}
+
+async function handleResolveQR(req, res, code) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const snapshot = await db.collection('products')
+      .where('qrCode', '==', code)
+      .limit(1)
+      .get();
+    
+    if (snapshot.empty) {
+      return res.status(404).json({ message: 'QR not found' });
+    }
+    
+    const doc = snapshot.docs[0];
+    const product = { id: doc.id, ...doc.data() };
+    return res.json({ product });
+  } catch (error) {
+    console.error('Error resolving QR:', error);
+    return res.status(500).json({ message: 'Failed to resolve QR' });
+  }
+}
+
+async function handleConfirmSale(req, res, code) {
+  const { db, admin } = await initializeFirebase();
+  
+  try {
+    const snapshot = await db.collection('products')
+      .where('qrCode', '==', code)
+      .limit(1)
+      .get();
+    
+    if (snapshot.empty) {
+      return res.status(404).json({ message: 'QR not found' });
+    }
+    
+    const doc = snapshot.docs[0];
+    const productRef = doc.ref;
+    
+    await db.runTransaction(async (transaction) => {
+      const productDoc = await transaction.get(productRef);
+      if (!productDoc.exists) {
+        throw new Error('Product not found');
+      }
+      
+      const data = productDoc.data();
+      const currentQty = data.quantity || 0;
+      const newQty = Math.max(0, currentQty - 1);
+      
+      transaction.update(productRef, {
+        quantity: newQty,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    
+    const updated = await productRef.get();
+    return res.json({ success: true, product: { id: doc.id, ...updated.data() } });
+  } catch (error) {
+    console.error('Error confirming sale via QR:', error);
+    return res.status(500).json({ message: 'Failed to confirm sale' });
+  }
+}
