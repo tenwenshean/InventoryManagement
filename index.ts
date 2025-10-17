@@ -1,9 +1,9 @@
 import express from "express";
 import type { Request, Response } from "express";
-import "../server/db"; // Initialize Firebase
+import "./server/db"; // Initialize Firebase
 
 // Import your routes and storage
-import { registerRoutes } from "../server/routes";
+import { registerRoutes } from "./server/routes";
 
 const app = express();
 
