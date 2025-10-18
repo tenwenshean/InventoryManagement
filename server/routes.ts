@@ -185,14 +185,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/products/:id/qr", isAuthenticated, async (req, res) => {
     try {
       const productId = req.params.id;
+      // First verify the product exists
+      const product = await storage.getProduct(productId);
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      
       // Use product id + timestamp to ensure uniqueness; clients render the value into an image
       const uniqueCode = `${productId}:${Date.now()}`;
       await storage.setProductQrCode(productId, uniqueCode);
-      res.json({ productId, qrCode: uniqueCode });
+      
+      // Get the updated product to return
+      const updatedProduct = await storage.getProduct(productId);
+      res.json({ 
+        productId, 
+        qrCode: uniqueCode,
+        product: updatedProduct 
+      });
     } catch (error) {
       console.error("Error generating QR:", error);
-      const message = (error as any)?.message === "PRODUCT_NOT_FOUND" ? "Product not found" : "Failed to generate QR code";
-      res.status(message === "Product not found" ? 404 : 500).json({ message });
+      res.status(500).json({ 
+        message: "Failed to generate QR code",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   });
 

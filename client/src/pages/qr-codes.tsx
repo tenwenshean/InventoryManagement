@@ -101,20 +101,45 @@ export default function QRCodes() {
   const generateQRMutation = useMutation({
     mutationFn: async (productId: string) => {
       const response = await apiRequest("POST", `/api/products/${productId}/qr`);
-      if (!response.ok) throw new Error("Failed to generate QR code");
-      return response.json();
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: "Failed to generate QR code" }));
+        throw new Error(errorData.message || "Failed to generate QR code");
+      }
+      const data = await response.json();
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: async (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
-      toast({
-        title: "Success",
-        description: "QR code generated successfully",
-      });
+      
+      // Immediately update the QR URL in local state
+      try {
+        const qrUrl = await QRCode.toDataURL(
+          `${window.location.origin}/scan/${encodeURIComponent(data.qrCode)}`,
+          { width: 240, margin: 1 }
+        );
+        
+        setQrUrls(prev => ({
+          ...prev,
+          [data.productId]: qrUrl
+        }));
+        
+        toast({
+          title: "Success",
+          description: "QR code generated successfully",
+        });
+      } catch (error) {
+        console.error("Error generating QR image:", error);
+        toast({
+          title: "Warning",
+          description: "QR code generated but failed to display image. Please refresh.",
+          variant: "default",
+        });
+      }
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: "Failed to generate QR code. Please try again.",
+        description: error.message || "Failed to generate QR code. Please try again.",
         variant: "destructive",
       });
       console.error("Generate QR error:", error);
