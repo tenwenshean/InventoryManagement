@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
+import { queryKeys } from "@/lib/queryKeys";
 import { Package, AlertTriangle, DollarSign, ShoppingCart } from "lucide-react";
 
 interface DashboardStats {
@@ -11,7 +12,12 @@ interface DashboardStats {
 
 export default function DashboardStats() {
   const { data: stats, isLoading, error } = useQuery<DashboardStats>({
-    queryKey: ["/api/dashboard/stats"],
+    queryKey: queryKeys.dashboard.stats,
+    staleTime: 1000 * 30, // Consider data stale after 30 seconds
+    refetchInterval: 30000, // Refetch every 30 seconds
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   if (isLoading) {

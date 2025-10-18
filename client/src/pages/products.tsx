@@ -3,6 +3,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 import EditProductModal from "@/components/edit-product-modal";
 import {
   AlertDialog,
@@ -36,8 +37,8 @@ export default function Products() {
       await apiRequest("DELETE", `/api/products/${productId}`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       toast({
         title: "Success",
         description: "Product deleted successfully",
@@ -59,7 +60,8 @@ export default function Products() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       toast({
         title: "Success",
         description: "QR code generated successfully",
@@ -76,12 +78,16 @@ export default function Products() {
   });
 
   const { data: products, isLoading: productsLoading, error } = useQuery<Product[]>({
-    queryKey: ["/api/products", searchTerm],
+    queryKey: [...queryKeys.products.all, searchTerm],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/products?search=${searchTerm}`);
       return res.json();
     },
     enabled: isAuthenticated,
+    staleTime: 1000 * 30, // Consider data stale after 30 seconds
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   // Show loading state while checking auth

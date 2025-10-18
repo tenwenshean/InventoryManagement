@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { QrCode, Download, RefreshCw, Package, Printer } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 import type { Product } from "@shared/schema";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useEffect, useMemo, useState } from "react";
@@ -25,13 +26,17 @@ export default function QRCodes() {
     isLoading: productsLoading,
     error,
   } = useQuery<Product[]>({
-    queryKey: ["/api/products"],
+    queryKey: queryKeys.products.all,
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/products");
       if (!response.ok) throw new Error("Failed to fetch products");
       return response.json();
     },
     enabled: isAuthenticated,
+    staleTime: 1000 * 30, // Consider data stale after 30 seconds
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   const productsWithQR = useMemo(
@@ -100,7 +105,7 @@ export default function QRCodes() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
       toast({
         title: "Success",
         description: "QR code generated successfully",

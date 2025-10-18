@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Product, Category } from "@/types";
 import { getProducts, deleteProduct } from "@/services/productService";
 import { getCategories } from "@/services/categoryService";
+import { queryKeys } from "@/lib/queryKeys";
 import EditProductModal from "@/components/edit-product-modal";
 import {
   AlertDialog,
@@ -39,14 +40,21 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
 
   // Fetch products from Firestore
   const { data: products, isLoading, error } = useQuery<Product[]>({
-    queryKey: ["products", searchTerm],
+    queryKey: [...queryKeys.products.all, searchTerm],
     queryFn: getProducts,
+    staleTime: 1000 * 30, // Consider data stale after 30 seconds
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   // Fetch categories to resolve category names
   const { data: categories } = useQuery<Category[]>({
-    queryKey: ["categories"],
+    queryKey: queryKeys.categories.all,
     queryFn: getCategories,
+    staleTime: 1000 * 60 * 5, // Categories change less frequently
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
 
   const categoryNameById = useMemo(() => {
@@ -134,8 +142,8 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
       await deleteProduct(productId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       toast({
         title: "Success",
         description: "Product deleted successfully",
@@ -159,7 +167,8 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
       return productId;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       toast({
         title: "Success",
         description: "QR code generated successfully",
