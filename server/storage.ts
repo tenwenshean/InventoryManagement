@@ -120,6 +120,7 @@ export class DatabaseStorage {
       id: ref.id,
       userId,
       userEmail,
+      qrCode: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       isActive: data.isActive ?? true,
@@ -142,11 +143,25 @@ export class DatabaseStorage {
     return d as Product;
   }
 
-  async updateProduct(id: string, data: Partial<Product>): Promise<void> {
-    await db.collection("products").doc(id).update({
+  async updateProduct(id: string, data: Partial<Product>): Promise<Product> {
+    const ref = db.collection("products").doc(id);
+    await ref.update({
       ...data,
       updatedAt: new Date(),
     });
+    
+    // Fetch and return the updated product
+    const updatedDoc = await ref.get();
+    if (!updatedDoc.exists) {
+      throw new Error("Product not found after update");
+    }
+    
+    const productData = updatedDoc.data();
+    const product = {
+      ...productData,
+      id,
+    } as Product;
+    return product;
   }
 
   async setProductQrCode(id: string, qrCode: string): Promise<void> {

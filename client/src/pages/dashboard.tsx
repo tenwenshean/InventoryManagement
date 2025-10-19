@@ -7,14 +7,92 @@ import AddProductModal from "@/components/add-product-modal";
 import BulkUploadModal from "@/components/bulk-upload";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Upload, QrCode, Bell, Bot } from "lucide-react";
+import { Plus, Upload, Download, Bell, Bot } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
+import { useToast } from "@/hooks/use-toast";
+import type { Product } from "@/types";
 
 export default function Dashboard() {
   const { isAuthenticated, isLoading } = useAuth();
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [showChatbot, setShowChatbot] = useState(false);
+  const { toast } = useToast();
+
+  // Fetch products for CSV export
+  const { data: products } = useQuery<Product[]>({
+    queryKey: queryKeys.products.all,
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/products");
+      if (!response.ok) throw new Error("Failed to fetch products");
+      return response.json();
+    },
+  });
+
+  // CSV Export Handler
+  const handleExportCSV = () => {
+    if (!products || products.length === 0) {
+      toast({
+        title: "No Data",
+        description: "No products available to export",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // CSV Headers
+    const headers = [
+      "name",
+      "sku",
+      "description",
+      "categoryId",
+      "price",
+      "costPrice",
+      "quantity",
+      "minStockLevel",
+      "maxStockLevel",
+      "barcode",
+    ];
+
+    // Convert products to CSV rows
+    const csvRows = [
+      headers.join(","), // Header row
+      ...products.map((product) =>
+        headers
+          .map((header) => {
+            const value = product[header as keyof Product] || "";
+            // Escape commas and quotes in values
+            const stringValue = String(value).replace(/"/g, '""');
+            return stringValue.includes(",") ? `"${stringValue}"` : stringValue;
+          })
+          .join(",")
+      ),
+    ];
+
+    // Create CSV content
+    const csvContent = csvRows.join("\n");
+    
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute("href", url);
+    link.setAttribute("download", `inventory_export_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = "hidden";
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Success",
+      description: `Exported ${products.length} products to CSV`,
+    });
+  };
 
   // Show loading state while checking auth
   if (isLoading) {
@@ -103,14 +181,15 @@ export default function Dashboard() {
             <Button
               variant="outline"
               className="flex items-center space-x-3 p-4 h-auto justify-start"
-              data-testid="button-generate-qr"
+              onClick={handleExportCSV}
+              data-testid="button-export-csv"
             >
               <div className="bg-chart-3/10 p-2 rounded-lg">
-                <QrCode className="text-chart-3" size={20} />
+                <Download className="text-chart-3" size={20} />
               </div>
               <div className="text-left">
-                <p className="font-medium text-foreground">Generate QR Codes</p>
-                <p className="text-sm text-muted-foreground">For selected products</p>
+                <p className="font-medium text-foreground">Export to CSV</p>
+                <p className="text-sm text-muted-foreground">Download all products</p>
               </div>
             </Button>
           </div>
