@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { LogIn, Package } from "lucide-react";
+import { LogIn, Package, Store } from "lucide-react";
 
 export default function Landing() {
   const [isLoading, setIsLoading] = useState(false);
@@ -68,6 +68,25 @@ export default function Landing() {
               >
                 <LogIn className="mr-2" size={18} />
                 {isLoading ? "Signing In..." : "Sign In with Google"}
+              </Button>
+
+              <div className="relative my-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-300"></div>
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-white text-gray-500">or</span>
+                </div>
+              </div>
+
+              <Button
+                onClick={() => navigate("/customer")}
+                variant="outline"
+                className="w-full"
+                data-testid="button-customer-portal"
+              >
+                <Store className="mr-2" size={18} />
+                Browse Products (Customer Portal)
               </Button>
             </div>
           </div>

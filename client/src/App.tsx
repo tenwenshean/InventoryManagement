@@ -18,6 +18,7 @@ import QRCodes from "@/pages/qr-codes";
 import Reports from "@/pages/reports";
 import Settings from "@/pages/settings";
 import ScanPage from "@/pages/scan";
+import CustomerPortal from "@/pages/customer";
 
 // Optional: you can wrap all authenticated routes with a layout (with sidebar)
 import Sidebar from "@/components/sidebar";
@@ -39,6 +40,7 @@ function AuthenticatedApp() {
         <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/dashboard" component={Dashboard} />
+          <Route path="/customer" component={CustomerPortal} />
           <Route path="/scan/:code" component={ScanPage} />
           <Route path="/inventory" component={Inventory} />
           <Route path="/products" component={Products} />
@@ -77,6 +79,7 @@ function UnauthenticatedApp() {
   return (
     <Switch>
       <Route path="/" component={Landing} />
+      <Route path="/customer" component={CustomerPortal} />
       <Route path="/scan/:code" component={ScanPage} />
       <Route component={NotFound} />
     </Switch>
