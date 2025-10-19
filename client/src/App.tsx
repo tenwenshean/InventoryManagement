@@ -33,10 +33,13 @@ function AuthenticatedApp() {
     }
   }, [location, setLocation]);
 
+  // Check if current route is customer portal
+  const isCustomerPortal = location === "/customer";
+
   return (
     <div className="flex">
-      <Sidebar />
-      <main className="flex-1 ml-64 p-6">
+      {!isCustomerPortal && <Sidebar />}
+      <main className={isCustomerPortal ? "flex-1" : "flex-1 ml-64 p-6"}>
         <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/dashboard" component={Dashboard} />
