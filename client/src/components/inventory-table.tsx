@@ -8,8 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Edit, QrCode, Trash2, Package, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Product, Category } from "@/types";
-import { getProducts, deleteProduct } from "@/services/productService";
-import { getCategories } from "@/services/categoryService";
+import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import EditProductModal from "@/components/edit-product-modal";
 import {
@@ -38,20 +37,28 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Fetch products from Firestore
+  // Fetch products via API
   const { data: products, isLoading, error } = useQuery<Product[]>({
     queryKey: [...queryKeys.products.all, searchTerm],
-    queryFn: getProducts,
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/products?search=${searchTerm}`);
+      if (!response.ok) throw new Error("Failed to fetch products");
+      return response.json();
+    },
     staleTime: 1000 * 30, // Consider data stale after 30 seconds
     refetchOnMount: true,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
 
-  // Fetch categories to resolve category names
+  // Fetch categories via API
   const { data: categories } = useQuery<Category[]>({
     queryKey: queryKeys.categories.all,
-    queryFn: getCategories,
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/categories");
+      if (!response.ok) throw new Error("Failed to fetch categories");
+      return response.json();
+    },
     staleTime: 1000 * 60 * 5, // Categories change less frequently
     refetchOnMount: true,
     refetchOnWindowFocus: true,
@@ -136,10 +143,11 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
     return pages;
   };
 
-  // Delete product mutation
+  // Delete product mutation via API
   const deleteProductMutation = useMutation({
     mutationFn: async (productId: string) => {
-      await deleteProduct(productId);
+      const response = await apiRequest("DELETE", `/api/products/${productId}`);
+      if (!response.ok) throw new Error("Failed to delete product");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
@@ -159,12 +167,12 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
     },
   });
 
-  // Generate QR code mutation (placeholder - implement based on your needs)
+  // Generate QR code mutation via API
   const generateQRMutation = useMutation({
     mutationFn: async (productId: string) => {
-      // TODO: Implement QR code generation with Firestore
-      console.log("Generate QR for product:", productId);
-      return productId;
+      const response = await apiRequest("POST", `/api/products/${productId}/qr`);
+      if (!response.ok) throw new Error("Failed to generate QR code");
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });

@@ -3,8 +3,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { insertProductSchema, type InsertProduct, type Category } from "@/types";
-import { createProduct } from "@/services/productService";
-import { getCategories } from "@/services/categoryService";
+import { apiRequest } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -58,24 +58,30 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
     },
   });
 
-  // Fetch categories from Firestore
+  // Fetch categories via API
   const { data: categories, isLoading: categoriesLoading } = useQuery<Category[]>({
-    queryKey: ["categories"],
-    queryFn: getCategories,
+    queryKey: queryKeys.categories.all,
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/categories");
+      if (!response.ok) throw new Error("Failed to fetch categories");
+      return response.json();
+    },
   });
 
-  // Create product mutation
+  // Create product mutation via API
   const createProductMutation = useMutation({
     mutationFn: async (productData: InsertProduct) => {
       console.log("🚀 Submitting product:", productData);
-      return await createProduct(productData);
+      const response = await apiRequest("POST", "/api/products", productData);
+      if (!response.ok) throw new Error("Failed to create product");
+      return response.json();
     },
-    onSuccess: (productId) => {
-      console.log("✅ Product created successfully:", productId);
+    onSuccess: (data) => {
+      console.log("✅ Product created successfully:", data);
       
       // Invalidate queries to refresh data
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       
       toast({
         title: "Success",

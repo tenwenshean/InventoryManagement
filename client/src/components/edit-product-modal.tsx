@@ -3,6 +3,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import { apiRequest } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 import {
   Dialog,
   DialogContent,
@@ -30,8 +32,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
-import { getProduct, updateProduct } from "@/services/productService";
-import { getCategories } from "@/services/categoryService";
 import { insertProductSchema } from "@/types";
 import type { Product, Category } from "@/types";
 
@@ -47,17 +47,25 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Fetch product data from Firestore
+  // Fetch product data via API
   const { data: product, isLoading: productLoading } = useQuery<Product | null>({
-    queryKey: ["product", productId],
-    queryFn: () => getProduct(productId),
+    queryKey: [...queryKeys.products.detail(productId)],
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/products/${productId}`);
+      if (!response.ok) throw new Error("Failed to fetch product");
+      return response.json();
+    },
     enabled: isOpen && !!productId,
   });
 
-  // Fetch categories from Firestore
+  // Fetch categories via API
   const { data: categories } = useQuery<Category[]>({
-    queryKey: ["categories"],
-    queryFn: getCategories,
+    queryKey: queryKeys.categories.all,
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/categories");
+      if (!response.ok) throw new Error("Failed to fetch categories");
+      return response.json();
+    },
     enabled: isOpen,
   });
 
@@ -99,13 +107,15 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
   const updateProductMutation = useMutation({
     mutationFn: async (data: z.infer<typeof editProductSchema>) => {
       console.log("🔄 Updating product:", productId, data);
-      await updateProduct(productId, data);
+      const response = await apiRequest("PUT", `/api/products/${productId}`, data);
+      if (!response.ok) throw new Error("Failed to update product");
+      return response.json();
     },
     onSuccess: () => {
       console.log("✅ Product updated successfully");
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/product", productId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       toast({
         title: "Success",
         description: "Product updated successfully",

@@ -10,7 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, FileText, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
-import { createProduct } from "@/services/productService";
+import { apiRequest } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 import type { InsertProduct } from "@/types";
 
 interface BulkUploadModalProps {
@@ -98,7 +99,11 @@ export default function BulkUploadModal({ isOpen, onClose }: BulkUploadModalProp
             throw new Error("Missing required fields (name, sku, or categoryId)");
           }
 
-          await createProduct(product);
+          const response = await apiRequest("POST", "/api/products", product);
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: "Failed to create product" }));
+            throw new Error(errorData.message || "Failed to create product");
+          }
           results.success++;
         } catch (error: any) {
           results.failed++;
@@ -114,8 +119,8 @@ export default function BulkUploadModal({ isOpen, onClose }: BulkUploadModalProp
     },
     onSuccess: (results) => {
       setUploadResult(results);
-      queryClient.invalidateQueries({ queryKey: ["products"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       
       if (results.failed === 0) {
         toast({
