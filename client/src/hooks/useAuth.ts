@@ -1,12 +1,15 @@
 // hooks/useAuth.ts
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth } from "../../../firebaseClient";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const previousUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -15,10 +18,22 @@ export function useAuth() {
       auth,
       (firebaseUser) => {
         if (!isMounted) return;
+        
+        const currentUserId = firebaseUser?.uid || null;
+        const previousUserId = previousUserIdRef.current;
+        
         console.log(
           "Auth state changed:",
           firebaseUser?.email || "Not logged in"
         );
+        
+        // If user changed (login, logout, or switch accounts), clear all cached data
+        if (currentUserId !== previousUserId) {
+          console.log("User changed - clearing cache");
+          queryClient.clear(); // Clear all cached queries
+          previousUserIdRef.current = currentUserId;
+        }
+        
         setUser(firebaseUser);
         setIsLoading(false);
       },
@@ -35,7 +50,7 @@ export function useAuth() {
       isMounted = false;
       unsubscribe();
     };
-  }, []);
+  }, [queryClient]);
 
   const logout = async () => {
     try {

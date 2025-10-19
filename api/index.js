@@ -277,12 +277,10 @@ async function handleGetProducts(req, res, user) {
   try {
     const search = req.query.search;
     
-    // TEMPORARY: Show all products (remove userId filter for testing)
-    // TODO: Run migration script to add userId to all products, then re-enable filtering
+    // Filter products by userId for multi-user support
     const snapshot = await db.collection('products')
+      .where('userId', '==', user.uid)
       .get();
-    // Original code (re-enable after migration):
-    // .where('userId', '==', user.uid)
     
     let products = snapshot.docs.map(doc => ({ 
       id: doc.id, 
@@ -430,31 +428,44 @@ async function handleDashboardStats(req, res, user) {
   const { db } = await initializeFirebase();
   
   try {
-    // TEMPORARY: Show all products (remove userId filter for testing)
+    // Filter products by userId for multi-user support
     const productsSnap = await db.collection('products')
+      .where('userId', '==', user.uid)
       .get();
-    // Original code (re-enable after migration):
-    // .where('userId', '==', user.uid)
     
     const products = productsSnap.docs.map(doc => doc.data());
     const totalProducts = products.length;
-    const lowStockItems = products.filter(p => 
-      (p.quantity || 0) <= (p.minStockLevel || 0)
-    ).length;
     
-    const totalValue = products.reduce((sum, p) => 
-      sum + parseFloat(p.price || 0) * (p.quantity || 0), 0
-    );
+    // Count low stock items (quantity <= minStockLevel)
+    const lowStockItems = products.filter(p => {
+      const qty = parseInt(p.quantity) || 0;
+      const minStock = parseInt(p.minStockLevel) || 0;
+      return qty <= minStock && minStock > 0;
+    }).length;
     
-    return res.json({
-      totalProducts,
-      lowStockItems,
-      totalValue: totalValue.toFixed(2),
+    // Calculate total value (price * quantity)
+    const totalValue = products.reduce((sum, p) => {
+      const price = parseFloat(p.price) || 0;
+      const quantity = parseInt(p.quantity) || 0;
+      return sum + (price * quantity);
+    }, 0);
+    
+    // Return consistent format
+    const stats = {
+      totalProducts: totalProducts,
+      lowStockItems: lowStockItems,
+      totalValue: `$${totalValue.toFixed(2)}`,
       ordersToday: 0
-    });
+    };
+    
+    console.log('Dashboard stats:', stats);
+    return res.json(stats);
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
-    return res.status(500).json({ message: 'Failed to fetch dashboard stats' });
+    return res.status(500).json({ 
+      message: 'Failed to fetch dashboard stats',
+      error: error.message 
+    });
   }
 }
 
@@ -462,12 +473,10 @@ async function handleGetCategories(req, res, user) {
   const { db } = await initializeFirebase();
   
   try {
-    // TEMPORARY: Show all categories (remove userId filter for testing)
-    // TODO: Run migration script to add userId to all categories, then re-enable filtering
+    // Filter categories by userId for multi-user support
     const snapshot = await db.collection('categories')
+      .where('userId', '==', user.uid)
       .get();
-    // Original code (re-enable after migration):
-    // .where('userId', '==', user.uid)
     
     const categories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     return res.json(categories);

@@ -49,8 +49,12 @@ export class DatabaseStorage {
   // ===============================
   // CATEGORIES
   // ===============================
-  async getCategories(): Promise<Category[]> {
-    const snapshot = await db.collection("categories").orderBy("createdAt", "desc").get();
+  async getCategories(userId?: string): Promise<Category[]> {
+    let query: FirebaseFirestore.Query = db.collection("categories");
+    if (userId) {
+      query = query.where("userId", "==", userId);
+    }
+    const snapshot = await query.orderBy("createdAt", "desc").get();
     return snapshot.docs.map((doc) => {
       const d = doc.data() as Category;
       (d as any).id = doc.id;
@@ -58,16 +62,16 @@ export class DatabaseStorage {
     });
   }
 
-  async addCategory(data: InsertCategory): Promise<Category> {
+  async addCategory(data: InsertCategory, userId?: string): Promise<Category> {
     const ref = db.collection("categories").doc();
-    const newData = { ...data, id: ref.id, createdAt: new Date() };
+    const newData = { ...data, id: ref.id, userId, createdAt: new Date() };
     await ref.set(newData);
     return newData as Category;
   }
 
   // Backwards-compatible alias used by routes
-  async createCategory(data: InsertCategory): Promise<Category> {
-    return this.addCategory(data);
+  async createCategory(data: InsertCategory, userId?: string): Promise<Category> {
+    return this.addCategory(data, userId);
   }
 
   async deleteCategory(id: string): Promise<void> {
@@ -78,13 +82,17 @@ export class DatabaseStorage {
   // PRODUCTS
   // ===============================
   // Wrapper to support optional search parameter expected by routes
-  async getProducts(search?: string): Promise<Product[]> {
-    return this.getProductsBySearch(search);
+  async getProducts(search?: string, userId?: string): Promise<Product[]> {
+    return this.getProductsBySearch(search, userId);
   }
 
   // Support optional search parameter
-  async getProductsBySearch(search?: string): Promise<Product[]> {
-    let query: FirebaseFirestore.Query = db.collection("products").orderBy("createdAt", "desc");
+  async getProductsBySearch(search?: string, userId?: string): Promise<Product[]> {
+    let query: FirebaseFirestore.Query = db.collection("products");
+    if (userId) {
+      query = query.where("userId", "==", userId);
+    }
+    query = query.orderBy("createdAt", "desc");
     if (search) {
       // Simple search: match name or sku (case-insensitive)
       // Firestore doesn't support OR or contains easily; for now, fallback to client-side filter
@@ -105,11 +113,13 @@ export class DatabaseStorage {
     });
   }
 
-  async addProduct(data: InsertProduct): Promise<Product> {
+  async addProduct(data: InsertProduct, userId?: string, userEmail?: string): Promise<Product> {
     const ref = db.collection("products").doc();
     const newProduct = {
       ...data,
       id: ref.id,
+      userId,
+      userEmail,
       createdAt: new Date(),
       updatedAt: new Date(),
       isActive: data.isActive ?? true,
@@ -120,8 +130,8 @@ export class DatabaseStorage {
   }
 
   // Backwards-compatible alias used by routes
-  async createProduct(data: InsertProduct): Promise<Product> {
-    return this.addProduct(data);
+  async createProduct(data: InsertProduct, userId?: string, userEmail?: string): Promise<Product> {
+    return this.addProduct(data, userId, userEmail);
   }
 
   async getProduct(id: string): Promise<Product | null> {

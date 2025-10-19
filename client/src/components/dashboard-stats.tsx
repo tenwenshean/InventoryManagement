@@ -15,16 +15,51 @@ export default function DashboardStats() {
   const { data: stats, isLoading, error } = useQuery<DashboardStats>({
     queryKey: queryKeys.dashboard.stats,
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/dashboard/stats");
-      if (!response.ok) throw new Error("Failed to fetch dashboard stats");
-      return response.json();
+      console.log("Fetching dashboard stats...");
+      try {
+        const response = await apiRequest("GET", "/api/dashboard/stats");
+        console.log("Dashboard stats response status:", response.status);
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          console.error("Dashboard stats API error:", errorData);
+          throw new Error(errorData.message || "Failed to fetch dashboard stats");
+        }
+        
+        const data = await response.json();
+        console.log("Dashboard stats data received:", data);
+        return data;
+      } catch (err) {
+        console.error("Dashboard stats fetch error:", err);
+        throw err;
+      }
     },
-    staleTime: 1000 * 30, // Consider data stale after 30 seconds
-    refetchInterval: 30000, // Refetch every 30 seconds
+    staleTime: 1000 * 60, // Consider data stale after 60 seconds
+    refetchInterval: false, // Disable automatic refetching to prevent loops
     refetchOnMount: true,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false, // Disable refetch on window focus
     refetchOnReconnect: true,
+    retry: 2, // Retry failed requests twice
   });
+
+  console.log("Dashboard stats state:", { isLoading, error: error?.message, hasData: !!stats });
+
+  if (error) {
+    console.error("Dashboard stats error:", error);
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <Card className="col-span-full">
+          <CardContent className="p-6">
+            <p className="text-destructive">
+              Failed to load dashboard statistics. 
+              {error instanceof Error && <span className="block text-sm mt-2">{error.message}</span>}
+            </p>
+            <p className="text-sm text-muted-foreground mt-2">Check the browser console for details.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

@@ -80,9 +80,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===================== CATEGORY ROUTES =====================
-  app.get("/api/categories", isAuthenticated, async (req, res) => {
+  app.get("/api/categories", isAuthenticated, async (req: any, res) => {
     try {
-      const categories = await storage.getCategories();
+      const categories = await storage.getCategories(req.user.uid);
       res.json(categories);
     } catch (error) {
       console.error("Error fetching categories:", error);
@@ -90,10 +90,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/categories", isAuthenticated, async (req, res) => {
+  app.post("/api/categories", isAuthenticated, async (req: any, res) => {
     try {
       const categoryData = insertCategorySchema.parse(req.body);
-      const category = await storage.createCategory(categoryData);
+      const category = await storage.createCategory(categoryData, req.user.uid);
       res.status(201).json(category);
     } catch (error) {
       console.error("Error creating category:", error);
@@ -102,10 +102,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===================== PRODUCT ROUTES =====================
-  app.get("/api/products", isAuthenticated, async (req, res) => {
+  app.get("/api/products", isAuthenticated, async (req: any, res) => {
     try {
       const search = req.query.search as string;
-      const products = await storage.getProducts(search);
+      const products = await storage.getProducts(search, req.user.uid);
       res.json(products);
     } catch (error) {
       console.error("Error fetching products:", error);
@@ -138,7 +138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/products", isAuthenticated, async (req: any, res) => {
     try {
       const productData = insertProductSchema.parse(req.body);
-      const product = await storage.createProduct(productData);
+      const product = await storage.createProduct(productData, req.user.uid, req.user.email);
 
       // Create accounting entry
       if (productData.costPrice && productData.quantity) {
@@ -238,6 +238,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error confirming sale via QR:", error);
       res.status(500).json({ message: "Failed to confirm sale" });
+    }
+  });
+
+  // ===================== DASHBOARD STATS ROUTE =====================
+  app.get("/api/dashboard/stats", isAuthenticated, async (req: any, res) => {
+    try {
+      const products = await storage.getProducts(undefined, req.user.uid);
+      const totalProducts = products.length;
+      
+      // Count low stock items (quantity <= minStockLevel)
+      const lowStockItems = products.filter((p: any) => {
+        const qty = parseInt(p.quantity) || 0;
+        const minStock = parseInt(p.minStockLevel) || 0;
+        return qty <= minStock && minStock > 0;
+      }).length;
+      
+      // Calculate total value (price * quantity)
+      const totalValue = products.reduce((sum, p: any) => {
+        const price = parseFloat(p.price) || 0;
+        const quantity = parseInt(p.quantity) || 0;
+        return sum + (price * quantity);
+      }, 0);
+      
+      const stats = {
+        totalProducts,
+        lowStockItems,
+        totalValue: `$${totalValue.toFixed(2)}`,
+        ordersToday: 0
+      };
+      
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching dashboard stats:", error);
+      res.status(500).json({ 
+        message: "Failed to fetch dashboard stats",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   });
 
