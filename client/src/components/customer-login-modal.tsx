@@ -38,13 +38,25 @@ export default function CustomerLoginModal({
   useEffect(() => {
     if (isOpen && !recaptchaVerifier) {
       try {
+        // Clear any existing reCAPTCHA
+        const container = document.getElementById("recaptcha-container");
+        if (container) {
+          container.innerHTML = "";
+        }
+        
         const verifier = initRecaptcha("recaptcha-container");
         setRecaptchaVerifier(verifier);
+        console.log("✅ reCAPTCHA initialized");
       } catch (error) {
-        console.error("Error initializing reCAPTCHA:", error);
+        console.error("❌ Error initializing reCAPTCHA:", error);
+        toast({
+          title: "Setup Required",
+          description: "Please enable Phone Authentication in Firebase Console",
+          variant: "destructive",
+        });
       }
     }
-  }, [isOpen, recaptchaVerifier]);
+  }, [isOpen, recaptchaVerifier, toast]);
 
   // Reset state when modal closes
   useEffect(() => {
@@ -282,12 +294,17 @@ export default function CustomerLoginModal({
             </>
           )}
 
-          {/* reCAPTCHA container (invisible) */}
-          <div id="recaptcha-container"></div>
+          {/* reCAPTCHA container */}
+          <div className="flex justify-center">
+            <div id="recaptcha-container" className="flex justify-center"></div>
+          </div>
         </div>
 
-        <div className="text-center text-sm text-gray-500">
+        <div className="text-center text-sm text-gray-500 space-y-2">
           <p>By logging in, you agree to our Terms & Conditions</p>
+          <p className="text-xs text-gray-400">
+            Protected by reCAPTCHA and Google Privacy Policy
+          </p>
         </div>
       </DialogContent>
     </Dialog>

@@ -56,17 +56,26 @@ export async function loginWithGoogle() {
 /**
  * Initialize reCAPTCHA verifier for phone authentication
  * @param containerId - ID of the HTML element to render reCAPTCHA
+ * @param visible - Whether to show visible reCAPTCHA (default: false for invisible)
  */
-export function initRecaptcha(containerId: string): RecaptchaVerifier {
+export function initRecaptcha(containerId: string, visible: boolean = false): RecaptchaVerifier {
   const recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
-    size: "invisible",
-    callback: () => {
-      console.log("✅ reCAPTCHA verified");
+    size: visible ? "normal" : "invisible",
+    callback: (response: any) => {
+      console.log("✅ reCAPTCHA verified", response);
     },
     "expired-callback": () => {
-      console.log("⚠️ reCAPTCHA expired");
+      console.log("⚠️ reCAPTCHA expired - please refresh");
     },
   });
+  
+  // Render the reCAPTCHA
+  recaptchaVerifier.render().then((widgetId) => {
+    console.log("✅ reCAPTCHA widget rendered:", widgetId);
+  }).catch((error) => {
+    console.error("❌ reCAPTCHA render error:", error);
+  });
+  
   return recaptchaVerifier;
 }
 
