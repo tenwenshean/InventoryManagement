@@ -371,7 +371,20 @@ async function handleCreateProduct(req, res, user) {
     console.log('Creating product:', { name: newProduct.name, sku: newProduct.sku, userId: user.uid });
     await ref.set(newProduct);
     console.log('Product created successfully:', ref.id);
-    return res.status(201).json(newProduct);
+    
+    // Fetch the created document to get actual timestamps
+    const createdDoc = await ref.get();
+    const createdData = createdDoc.data();
+    
+    // Convert timestamps to ISO strings for JSON serialization
+    const responseData = {
+      id: ref.id,
+      ...createdData,
+      createdAt: createdData.createdAt?.toDate?.()?.toISOString() || createdData.createdAt,
+      updatedAt: createdData.updatedAt?.toDate?.()?.toISOString() || createdData.updatedAt
+    };
+    
+    return res.status(201).json(responseData);
   } catch (error) {
     console.error('Error creating product:', error);
     console.error('Product data:', req.body);
@@ -403,8 +416,19 @@ async function handleUpdateProduct(req, res, user, productId) {
       updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
     });
     
-    const updated = { id: productId, ...doc.data(), ...req.body };
-    return res.json(updated);
+    // Fetch the updated document to get the actual timestamp
+    const updatedDoc = await productRef.get();
+    const updatedData = updatedDoc.data();
+    
+    // Convert timestamps to ISO strings for JSON serialization
+    const responseData = {
+      id: productId,
+      ...updatedData,
+      createdAt: updatedData.createdAt?.toDate?.()?.toISOString() || updatedData.createdAt,
+      updatedAt: updatedData.updatedAt?.toDate?.()?.toISOString() || updatedData.updatedAt
+    };
+    
+    return res.json(responseData);
   } catch (error) {
     console.error('Error updating product:', error);
     return res.status(400).json({ message: 'Failed to update product' });
