@@ -328,6 +328,20 @@ async function handleCreateProduct(req, res, user) {
   
   try {
     const productData = req.body;
+    
+    // Validate required fields
+    if (!productData.name || !productData.sku || !productData.categoryId) {
+      console.error('Missing required fields:', { name: productData.name, sku: productData.sku, categoryId: productData.categoryId });
+      return res.status(400).json({ 
+        message: 'Missing required fields: name, sku, and categoryId are required',
+        missing: {
+          name: !productData.name,
+          sku: !productData.sku,
+          categoryId: !productData.categoryId
+        }
+      });
+    }
+    
     const ref = db.collection('products').doc();
     const newProduct = {
       ...productData,
@@ -340,11 +354,18 @@ async function handleCreateProduct(req, res, user) {
       quantity: productData.quantity ?? 0
     };
     
+    console.log('Creating product:', { name: newProduct.name, sku: newProduct.sku, userId: user.uid });
     await ref.set(newProduct);
+    console.log('Product created successfully:', ref.id);
     return res.status(201).json(newProduct);
   } catch (error) {
     console.error('Error creating product:', error);
-    return res.status(400).json({ message: 'Failed to create product' });
+    console.error('Product data:', req.body);
+    return res.status(400).json({ 
+      message: 'Failed to create product',
+      error: error.message || 'Unknown error',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 }
 
