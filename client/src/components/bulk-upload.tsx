@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -9,10 +9,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, FileText, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Upload, FileText, X, Loader2, CheckCircle2, AlertCircle, Info } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
-import type { InsertProduct } from "@/types";
+import type { InsertProduct, Category } from "@/types";
 
 interface BulkUploadModalProps {
   isOpen: boolean;
@@ -33,8 +33,20 @@ export default function BulkUploadModal({ isOpen, onClose }: BulkUploadModalProp
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
+  const [showCategoryHelp, setShowCategoryHelp] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Fetch categories to help users
+  const { data: categories } = useQuery<Category[]>({
+    queryKey: queryKeys.categories.all,
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/categories");
+      if (!response.ok) throw new Error("Failed to fetch categories");
+      return response.json();
+    },
+    enabled: isOpen,
+  });
 
   const parseCSV = (text: string): ParsedProduct[] => {
     const lines = text.split("\n").filter(line => line.trim());
@@ -99,13 +111,19 @@ export default function BulkUploadModal({ isOpen, onClose }: BulkUploadModalProp
             throw new Error("Missing required fields (name, sku, or categoryId)");
           }
 
+          console.log(`Uploading product row ${product.rowNumber}:`, product);
           const response = await apiRequest("POST", "/api/products", product);
+          
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({ message: "Failed to create product" }));
+            console.error(`Failed to upload row ${product.rowNumber}:`, errorData);
             throw new Error(errorData.message || "Failed to create product");
           }
+          
+          console.log(`Successfully uploaded row ${product.rowNumber}`);
           results.success++;
         } catch (error: any) {
+          console.error(`Error uploading row ${product.rowNumber}:`, error);
           results.failed++;
           results.errors.push({
             row: product.rowNumber,
@@ -235,6 +253,39 @@ export default function BulkUploadModal({ isOpen, onClose }: BulkUploadModalProp
             <p className="text-xs text-muted-foreground mt-2">
               <strong>Required fields:</strong> name, sku, categoryId, price
             </p>
+            
+            {/* Category IDs Helper */}
+            <div className="mt-3 pt-3 border-t border-border">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowCategoryHelp(!showCategoryHelp)}
+                className="text-xs p-0 h-auto hover:bg-transparent"
+              >
+                <Info className="mr-1 h-3 w-3" />
+                {showCategoryHelp ? "Hide" : "Show"} your Category IDs
+              </Button>
+              
+              {showCategoryHelp && (
+                <div className="mt-2 p-2 bg-background rounded border border-border">
+                  {categories && categories.length > 0 ? (
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-foreground mb-1">Use these IDs in your CSV:</p>
+                      {categories.map((cat) => (
+                        <div key={cat.id} className="text-xs text-muted-foreground flex justify-between">
+                          <span className="font-medium">{cat.name}:</span>
+                          <code className="bg-muted px-1 rounded">{cat.id}</code>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-destructive">
+                      No categories found. Please create categories first before bulk uploading products.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Upload Result */}
