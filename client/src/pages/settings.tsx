@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import Sidebar from "@/components/sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,10 +9,90 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { 
-  Settings,  User, Bell, Shield,  Database,  Mail,  Palette,  Package,  DollarSign,AlertTriangle, Save, RefreshCw} from "lucide-react";
+  Settings,  User, Bell, Shield,  Database,  Mail,  Palette,  Package,  DollarSign,AlertTriangle, Save, RefreshCw, Clock} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+
+// Timezone options with UTC offsets
+const TIMEZONES = [
+  { value: "America/New_York", label: "Eastern Time (ET)", offset: "UTC-5" },
+  { value: "America/Chicago", label: "Central Time (CT)", offset: "UTC-6" },
+  { value: "America/Denver", label: "Mountain Time (MT)", offset: "UTC-7" },
+  { value: "America/Los_Angeles", label: "Pacific Time (PT)", offset: "UTC-8" },
+  { value: "Europe/London", label: "London (GMT)", offset: "UTC+0" },
+  { value: "Europe/Paris", label: "Paris (CET)", offset: "UTC+1" },
+  { value: "Asia/Dubai", label: "Dubai (GST)", offset: "UTC+4" },
+  { value: "Asia/Singapore", label: "Singapore (SGT)", offset: "UTC+8" },
+  { value: "Asia/Tokyo", label: "Tokyo (JST)", offset: "UTC+9" },
+  { value: "Australia/Sydney", label: "Sydney (AEDT)", offset: "UTC+11" },
+  { value: "UTC", label: "UTC (Coordinated Universal Time)", offset: "UTC+0" },
+];
 
 export default function SettingsPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [companyName, setCompanyName] = useState("");
+  const [timezone, setTimezone] = useState("UTC");
+  const [currentTime, setCurrentTime] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Load settings from localStorage
+  useEffect(() => {
+    const savedSettings = localStorage.getItem(`settings_${user?.uid}`);
+    if (savedSettings) {
+      const settings = JSON.parse(savedSettings);
+      setCompanyName(settings.companyName || "");
+      setTimezone(settings.timezone || "UTC");
+    }
+  }, [user]);
+
+  // Update current time based on selected timezone
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      const timeString = now.toLocaleTimeString("en-US", {
+        timeZone: timezone,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      });
+      const dateString = now.toLocaleDateString("en-US", {
+        timeZone: timezone,
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+      setCurrentTime(`${dateString}, ${timeString}`);
+    };
+
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, [timezone]);
+
+  // Save settings
+  const handleSaveSettings = () => {
+    setIsSaving(true);
+    const settings = {
+      companyName,
+      timezone,
+      updatedAt: new Date().toISOString(),
+    };
+    
+    localStorage.setItem(`settings_${user?.uid}`, JSON.stringify(settings));
+    
+    setTimeout(() => {
+      setIsSaving(false);
+      toast({
+        title: "Settings Saved",
+        description: "Your settings have been updated successfully.",
+      });
+    }, 500);
+  };
+
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
@@ -31,9 +112,14 @@ export default function SettingsPage() {
               Manage your inventory system preferences and configurations
             </p>
           </div>
-          <Button className="bg-red-600 hover:bg-red-700" data-testid="button-save-settings">
+          <Button 
+            className="bg-red-600 hover:bg-red-700" 
+            onClick={handleSaveSettings}
+            disabled={isSaving}
+            data-testid="button-save-settings"
+          >
             <Save className="w-4 h-4 mr-2" />
-            Save Changes
+            {isSaving ? "Saving..." : "Save Changes"}
           </Button>
         </div>
 
@@ -88,41 +174,43 @@ export default function SettingsPage() {
                 <CardDescription>Basic system configuration and preferences</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Current Time Display */}
+                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <div className="flex items-center space-x-2">
+                    <Clock className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                    <div>
+                      <h4 className="font-medium text-blue-800 dark:text-blue-200">Current Time</h4>
+                      <p className="text-sm text-blue-600 dark:text-blue-400">{currentTime}</p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="company-name" data-testid="label-company-name">Company Name</Label>
                     <Input 
                       id="company-name" 
                       placeholder="InventoryPro Enterprise" 
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
                       data-testid="input-company-name"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="timezone" data-testid="label-timezone">Timezone</Label>
-                    <Select defaultValue="utc">
+                    <Select value={timezone} onValueChange={setTimezone}>
                       <SelectTrigger data-testid="select-timezone">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="utc">UTC</SelectItem>
-                        <SelectItem value="est">Eastern Time</SelectItem>
-                        <SelectItem value="pst">Pacific Time</SelectItem>
-                        <SelectItem value="cst">Central Time</SelectItem>
+                        {TIMEZONES.map((tz) => (
+                          <SelectItem key={tz.value} value={tz.value}>
+                            {tz.label} ({tz.offset})
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="company-address" data-testid="label-company-address">Company Address</Label>
-                  <Textarea 
-                    id="company-address" 
-                    placeholder="Enter your company address..." 
-                    data-testid="input-company-address"
-                  />
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Switch id="dark-mode" data-testid="switch-dark-mode" />
-                  <Label htmlFor="dark-mode">Enable Dark Mode</Label>
                 </div>
               </CardContent>
             </Card>

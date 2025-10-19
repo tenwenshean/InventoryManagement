@@ -7,7 +7,7 @@ import AddProductModal from "@/components/add-product-modal";
 import BulkUploadModal from "@/components/bulk-upload";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Upload, Download, Bell, Bot } from "lucide-react";
+import { Plus, Upload, Download, Bell, Bot, Clock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -16,11 +16,46 @@ import { useToast } from "@/hooks/use-toast";
 import type { Product } from "@/types";
 
 export default function Dashboard() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [showChatbot, setShowChatbot] = useState(false);
+  const [currentTime, setCurrentTime] = useState("");
+  const [timezone, setTimezone] = useState("UTC");
   const { toast } = useToast();
+
+  // Load timezone from settings
+  useEffect(() => {
+    const savedSettings = localStorage.getItem(`settings_${user?.uid}`);
+    if (savedSettings) {
+      const settings = JSON.parse(savedSettings);
+      setTimezone(settings.timezone || "UTC");
+    }
+  }, [user]);
+
+  // Update current time based on timezone
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      const timeString = now.toLocaleTimeString("en-US", {
+        timeZone: timezone,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
+      const dateString = now.toLocaleDateString("en-US", {
+        timeZone: timezone,
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      });
+      setCurrentTime(`${dateString}, ${timeString}`);
+    };
+
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, [timezone]);
 
   // Fetch products for CSV export
   const { data: products } = useQuery<Product[]>({
@@ -119,6 +154,12 @@ export default function Dashboard() {
           <p className="text-muted-foreground" data-testid="text-page-subtitle">
             Welcome back, overview of your inventory system
           </p>
+          {currentTime && (
+            <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
+              <Clock size={14} />
+              <span>{currentTime}</span>
+            </div>
+          )}
         </div>
         <div className="flex items-center space-x-4">
           <Button variant="outline" size="sm" className="relative" data-testid="button-notifications">
