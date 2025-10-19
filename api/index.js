@@ -277,10 +277,12 @@ async function handleGetProducts(req, res, user) {
   try {
     const search = req.query.search;
     
-    // Filter products by userId for multi-user support
+    // TEMPORARY: Show all products (remove userId filter for testing)
+    // TODO: Run migration script to add userId to all products, then re-enable filtering
     const snapshot = await db.collection('products')
-      .where('userId', '==', user.uid)
       .get();
+    // Original code (re-enable after migration):
+    // .where('userId', '==', user.uid)
     
     let products = snapshot.docs.map(doc => ({ 
       id: doc.id, 
@@ -428,9 +430,11 @@ async function handleDashboardStats(req, res, user) {
   const { db } = await initializeFirebase();
   
   try {
+    // TEMPORARY: Show all products (remove userId filter for testing)
     const productsSnap = await db.collection('products')
-      .where('userId', '==', user.uid)
       .get();
+    // Original code (re-enable after migration):
+    // .where('userId', '==', user.uid)
     
     const products = productsSnap.docs.map(doc => doc.data());
     const totalProducts = products.length;
