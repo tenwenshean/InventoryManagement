@@ -324,20 +324,34 @@ async function handleGetProduct(req, res, user, productId) {
 }
 
 async function handleCreateProduct(req, res, user) {
-  const { db, admin } = await initializeFirebase();
+  const { db, auth } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
   
   try {
     const productData = req.body;
     
-    // Validate required fields
-    if (!productData.name || !productData.sku || !productData.categoryId) {
-      console.error('Missing required fields:', { name: productData.name, sku: productData.sku, categoryId: productData.categoryId });
+    // Validate required fields (check for both missing and empty strings)
+    const hasName = productData.name && productData.name.trim() !== '';
+    const hasSku = productData.sku && productData.sku.trim() !== '';
+    const hasCategoryId = productData.categoryId && productData.categoryId.trim() !== '';
+    
+    if (!hasName || !hasSku || !hasCategoryId) {
+      console.error('Missing required fields:', { 
+        name: productData.name, 
+        sku: productData.sku, 
+        categoryId: productData.categoryId 
+      });
       return res.status(400).json({ 
         message: 'Missing required fields: name, sku, and categoryId are required',
         missing: {
-          name: !productData.name,
-          sku: !productData.sku,
-          categoryId: !productData.categoryId
+          name: !hasName,
+          sku: !hasSku,
+          categoryId: !hasCategoryId
+        },
+        received: {
+          name: productData.name,
+          sku: productData.sku,
+          categoryId: productData.categoryId
         }
       });
     }
@@ -348,8 +362,8 @@ async function handleCreateProduct(req, res, user) {
       id: ref.id,
       userId: user.uid,
       userEmail: user.email,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: adminModule.default.firestore.FieldValue.serverTimestamp(),
+      updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp(),
       isActive: productData.isActive ?? true,
       quantity: productData.quantity ?? 0
     };
@@ -370,7 +384,8 @@ async function handleCreateProduct(req, res, user) {
 }
 
 async function handleUpdateProduct(req, res, user, productId) {
-  const { db, admin } = await initializeFirebase();
+  const { db, auth } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
   
   try {
     const productRef = db.collection('products').doc(productId);
@@ -385,7 +400,7 @@ async function handleUpdateProduct(req, res, user, productId) {
     
     await productRef.update({
       ...req.body,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
     });
     
     const updated = { id: productId, ...doc.data(), ...req.body };
@@ -419,7 +434,8 @@ async function handleDeleteProduct(req, res, user, productId) {
 }
 
 async function handleGenerateQR(req, res, user, productId) {
-  const { db, admin } = await initializeFirebase();
+  const { db, auth } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
   
   try {
     const productRef = db.collection('products').doc(productId);
@@ -435,7 +451,7 @@ async function handleGenerateQR(req, res, user, productId) {
     const uniqueCode = `${productId}:${Date.now()}`;
     await productRef.update({ 
       qrCode: uniqueCode,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
     });
     
     return res.json({ productId, qrCode: uniqueCode });
@@ -508,7 +524,8 @@ async function handleGetCategories(req, res, user) {
 }
 
 async function handleCreateCategory(req, res, user) {
-  const { db, admin } = await initializeFirebase();
+  const { db, auth } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
   
   try {
     const categoryData = req.body;
@@ -517,7 +534,7 @@ async function handleCreateCategory(req, res, user) {
       ...categoryData,
       id: ref.id,
       userId: user.uid,
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
+      createdAt: adminModule.default.firestore.FieldValue.serverTimestamp()
     };
     
     await ref.set(newCategory);
@@ -551,7 +568,8 @@ async function handleResolveQR(req, res, code) {
 }
 
 async function handleConfirmSale(req, res, code) {
-  const { db, admin } = await initializeFirebase();
+  const { db, auth } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
   
   try {
     const snapshot = await db.collection('products')
@@ -578,7 +596,7 @@ async function handleConfirmSale(req, res, code) {
       
       transaction.update(productRef, {
         quantity: newQty,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
       });
     });
     
