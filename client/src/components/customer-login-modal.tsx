@@ -249,8 +249,8 @@ export default function CustomerLoginModal({
 
               {/* reCAPTCHA container - only show on phone step */}
               <div className="space-y-2">
-                <div className="flex justify-center items-center min-h-[78px] bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 p-4">
-                  <div id="recaptcha-container"></div>
+                <div className="flex justify-center items-center min-h-[78px] bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 p-4 relative z-[9999]">
+                  <div id="recaptcha-container" className="relative z-[9999]"></div>
                 </div>
                 <p className="text-xs text-center text-gray-500">
                   ⚠️ If reCAPTCHA doesn't appear, enable Phone Auth in Firebase Console

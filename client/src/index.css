@@ -109,3 +109,19 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+/* Fix reCAPTCHA z-index issues */
+.grecaptcha-badge {
+  z-index: 9999 !important;
+}
+
+/* Ensure reCAPTCHA iframe is above modal overlay */
+iframe[src*="recaptcha"] {
+  z-index: 9999 !important;
+  position: relative !important;
+}
+
+/* Fix reCAPTCHA challenge popup */
+body > div[style*="z-index"] {
+  z-index: 10000 !important;
+}
