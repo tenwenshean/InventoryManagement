@@ -36,8 +36,8 @@ export default function CustomerLoginModal({
 
   // Initialize reCAPTCHA when modal opens
   useEffect(() => {
-    if (isOpen && !recaptchaVerifier) {
-      // Small delay to ensure DOM is ready
+    if (isOpen && !recaptchaVerifier && step === "phone") {
+      // Delay to ensure DOM is fully ready
       const timer = setTimeout(() => {
         try {
           // Clear any existing reCAPTCHA
@@ -46,23 +46,26 @@ export default function CustomerLoginModal({
             container.innerHTML = "";
           }
           
+          console.log("🔧 Starting reCAPTCHA initialization...");
+          
           // Use visible reCAPTCHA for better reliability
           const verifier = initRecaptcha("recaptcha-container", true);
           setRecaptchaVerifier(verifier);
-          console.log("✅ reCAPTCHA initialized");
+          
+          console.log("✅ reCAPTCHA ready to use");
         } catch (error: any) {
           console.error("❌ Error initializing reCAPTCHA:", error);
           toast({
             title: "Setup Error",
-            description: "Please enable Phone Authentication in Firebase Console and add localhost to authorized domains",
+            description: "Enable Phone Authentication in Firebase Console",
             variant: "destructive",
           });
         }
-      }, 100);
+      }, 200);
 
       return () => clearTimeout(timer);
     }
-  }, [isOpen, recaptchaVerifier, toast]);
+  }, [isOpen, recaptchaVerifier, step, toast]);
 
   // Cleanup reCAPTCHA when modal closes
   useEffect(() => {
@@ -244,9 +247,19 @@ export default function CustomerLoginModal({
                 </p>
               </div>
 
+              {/* reCAPTCHA container - only show on phone step */}
+              <div className="space-y-2">
+                <div className="flex justify-center items-center min-h-[78px] bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 p-4">
+                  <div id="recaptcha-container"></div>
+                </div>
+                <p className="text-xs text-center text-gray-500">
+                  ⚠️ If reCAPTCHA doesn't appear, enable Phone Auth in Firebase Console
+                </p>
+              </div>
+
               <Button
                 onClick={handleSendOTP}
-                disabled={isLoading || !phoneNumber}
+                disabled={isLoading || !phoneNumber || !recaptchaVerifier}
                 className="w-full bg-red-600 hover:bg-red-700"
               >
                 {isLoading ? (
@@ -273,7 +286,7 @@ export default function CustomerLoginModal({
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   onKeyPress={(e) => {
-                    if (e.key === "Enter") {
+                    if (e.key === "Enter" && otp.length === 6) {
                       handleVerifyOTP();
                     }
                   }}
@@ -315,16 +328,6 @@ export default function CustomerLoginModal({
               </Button>
             </>
           )}
-
-          {/* reCAPTCHA container */}
-          <div className="space-y-2">
-            <div className="flex justify-center items-center min-h-[78px] bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 p-4">
-              <div id="recaptcha-container"></div>
-            </div>
-            <p className="text-xs text-center text-gray-500">
-              ⚠️ If reCAPTCHA doesn't appear, enable Phone Auth in Firebase Console
-            </p>
-          </div>
         </div>
 
         <div className="text-center text-sm text-gray-500 space-y-2">

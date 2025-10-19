@@ -56,14 +56,15 @@ export async function loginWithGoogle() {
 /**
  * Initialize reCAPTCHA verifier for phone authentication
  * @param containerId - ID of the HTML element to render reCAPTCHA
- * @param visible - Whether to show visible reCAPTCHA (default: false for invisible)
+ * @param visible - Whether to show visible reCAPTCHA (default: true for better reliability)
  */
-export function initRecaptcha(containerId: string, visible: boolean = false): RecaptchaVerifier {
+export function initRecaptcha(containerId: string, visible: boolean = true): RecaptchaVerifier {
   console.log("🔧 Initializing reCAPTCHA...", { containerId, visible });
   
   // Check if container exists
   const container = document.getElementById(containerId);
   if (!container) {
+    console.error(`❌ Container element '${containerId}' not found in DOM`);
     throw new Error(`Container element '${containerId}' not found`);
   }
   
@@ -74,14 +75,15 @@ export function initRecaptcha(containerId: string, visible: boolean = false): Re
         console.log("✅ reCAPTCHA verified successfully");
       },
       "expired-callback": () => {
-        console.warn("⚠️ reCAPTCHA expired - please refresh and try again");
+        console.warn("⚠️ reCAPTCHA expired - please try again");
       },
     });
     
-    console.log("✅ reCAPTCHA verifier created");
+    console.log("✅ reCAPTCHA verifier created successfully");
     return recaptchaVerifier;
   } catch (error: any) {
     console.error("❌ Failed to create reCAPTCHA verifier:", error);
+    console.error("Make sure Phone Authentication is enabled in Firebase Console");
     throw new Error(`reCAPTCHA initialization failed: ${error.message}`);
   }
 }
