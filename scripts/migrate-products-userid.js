@@ -21,11 +21,15 @@ const db = admin.firestore();
 
 async function migrateProducts() {
   try {
-    console.log('🔍 Fetching all products...');
+    console.log('🔍 Fetching all products and categories...');
     
     // Get all products
     const productsSnapshot = await db.collection('products').get();
     console.log(`📦 Found ${productsSnapshot.size} total products`);
+    
+    // Get all categories
+    const categoriesSnapshot = await db.collection('categories').get();
+    console.log(`📂 Found ${categoriesSnapshot.size} total categories`);
     
     // Get all users to assign products to
     const usersSnapshot = await db.collection('users').get();
@@ -39,21 +43,25 @@ async function migrateProducts() {
     
     // Use the first user as the default owner
     const defaultUser = users[0];
-    console.log(`\n👤 Will assign products without userId to: ${defaultUser.email || defaultUser.uid}`);
+    console.log(`\n👤 Will assign items without userId to: ${defaultUser.email || defaultUser.uid}`);
     console.log('   You can change this by editing the script.\n');
     
-    let updated = 0;
-    let skipped = 0;
+    let productsUpdated = 0;
+    let productsSkipped = 0;
+    let categoriesUpdated = 0;
+    let categoriesSkipped = 0;
     
     const batch = db.batch();
     
+    // Migrate products
+    console.log('\n📦 Migrating Products:');
     for (const doc of productsSnapshot.docs) {
       const data = doc.data();
       
       // Check if product already has userId
       if (data.userId) {
         console.log(`⏭️  Skipping "${data.name}" - already has userId: ${data.userId}`);
-        skipped++;
+        productsSkipped++;
         continue;
       }
       
@@ -64,21 +72,48 @@ async function migrateProducts() {
         userEmail: defaultUser.email || '',
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
       });
-      updated++;
+      productsUpdated++;
     }
     
-    if (updated > 0) {
-      console.log(`\n💾 Committing ${updated} updates...`);
+    // Migrate categories
+    console.log('\n📂 Migrating Categories:');
+    for (const doc of categoriesSnapshot.docs) {
+      const data = doc.data();
+      
+      // Check if category already has userId
+      if (data.userId) {
+        console.log(`⏭️  Skipping "${data.name}" - already has userId: ${data.userId}`);
+        categoriesSkipped++;
+        continue;
+      }
+      
+      // Add userId to category
+      console.log(`✅ Updating "${data.name}" - adding userId: ${defaultUser.uid}`);
+      batch.update(doc.ref, {
+        userId: defaultUser.uid,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      categoriesUpdated++;
+    }
+    
+    const totalUpdates = productsUpdated + categoriesUpdated;
+    if (totalUpdates > 0) {
+      console.log(`\n💾 Committing ${totalUpdates} updates...`);
       await batch.commit();
       console.log('✅ Migration completed successfully!');
     } else {
-      console.log('\n✅ No products needed migration.');
+      console.log('\n✅ No items needed migration.');
     }
     
     console.log(`\n📊 Summary:`);
-    console.log(`   - Updated: ${updated} products`);
-    console.log(`   - Skipped: ${skipped} products (already had userId)`);
-    console.log(`   - Total: ${productsSnapshot.size} products`);
+    console.log(`   Products:`);
+    console.log(`     - Updated: ${productsUpdated}`);
+    console.log(`     - Skipped: ${productsSkipped} (already had userId)`);
+    console.log(`     - Total: ${productsSnapshot.size}`);
+    console.log(`   Categories:`);
+    console.log(`     - Updated: ${categoriesUpdated}`);
+    console.log(`     - Skipped: ${categoriesSkipped} (already had userId)`);
+    console.log(`     - Total: ${categoriesSnapshot.size}`);
     
   } catch (error) {
     console.error('❌ Migration failed:', error);

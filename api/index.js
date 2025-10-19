@@ -462,9 +462,12 @@ async function handleGetCategories(req, res, user) {
   const { db } = await initializeFirebase();
   
   try {
+    // TEMPORARY: Show all categories (remove userId filter for testing)
+    // TODO: Run migration script to add userId to all categories, then re-enable filtering
     const snapshot = await db.collection('categories')
-      .where('userId', '==', user.uid)
       .get();
+    // Original code (re-enable after migration):
+    // .where('userId', '==', user.uid)
     
     const categories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     return res.json(categories);
