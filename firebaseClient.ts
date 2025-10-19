@@ -6,6 +6,10 @@ import {
   signInWithPopup,
   setPersistence,
   browserLocalPersistence,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  PhoneAuthProvider,
+  signInWithCredential,
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore"; // ✅ Add this
 
@@ -49,4 +53,53 @@ export async function loginWithGoogle() {
   }
 }
 
-export { auth, provider, db }; // ✅ Export db
+/**
+ * Initialize reCAPTCHA verifier for phone authentication
+ * @param containerId - ID of the HTML element to render reCAPTCHA
+ */
+export function initRecaptcha(containerId: string): RecaptchaVerifier {
+  const recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
+    size: "invisible",
+    callback: () => {
+      console.log("✅ reCAPTCHA verified");
+    },
+    "expired-callback": () => {
+      console.log("⚠️ reCAPTCHA expired");
+    },
+  });
+  return recaptchaVerifier;
+}
+
+/**
+ * Send OTP to phone number
+ * @param phoneNumber - Phone number with country code (e.g., +1234567890)
+ * @param recaptchaVerifier - reCAPTCHA verifier instance
+ */
+export async function sendOTP(phoneNumber: string, recaptchaVerifier: RecaptchaVerifier) {
+  try {
+    const confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, recaptchaVerifier);
+    console.log("✅ OTP sent to:", phoneNumber);
+    return confirmationResult;
+  } catch (error: any) {
+    console.error("❌ Error sending OTP:", error);
+    throw error;
+  }
+}
+
+/**
+ * Verify OTP code
+ * @param confirmationResult - Result from sendOTP
+ * @param code - 6-digit OTP code
+ */
+export async function verifyOTP(confirmationResult: any, code: string) {
+  try {
+    const result = await confirmationResult.confirm(code);
+    console.log("✅ Phone login success:", result.user.phoneNumber);
+    return { user: result.user };
+  } catch (error: any) {
+    console.error("❌ Error verifying OTP:", error);
+    throw error;
+  }
+}
+
+export { auth, provider, db, RecaptchaVerifier }; // ✅ Export db and RecaptchaVerifier

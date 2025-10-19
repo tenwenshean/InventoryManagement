@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,15 +14,50 @@ import {
   Award,
   Star,
   Clock,
-  CheckCircle2
+  CheckCircle2,
+  User,
+  LogOut
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import type { Product } from "@/types";
+import CustomerLoginModal from "@/components/customer-login-modal";
+import { auth } from "../../../firebaseClient";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { useToast } from "@/hooks/use-toast";
 
 export default function CustomerPortal() {
   const [searchQuery, setSearchQuery] = useState("");
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [customerUser, setCustomerUser] = useState<any>(null);
+  const { toast } = useToast();
+
+  // Listen to auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCustomerUser(user);
+      if (user) {
+        console.log("Customer logged in:", user.phoneNumber);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setCustomerUser(null);
+      toast({
+        title: "Logged Out",
+        description: "You have been logged out successfully",
+      });
+    } catch (error) {
+      console.error("Error logging out:", error);
+    }
+  };
 
   // Fetch all products (public access - no auth required)
   const { data: products, isLoading } = useQuery<Product[]>({
@@ -79,15 +114,41 @@ export default function CustomerPortal() {
                 <p className="text-sm text-red-100">Quality Products, Delivered Fast</p>
               </div>
             </div>
-            <Button className="relative bg-white text-red-600 hover:bg-red-50">
-              <ShoppingCart className="w-5 h-5 mr-2" />
-              Cart
-              {cart.length > 0 && (
-                <Badge className="absolute -top-2 -right-2 bg-orange-500 text-white">
-                  {cart.length}
-                </Badge>
+            <div className="flex items-center space-x-3">
+              {customerUser ? (
+                <>
+                  <div className="hidden md:flex items-center space-x-2 bg-white/10 px-4 py-2 rounded-lg">
+                    <User className="w-4 h-4" />
+                    <span className="text-sm">{customerUser.phoneNumber}</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="bg-white/10 border-white/20 hover:bg-white/20 text-white"
+                    onClick={handleLogout}
+                  >
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Logout
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  className="bg-white text-red-600 hover:bg-red-50"
+                  onClick={() => setShowLoginModal(true)}
+                >
+                  <User className="w-4 h-4 mr-2" />
+                  Login
+                </Button>
               )}
-            </Button>
+              <Button className="relative bg-white text-red-600 hover:bg-red-50">
+                <ShoppingCart className="w-5 h-5 mr-2" />
+                Cart
+                {cart.length > 0 && (
+                  <Badge className="absolute -top-2 -right-2 bg-orange-500 text-white">
+                    {cart.length}
+                  </Badge>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -427,6 +488,19 @@ export default function CustomerPortal() {
           </div>
         </div>
       )}
+
+      {/* Customer Login Modal */}
+      <CustomerLoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onLoginSuccess={(user) => {
+          setCustomerUser(user);
+          toast({
+            title: "Welcome!",
+            description: `Logged in as ${user.phoneNumber}`,
+          });
+        }}
+      />
     </div>
   );
 }
