@@ -59,24 +59,31 @@ export async function loginWithGoogle() {
  * @param visible - Whether to show visible reCAPTCHA (default: false for invisible)
  */
 export function initRecaptcha(containerId: string, visible: boolean = false): RecaptchaVerifier {
-  const recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
-    size: visible ? "normal" : "invisible",
-    callback: (response: any) => {
-      console.log("✅ reCAPTCHA verified", response);
-    },
-    "expired-callback": () => {
-      console.log("⚠️ reCAPTCHA expired - please refresh");
-    },
-  });
+  console.log("🔧 Initializing reCAPTCHA...", { containerId, visible });
   
-  // Render the reCAPTCHA
-  recaptchaVerifier.render().then((widgetId) => {
-    console.log("✅ reCAPTCHA widget rendered:", widgetId);
-  }).catch((error) => {
-    console.error("❌ reCAPTCHA render error:", error);
-  });
+  // Check if container exists
+  const container = document.getElementById(containerId);
+  if (!container) {
+    throw new Error(`Container element '${containerId}' not found`);
+  }
   
-  return recaptchaVerifier;
+  try {
+    const recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
+      size: visible ? "normal" : "invisible",
+      callback: (response: any) => {
+        console.log("✅ reCAPTCHA verified successfully");
+      },
+      "expired-callback": () => {
+        console.warn("⚠️ reCAPTCHA expired - please refresh and try again");
+      },
+    });
+    
+    console.log("✅ reCAPTCHA verifier created");
+    return recaptchaVerifier;
+  } catch (error: any) {
+    console.error("❌ Failed to create reCAPTCHA verifier:", error);
+    throw new Error(`reCAPTCHA initialization failed: ${error.message}`);
+  }
 }
 
 /**
