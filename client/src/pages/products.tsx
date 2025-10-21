@@ -163,8 +163,16 @@ export default function Products() {
                     <CardContent className="p-6">
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex items-center space-x-3">
-                          <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center">
-                            <Package className="text-muted-foreground" size={24} />
+                          <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center overflow-hidden">
+                            {product.imageUrl ? (
+                              <img 
+                                src={product.imageUrl} 
+                                alt={product.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <Package className="text-muted-foreground" size={24} />
+                            )}
                           </div>
                           <div>
                             <h3 className="font-semibold text-foreground" data-testid={`text-product-name-${product.id}`}>

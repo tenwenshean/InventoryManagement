@@ -261,6 +261,15 @@ export default function CustomerPortal() {
                   className="hover:shadow-xl transition-all duration-300 border-2 hover:border-red-500"
                 >
                   <CardHeader>
+                    {product.imageUrl && (
+                      <div className="mb-4 w-full h-48 rounded-lg overflow-hidden bg-gray-100">
+                        <img
+                          src={product.imageUrl}
+                          alt={product.name}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <CardTitle className="text-xl">{product.name}</CardTitle>
@@ -385,6 +394,15 @@ export default function CustomerPortal() {
                     className="hover:shadow-xl transition-all duration-300"
                   >
                     <CardHeader>
+                      {product.imageUrl && (
+                        <div className="mb-4 w-full h-32 rounded-lg overflow-hidden bg-gray-100">
+                          <img
+                            src={product.imageUrl}
+                            alt={product.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
                       <CardTitle className="text-lg">{product.name}</CardTitle>
                       {product.quantity > 0 ? (
                         <Badge className="bg-green-500 w-fit">In Stock</Badge>

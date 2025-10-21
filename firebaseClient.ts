@@ -12,6 +12,7 @@ import {
   signInWithCredential,
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore"; // ✅ Add this
+import { getStorage } from "firebase/storage"; // ✅ Add storage
 
 // --- Your Firebase configuration ---
 const firebaseConfig = {
@@ -27,6 +28,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app); // ✅ Initialize Firestore
+const storage = getStorage(app); // ✅ Initialize Storage
 
 // ✅ Make sure login persists between sessions (even after refresh)
 setPersistence(auth, browserLocalPersistence).catch((err) => {
@@ -120,4 +122,4 @@ export async function verifyOTP(confirmationResult: any, code: string) {
   }
 }
 
-export { auth, provider, db, RecaptchaVerifier }; // ✅ Export db and RecaptchaVerifier
+export { auth, provider, db, storage, RecaptchaVerifier }; // ✅ Export db, storage, and RecaptchaVerifier

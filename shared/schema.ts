@@ -57,6 +57,7 @@ export const products = pgTable("products", {
   maxStockLevel: integer("max_stock_level"),
   barcode: varchar("barcode"),
   qrCode: varchar("qr_code"),
+  imageUrl: text("image_url"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

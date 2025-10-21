@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
+import { uploadImage, validateImageFile } from "@/lib/imageUpload";
 import {
   Dialog,
   DialogContent,
@@ -31,7 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
+import { Loader2, Upload, X, Image as ImageIcon } from "lucide-react";
 import { insertProductSchema } from "@/types";
 import type { Product, Category } from "@/types";
 
@@ -46,6 +47,11 @@ const editProductSchema = insertProductSchema.partial();
 export default function EditProductModal({ isOpen, onClose, productId }: EditProductModalProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [removeExistingImage, setRemoveExistingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch product data via API
   const { data: product, isLoading: productLoading } = useQuery<Product | null>({
@@ -101,11 +107,22 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
         maxStockLevel: product.maxStockLevel || 0,
         barcode: product.barcode || "",
       });
+      
+      // Reset image states when product changes
+      setRemoveExistingImage(false);
+      setSelectedImage(null);
+      
+      // Set existing image preview if available
+      if (product.imageUrl) {
+        setImagePreview(product.imageUrl);
+      } else {
+        setImagePreview(null);
+      }
     }
   }, [product, form]);
 
   const updateProductMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof editProductSchema>) => {
+    mutationFn: async (data: z.infer<typeof editProductSchema> & { imageUrl?: string }) => {
       console.log("🔄 Updating product:", productId, data);
       const response = await apiRequest("PUT", `/api/products/${productId}`, data);
       if (!response.ok) throw new Error("Failed to update product");
@@ -132,15 +149,85 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
     },
   });
 
-  const onSubmit = (data: z.infer<typeof editProductSchema>) => {
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validationError = validateImageFile(file);
+    if (validationError) {
+      toast({
+        title: "Invalid Image",
+        description: validationError,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSelectedImage(file);
+    setRemoveExistingImage(false); // Reset remove flag when new image is selected
+    
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveImage = () => {
+    console.log("🗑️ User clicked remove image button");
+    setSelectedImage(null);
+    setImagePreview(null);
+    setRemoveExistingImage(true);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+    console.log("✅ Image removal state set - will remove on save");
+  };
+
+  const onSubmit = async (data: z.infer<typeof editProductSchema>) => {
     console.log("📤 Form submitted with data:", data);
-    updateProductMutation.mutate(data);
+    console.log("🔍 Current states:", {
+      removeExistingImage,
+      hasSelectedImage: !!selectedImage,
+      hasImagePreview: !!imagePreview,
+      productHasImage: !!product?.imageUrl
+    });
+    
+    let imageUrl: string | undefined = product?.imageUrl || undefined;
+
+    // If user clicked remove, set imageUrl to empty
+    if (removeExistingImage && !selectedImage) {
+      imageUrl = "";  // Send empty string instead of undefined to explicitly remove
+      console.log("🗑️ Removing existing image - setting imageUrl to empty string");
+    }
+    // Upload new image if selected
+    else if (selectedImage) {
+      try {
+        setIsUploadingImage(true);
+        const timestamp = Date.now();
+        const fileName = `${timestamp}_${selectedImage.name}`;
+        imageUrl = await uploadImage(selectedImage, `products/${fileName}`);
+        console.log("✅ Image uploaded:", imageUrl);
+      } catch (error) {
+        console.error("❌ Image upload error:", error);
+        toast({
+          title: "Image Upload Failed",
+          description: "Failed to upload image. The product will be updated without changing the image.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsUploadingImage(false);
+      }
+    }
+
+    updateProductMutation.mutate({ ...data, imageUrl });
   };
 
   if (productLoading) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[600px] w-[95vw]">
           <div className="flex items-center justify-center p-6">
             <Loader2 className="w-6 h-6 animate-spin text-primary" />
             <span className="ml-2">Loading product...</span>
@@ -153,7 +240,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
   if (!product) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[600px] w-[95vw]">
           <div className="flex items-center justify-center p-6">
             <p className="text-destructive">Product not found</p>
           </div>
@@ -164,7 +251,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto w-[95vw]">
         <DialogHeader>
           <DialogTitle className="flex items-center text-foreground">
             Edit Product
@@ -175,7 +262,66 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            {/* Image Upload Section */}
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+              <FormLabel>Product Image</FormLabel>
+              {removeExistingImage && !selectedImage && (
+                <p className="text-sm text-orange-600 mt-1">
+                  Image will be removed when you save
+                </p>
+              )}
+              <div className="mt-2">
+                {imagePreview ? (
+                  <div className="relative inline-block w-full">
+                    <img
+                      src={imagePreview}
+                      alt="Product preview"
+                      className="w-full h-48 object-cover rounded-lg"
+                    />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      className="absolute top-2 right-2"
+                      onClick={handleRemoveImage}
+                      title="Remove image"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8">
+                    <ImageIcon className="w-12 h-12 text-gray-400 mb-2" />
+                    <p className="text-sm text-gray-500 mb-4">
+                      {removeExistingImage ? "No image selected" : "Upload a product image"}
+                    </p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageChange}
+                      className="hidden"
+                      id="edit-product-image-upload"
+                    />
+                    <label htmlFor="edit-product-image-upload">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Upload className="w-4 h-4 mr-2" />
+                        Choose Image
+                      </Button>
+                    </label>
+                    <p className="text-xs text-gray-400 mt-2">
+                      JPG, PNG, GIF or WebP (Max 5MB)
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
@@ -382,14 +528,14 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
               </Button>
               <Button
                 type="submit"
-                disabled={updateProductMutation.isPending}
+                disabled={updateProductMutation.isPending || isUploadingImage}
                 className="bg-primary text-primary-foreground hover:bg-primary/90"
                 data-testid="button-submit-edit-product"
               >
-                {updateProductMutation.isPending && (
+                {(updateProductMutation.isPending || isUploadingImage) && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                Update Product
+                {isUploadingImage ? "Uploading Image..." : "Update Product"}
               </Button>
             </div>
           </form>

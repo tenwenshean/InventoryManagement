@@ -145,10 +145,20 @@ export class DatabaseStorage {
 
   async updateProduct(id: string, data: Partial<Product>): Promise<Product> {
     const ref = db.collection("products").doc(id);
-    await ref.update({
+    
+    // Handle imageUrl explicitly - if it's an empty string, remove the field
+    const updateData: any = {
       ...data,
       updatedAt: new Date(),
-    });
+    };
+    
+    // Simply allow empty string for imageUrl (frontend will handle display)
+    if (data.hasOwnProperty('imageUrl') && (data.imageUrl === '' || data.imageUrl === null)) {
+      console.log("🗑️ Setting imageUrl to empty string for product:", id);
+      updateData.imageUrl = '';
+    }
+    
+    await ref.update(updateData);
     
     // Fetch and return the updated product
     const updatedDoc = await ref.get();

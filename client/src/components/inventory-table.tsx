@@ -272,8 +272,16 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
                     >
                       <td className="p-4">
                         <div className="flex items-center space-x-3">
-                          <div className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center">
-                            <Package className="text-muted-foreground" size={20} />
+                          <div className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center overflow-hidden">
+                            {product.imageUrl ? (
+                              <img
+                                src={product.imageUrl}
+                                alt={product.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <Package className="text-muted-foreground" size={20} />
+                            )}
                           </div>
                           <div>
                             <p className="font-medium text-foreground" data-testid={`text-product-name-${product.id}`}>

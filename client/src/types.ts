@@ -14,6 +14,7 @@ export const insertProductSchema = z.object({
   minStockLevel: z.number().min(0).default(0),
   maxStockLevel: z.number().min(0).optional(),
   barcode: z.string().optional(),
+  imageUrl: z.string().optional(),
   isActive: z.boolean().default(true),
 });
 
@@ -21,6 +22,7 @@ export type InsertProduct = z.infer<typeof insertProductSchema>;
 
 export interface Product extends InsertProduct {
   id: string;
+  imageUrl?: string;
   createdAt: Date | Timestamp;
   updatedAt: Date | Timestamp;
 }
