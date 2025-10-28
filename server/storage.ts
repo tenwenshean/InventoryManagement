@@ -89,14 +89,17 @@ export class DatabaseStorage {
   // Support optional search parameter
   async getProductsBySearch(search?: string, userId?: string): Promise<Product[]> {
     let query: FirebaseFirestore.Query = db.collection("products");
+    
     if (userId) {
       query = query.where("userId", "==", userId);
     }
     query = query.orderBy("createdAt", "desc");
+    
+    const snapshot = await query.get();
+    
     if (search) {
       // Simple search: match name or sku (case-insensitive)
       // Firestore doesn't support OR or contains easily; for now, fallback to client-side filter
-      const snapshot = await query.get();
       const all = snapshot.docs.map((d) => {
         const dd = d.data() as Product;
         (dd as any).id = d.id;
@@ -105,7 +108,7 @@ export class DatabaseStorage {
       const s = search.toLowerCase();
       return all.filter((p) => (p.name ?? "").toLowerCase().includes(s) || (p.sku ?? "").toLowerCase().includes(s));
     }
-    const snapshot = await query.get();
+    
     return snapshot.docs.map((doc) => {
       const d = doc.data() as Product;
       (d as any).id = doc.id;
@@ -241,6 +244,43 @@ export class DatabaseStorage {
     });
   }
 
+  // Get transactions for multiple products (optimized for accounting reports)
+  async getInventoryTransactionsByProducts(productIds: string[]): Promise<InventoryTransaction[]> {
+    if (productIds.length === 0) return [];
+    
+    // Firestore 'in' operator is limited to 10 items, so batch the queries
+    const batchSize = 10;
+    const batchPromises: Promise<InventoryTransaction[]>[] = [];
+    
+    // Run all batches in parallel for better performance
+    for (let i = 0; i < productIds.length; i += batchSize) {
+      const batch = productIds.slice(i, i + batchSize);
+      const batchPromise = db.collection("inventoryTransactions")
+        .where("productId", "in", batch)
+        .get()
+        .then(snapshot => 
+          snapshot.docs.map(doc => {
+            const d = doc.data() as InventoryTransaction;
+            (d as any).id = doc.id;
+            return d as InventoryTransaction;
+          })
+        );
+      
+      batchPromises.push(batchPromise);
+    }
+    
+    // Wait for all batches to complete
+    const batchResults = await Promise.all(batchPromises);
+    const allTransactions = batchResults.flat();
+    
+    // Sort by createdAt descending
+    return allTransactions.sort((a, b) => {
+      const aDate = (a.createdAt as any)?.toDate?.() || a.createdAt || new Date(0);
+      const bDate = (b.createdAt as any)?.toDate?.() || b.createdAt || new Date(0);
+      return new Date(bDate).getTime() - new Date(aDate).getTime();
+    });
+  }
+
   async addInventoryTransaction(data: InsertInventoryTransaction): Promise<InventoryTransaction> {
     const ref = db.collection("inventoryTransactions").doc();
     const newTx = {
@@ -260,20 +300,45 @@ export class DatabaseStorage {
   // ===============================
   // ACCOUNTING ENTRIES
   // ===============================
-  async getAccountingEntries(): Promise<AccountingEntry[]> {
-    const snapshot = await db.collection("accountingEntries").orderBy("createdAt", "desc").get();
-    return snapshot.docs.map((doc) => {
-      const d = doc.data() as AccountingEntry;
-      (d as any).id = doc.id;
-      return d as AccountingEntry;
-    });
+  async getAccountingEntries(userId?: string): Promise<AccountingEntry[]> {
+    if (userId) {
+      // Use where clause directly - simpler and faster
+      const snapshot = await db.collection("accountingEntries")
+        .where("userId", "==", userId)
+        .get();
+      
+      const entries = snapshot.docs.map(doc => {
+        const d = doc.data() as AccountingEntry;
+        (d as any).id = doc.id;
+        return d as AccountingEntry;
+      });
+      
+      // Sort by createdAt descending
+      return entries.sort((a, b) => {
+        const aDate = (a.createdAt as any)?.toDate?.() || a.createdAt || new Date(0);
+        const bDate = (b.createdAt as any)?.toDate?.() || b.createdAt || new Date(0);
+        return new Date(bDate).getTime() - new Date(aDate).getTime();
+      });
+    } else {
+      // No userId filter, fetch all with ordering
+      const snapshot = await db.collection("accountingEntries")
+        .orderBy("createdAt", "desc")
+        .get();
+      
+      return snapshot.docs.map((doc) => {
+        const d = doc.data() as AccountingEntry;
+        (d as any).id = doc.id;
+        return d as AccountingEntry;
+      });
+    }
   }
 
-  async addAccountingEntry(data: InsertAccountingEntry): Promise<AccountingEntry> {
+  async addAccountingEntry(data: InsertAccountingEntry, userId?: string): Promise<AccountingEntry> {
     const ref = db.collection("accountingEntries").doc();
     const newEntry = {
       ...data,
       id: ref.id,
+      userId,
       createdAt: new Date(),
     };
     await ref.set(newEntry);
@@ -281,8 +346,8 @@ export class DatabaseStorage {
   }
 
   // Backwards-compatible alias
-  async createAccountingEntry(data: InsertAccountingEntry): Promise<AccountingEntry> {
-    return this.addAccountingEntry(data);
+  async createAccountingEntry(data: InsertAccountingEntry, userId?: string): Promise<AccountingEntry> {
+    return this.addAccountingEntry(data, userId);
   }
 
   // ===============================

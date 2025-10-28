@@ -13,5 +13,9 @@ export const queryKeys = {
   inventory: {
     all: ["/api/inventory"] as const,
     detail: (id: string) => ["/api/inventory", id] as const,
+  },
+  accounting: {
+    entries: ["/api/accounting/entries"] as const,
+    report: ["/api/accounting/report"] as const,
   }
 } as const;

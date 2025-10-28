@@ -2,6 +2,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { cache } from "./cache";
 import { auth, db } from "./db"; // ✅ fixed import
 import {
   insertProductSchema,
@@ -149,8 +150,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           debitAmount: totalValue.toString(),
           creditAmount: "0",
           description: `Inventory addition: ${product.name}`,
-        });
+        }, req.user.uid);
       }
+
+      // Invalidate accounting cache for this user
+      cache.clear(req.user.uid);
 
       res.status(201).json(product);
     } catch (error) {
@@ -159,10 +163,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/products/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/products/:id", isAuthenticated, async (req: any, res) => {
     try {
       const productData = insertProductSchema.partial().parse(req.body);
       const product = await storage.updateProduct(req.params.id, productData);
+      
+      // Invalidate accounting cache for this user
+      cache.clear(req.user.uid);
+      
       res.json(product);
     } catch (error) {
       console.error("Error updating product:", error);
@@ -170,9 +178,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/products/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/products/:id", isAuthenticated, async (req: any, res) => {
     try {
       await storage.deleteProduct(req.params.id);
+      
+      // Invalidate accounting cache for this user
+      cache.clear(req.user.uid);
+      
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting product:", error);
@@ -353,6 +365,255 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error building reports data:", error);
       res.status(500).json({ message: "Failed to fetch reports" });
+    }
+  });
+
+  // ===================== ACCOUNTING ROUTES =====================
+  // Return raw accounting entries
+  app.get("/api/accounting/entries", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.uid;
+      const cacheKey = `accounting:entries:${userId}`;
+      
+      // Check cache first
+      const cached = cache.get(cacheKey);
+      if (cached) {
+        res.set('Cache-Control', 'private, max-age=300');
+        res.set('X-Cache', 'HIT');
+        return res.json(cached);
+      }
+      
+      const entries = await storage.getAccountingEntries(userId);
+      
+      // Serialize dates properly
+      const serializedEntries = entries.map(entry => ({
+        ...entry,
+        createdAt: entry.createdAt instanceof Date 
+          ? entry.createdAt.toISOString() 
+          : (entry.createdAt as any)?.toDate?.()?.toISOString() || entry.createdAt,
+      }));
+      
+      // Cache the result for 5 minutes
+      cache.set(cacheKey, serializedEntries, 300000);
+      
+      // Add cache headers for better performance
+      res.set('Cache-Control', 'private, max-age=300'); // Cache for 5 minutes
+      res.set('X-Cache', 'MISS');
+      res.json(serializedEntries);
+    } catch (error) {
+      console.error("Error fetching accounting entries:", error);
+      res.status(500).json({ message: "Failed to fetch accounting entries" });
+    }
+  });
+
+  // Create new accounting entry
+  app.post("/api/accounting/entries", isAuthenticated, async (req: any, res) => {
+    try {
+      const entryData = insertAccountingEntrySchema.parse(req.body);
+      const entry = await storage.createAccountingEntry(entryData, req.user.uid);
+      
+      // Invalidate cache
+      cache.clear(req.user.uid);
+      
+      // Serialize dates properly
+      const serializedEntry = {
+        ...entry,
+        createdAt: entry.createdAt instanceof Date 
+          ? entry.createdAt.toISOString() 
+          : (entry.createdAt as any)?.toDate?.()?.toISOString() || entry.createdAt,
+      };
+      
+      res.status(201).json(serializedEntry);
+    } catch (error) {
+      console.error("Error creating accounting entry:", error);
+      res.status(400).json({ message: "Failed to create accounting entry" });
+    }
+  });
+
+  // Get sales summary for a specific month
+  app.get("/api/accounting/sales-summary", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.uid;
+      const month = req.query.month as string; // Format: YYYY-MM
+      
+      if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+        return res.status(400).json({ message: "Invalid month format. Use YYYY-MM" });
+      }
+
+      const cacheKey = `sales:summary:${userId}:${month}`;
+      const cached = cache.get(cacheKey);
+      if (cached) {
+        res.set('X-Cache', 'HIT');
+        return res.json(cached);
+      }
+
+      // Get user's products
+      const products = await storage.getProducts(undefined, userId);
+      if (products.length === 0) {
+        return res.json({ totalRevenue: 0, totalCOGS: 0, unitsSold: 0, grossProfit: 0 });
+      }
+
+      // Get transactions for the month
+      const productIds = products.map((p: any) => p.id);
+      const allTransactions = await storage.getInventoryTransactionsByProducts(productIds);
+      
+      // Filter by month
+      const startDate = new Date(month + "-01");
+      const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0, 23, 59, 59);
+      
+      const monthTransactions = allTransactions.filter((tx: any) => {
+        const txDate = tx.createdAt?.toDate?.() || new Date(tx.createdAt);
+        return txDate >= startDate && txDate <= endDate && tx.type === "out";
+      });
+
+      // Calculate summary
+      let totalRevenue = 0;
+      let totalCOGS = 0;
+      let unitsSold = 0;
+
+      const productById = new Map(products.map((p: any) => [p.id, p]));
+
+      for (const tx of monthTransactions as any[]) {
+        const product = productById.get(tx.productId);
+        const unitPrice = tx.unitPrice ? parseFloat(tx.unitPrice) : (product ? parseFloat(product.price || 0) : 0);
+        const costPrice = product?.costPrice ? parseFloat(product.costPrice) : 0;
+        const qty = tx.quantity || 0;
+
+        totalRevenue += unitPrice * qty;
+        totalCOGS += costPrice * qty;
+        unitsSold += qty;
+      }
+
+      const summary = {
+        totalRevenue,
+        totalCOGS,
+        unitsSold,
+        grossProfit: totalRevenue - totalCOGS,
+      };
+
+      cache.set(cacheKey, summary, 300000);
+      res.set('X-Cache', 'MISS');
+      res.json(summary);
+    } catch (error) {
+      console.error("Error fetching sales summary:", error);
+      res.status(500).json({ message: "Failed to fetch sales summary" });
+    }
+  });
+
+  // Compute a balance-sheet style report (inventory unsold, sold summary, totals)
+  app.get("/api/accounting/report", isAuthenticated, async (req: any, res) => {
+    const startTime = Date.now();
+    try {
+      const userId = req.user.uid;
+      const cacheKey = `accounting:report:${userId}`;
+      
+      // Check cache first
+      const cached = cache.get(cacheKey);
+      if (cached) {
+        console.log(`[CACHE HIT] Accounting report served from cache in ${Date.now() - startTime}ms`);
+        res.set('Cache-Control', 'private, max-age=300');
+        res.set('X-Cache', 'HIT');
+        return res.json(cached);
+      }
+      
+      console.log(`[CACHE MISS] Generating accounting report for user ${userId}`);
+      
+      // Fetch only user's products first
+      const t1 = Date.now();
+      const products = await storage.getProducts(undefined, userId);
+      console.log(`  → Fetched ${products.length} products in ${Date.now() - t1}ms`);
+
+      // Early return if no products
+      if (products.length === 0) {
+        return res.json({
+          inventorySummary: [],
+          soldSummary: [],
+          totals: {
+            totalInventoryValue: 0,
+            totalRevenue: 0,
+            totalCOGS: 0,
+            grossProfit: 0,
+          },
+        });
+      }
+
+      // Get product IDs and fetch only relevant transactions
+      const userProductIds = products.map((p: any) => p.id);
+      const t2 = Date.now();
+      const transactions = await storage.getInventoryTransactionsByProducts(userProductIds);
+      console.log(`  → Fetched ${transactions.length} transactions in ${Date.now() - t2}ms`);
+
+      // Map product id -> product
+      const productById = new Map(products.map((p: any) => [p.id, p]));
+
+      // Sold summary: aggregate 'out' transactions by product
+      const soldByProduct: Record<string, { soldQuantity: number; revenue: number; cogs: number }> = {};
+      for (const tx of transactions as any[]) {
+        if (tx.type !== "out") continue;
+        const pid = tx.productId;
+        
+        const product = productById.get(pid) || null;
+        const unitPrice = tx.unitPrice ? parseFloat(tx.unitPrice as any) : (product ? parseFloat(product.price as any || 0) : 0);
+        const qty = tx.quantity || 0;
+        const cost = product && product.costPrice ? parseFloat(product.costPrice as any) : 0;
+
+        soldByProduct[pid] ||= { soldQuantity: 0, revenue: 0, cogs: 0 };
+        soldByProduct[pid].soldQuantity += qty;
+        soldByProduct[pid].revenue += unitPrice * qty;
+        soldByProduct[pid].cogs += cost * qty;
+      }
+
+      const soldSummary = Object.entries(soldByProduct).map(([pid, s]) => ({
+        productId: pid,
+        name: (productById.get(pid)?.name as string) || "Unknown",
+        sku: (productById.get(pid)?.sku as string) || "",
+        soldQuantity: s.soldQuantity,
+        revenue: s.revenue,
+        cogs: s.cogs,
+      }));
+
+      // Inventory (unsold) summary using current product quantity
+      const inventorySummary = products.map((p: any) => {
+        const qty = p.quantity || 0;
+        const cost = p.costPrice ? parseFloat(p.costPrice as any) : 0;
+        return {
+          productId: p.id,
+          name: p.name,
+          sku: p.sku,
+          quantity: qty,
+          costPrice: cost,
+          inventoryValue: qty * cost,
+        };
+      });
+
+      const totalInventoryValue = inventorySummary.reduce((sum: number, i: any) => sum + (i.inventoryValue || 0), 0);
+      const totalRevenue = soldSummary.reduce((sum: number, s: any) => sum + (s.revenue || 0), 0);
+      const totalCOGS = soldSummary.reduce((sum: number, s: any) => sum + (s.cogs || 0), 0);
+      const grossProfit = totalRevenue - totalCOGS;
+
+      const reportData = {
+        inventorySummary,
+        soldSummary,
+        totals: {
+          totalInventoryValue,
+          totalRevenue,
+          totalCOGS,
+          grossProfit,
+        },
+      };
+
+      // Cache the result for 5 minutes
+      cache.set(cacheKey, reportData, 300000);
+      
+      console.log(`[ACCOUNTING REPORT] Generated in ${Date.now() - startTime}ms (cached for 5min)`);
+      
+      // Add cache headers for better performance
+      res.set('Cache-Control', 'private, max-age=300'); // Cache for 5 minutes
+      res.set('X-Cache', 'MISS');
+      res.json(reportData);
+    } catch (error) {
+      console.error("Error building accounting report:", error);
+      res.status(500).json({ message: "Failed to build accounting report" });
     }
   });
 

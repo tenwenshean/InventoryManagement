@@ -13,7 +13,7 @@ import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import Inventory from "@/pages/inventory";
 import Products from "@/pages/products";
-import Accounting from "@/pages/accounting";
+import Accounting from "@/pages/accounting-new";
 import QRCodes from "@/pages/qr-codes";
 import Reports from "@/pages/reports";
 import Settings from "@/pages/settings";

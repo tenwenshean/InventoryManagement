@@ -87,6 +87,7 @@ export const accountingEntries = pgTable("accounting_entries", {
   debitAmount: decimal("debit_amount", { precision: 10, scale: 2 }).default('0'),
   creditAmount: decimal("credit_amount", { precision: 10, scale: 2 }).default('0'),
   description: text("description"),
+  userId: varchar("user_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
