@@ -373,32 +373,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/accounting/entries", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.uid;
-      const cacheKey = `accounting:entries:${userId}`;
-      
-      // Check cache first
+      const month = (req.query.month as string) || undefined;
+      const limitParam = req.query.limit as string | undefined;
+
+      let limit: number | undefined;
+      if (limitParam) {
+        const parsedLimit = Number.parseInt(limitParam, 10);
+        if (!Number.isNaN(parsedLimit) && parsedLimit > 0) {
+          limit = Math.min(parsedLimit, 1000);
+        }
+      }
+
+      let startDate: Date | undefined;
+      let endDate: Date | undefined;
+
+      if (month) {
+        if (!/^\d{4}-\d{2}$/.test(month)) {
+          return res.status(400).json({ message: "Invalid month format. Use YYYY-MM" });
+        }
+
+        const [yearStr, monthStr] = month.split("-");
+        const year = Number(yearStr);
+        const monthIndex = Number(monthStr) - 1;
+
+        startDate = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
+        endDate = new Date(Date.UTC(year, monthIndex + 1, 0, 23, 59, 59, 999));
+      }
+
+      if (!month && !limit) {
+        limit = 500;
+      }
+
+      const cacheKey = [
+        "accounting:entries",
+        userId,
+        month ?? "recent",
+        limit ?? "unlimited",
+      ].join(":");
+
       const cached = cache.get(cacheKey);
       if (cached) {
-        res.set('Cache-Control', 'private, max-age=300');
-        res.set('X-Cache', 'HIT');
+        res.set("Cache-Control", "private, max-age=300");
+        res.set("X-Cache", "HIT");
         return res.json(cached);
       }
-      
-      const entries = await storage.getAccountingEntries(userId);
-      
-      // Serialize dates properly
-      const serializedEntries = entries.map(entry => ({
+
+      const entries = await storage.getAccountingEntries(userId, {
+        startDate,
+        endDate,
+        limit,
+      });
+
+      const serializedEntries = entries.map((entry) => ({
         ...entry,
-        createdAt: entry.createdAt instanceof Date 
-          ? entry.createdAt.toISOString() 
-          : (entry.createdAt as any)?.toDate?.()?.toISOString() || entry.createdAt,
+        createdAt:
+          entry.createdAt instanceof Date
+            ? entry.createdAt.toISOString()
+            : (entry.createdAt as any)?.toDate?.()?.toISOString() || entry.createdAt,
       }));
-      
-      // Cache the result for 5 minutes
+
       cache.set(cacheKey, serializedEntries, 300000);
-      
-      // Add cache headers for better performance
-      res.set('Cache-Control', 'private, max-age=300'); // Cache for 5 minutes
-      res.set('X-Cache', 'MISS');
+
+      res.set("Cache-Control", "private, max-age=300");
+      res.set("X-Cache", "MISS");
       res.json(serializedEntries);
     } catch (error) {
       console.error("Error fetching accounting entries:", error);
@@ -411,22 +448,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const entryData = insertAccountingEntrySchema.parse(req.body);
       const entry = await storage.createAccountingEntry(entryData, req.user.uid);
-      
-      // Invalidate cache
+
       cache.clear(req.user.uid);
-      
-      // Serialize dates properly
+
       const serializedEntry = {
         ...entry,
-        createdAt: entry.createdAt instanceof Date 
-          ? entry.createdAt.toISOString() 
-          : (entry.createdAt as any)?.toDate?.()?.toISOString() || entry.createdAt,
+        createdAt:
+          entry.createdAt instanceof Date
+            ? entry.createdAt.toISOString()
+            : (entry.createdAt as any)?.toDate?.()?.toISOString() || entry.createdAt,
       };
-      
+
       res.status(201).json(serializedEntry);
     } catch (error) {
       console.error("Error creating accounting entry:", error);
       res.status(400).json({ message: "Failed to create accounting entry" });
+    }
+  });
+
+  app.delete("/api/accounting/entries/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        return res.status(400).json({ message: "Missing entry id" });
+      }
+
+      await storage.deleteAccountingEntry(id, req.user.uid);
+      cache.clear(req.user.uid);
+      res.status(204).send();
+    } catch (error: any) {
+      console.error("Error deleting accounting entry:", error);
+      if (error?.message === "ACCOUNTING_ENTRY_NOT_FOUND") {
+        return res.status(404).json({ message: "Accounting entry not found" });
+      }
+      if (error?.message === "FORBIDDEN") {
+        return res.status(403).json({ message: "Not allowed to delete this entry" });
+      }
+      res.status(500).json({ message: "Failed to delete accounting entry" });
     }
   });
 
@@ -435,38 +493,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.uid;
       const month = req.query.month as string; // Format: YYYY-MM
-      
+
       if (!month || !/^\d{4}-\d{2}$/.test(month)) {
         return res.status(400).json({ message: "Invalid month format. Use YYYY-MM" });
       }
 
+      const [yearStr, monthStr] = month.split("-");
+      const year = Number(yearStr);
+      const monthIndex = Number(monthStr) - 1;
+      const startDate = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
+      const endDate = new Date(Date.UTC(year, monthIndex + 1, 0, 23, 59, 59, 999));
+
       const cacheKey = `sales:summary:${userId}:${month}`;
       const cached = cache.get(cacheKey);
       if (cached) {
-        res.set('X-Cache', 'HIT');
+        res.set("X-Cache", "HIT");
         return res.json(cached);
       }
 
-      // Get user's products
       const products = await storage.getProducts(undefined, userId);
       if (products.length === 0) {
         return res.json({ totalRevenue: 0, totalCOGS: 0, unitsSold: 0, grossProfit: 0 });
       }
 
-      // Get transactions for the month
       const productIds = products.map((p: any) => p.id);
-      const allTransactions = await storage.getInventoryTransactionsByProducts(productIds);
-      
-      // Filter by month
-      const startDate = new Date(month + "-01");
-      const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0, 23, 59, 59);
-      
-      const monthTransactions = allTransactions.filter((tx: any) => {
-        const txDate = tx.createdAt?.toDate?.() || new Date(tx.createdAt);
-        return txDate >= startDate && txDate <= endDate && tx.type === "out";
+      const monthTransactions = await storage.getInventoryTransactionsByProducts(productIds, {
+        startDate,
+        endDate,
       });
 
-      // Calculate summary
       let totalRevenue = 0;
       let totalCOGS = 0;
       let unitsSold = 0;
@@ -474,9 +529,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const productById = new Map(products.map((p: any) => [p.id, p]));
 
       for (const tx of monthTransactions as any[]) {
+        if (tx.type !== "out") continue;
         const product = productById.get(tx.productId);
-        const unitPrice = tx.unitPrice ? parseFloat(tx.unitPrice) : (product ? parseFloat(product.price || 0) : 0);
-        const costPrice = product?.costPrice ? parseFloat(product.costPrice) : 0;
+        const unitPrice = tx.unitPrice
+          ? parseFloat(tx.unitPrice as any)
+          : product
+          ? parseFloat((product.price as any) || 0)
+          : 0;
+        const costPrice = product && product.costPrice ? parseFloat(product.costPrice as any) : 0;
         const qty = tx.quantity || 0;
 
         totalRevenue += unitPrice * qty;
@@ -492,31 +552,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       cache.set(cacheKey, summary, 300000);
-      res.set('X-Cache', 'MISS');
+      res.set("X-Cache", "MISS");
       res.json(summary);
     } catch (error) {
       console.error("Error fetching sales summary:", error);
       res.status(500).json({ message: "Failed to fetch sales summary" });
     }
   });
-
   // Compute a balance-sheet style report (inventory unsold, sold summary, totals)
   app.get("/api/accounting/report", isAuthenticated, async (req: any, res) => {
     const startTime = Date.now();
     try {
       const userId = req.user.uid;
-      const cacheKey = `accounting:report:${userId}`;
-      
+      const monthParam = (req.query.month as string) || new Date().toISOString().slice(0, 7);
+
+      if (!/^\d{4}-\d{2}$/.test(monthParam)) {
+        return res.status(400).json({ message: "Invalid month format. Use YYYY-MM" });
+      }
+
+      const [yearStr, monthStr] = monthParam.split("-");
+      const year = Number(yearStr);
+      const monthIndex = Number(monthStr) - 1;
+      const periodStart = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
+      const periodEnd = new Date(Date.UTC(year, monthIndex + 1, 0, 23, 59, 59, 999));
+
+      const cacheKey = `accounting:report:${userId}:${monthParam}`;
+
       // Check cache first
       const cached = cache.get(cacheKey);
       if (cached) {
-        console.log(`[CACHE HIT] Accounting report served from cache in ${Date.now() - startTime}ms`);
+        console.log(`[CACHE HIT] Accounting report for ${monthParam} served from cache in ${Date.now() - startTime}ms`);
         res.set('Cache-Control', 'private, max-age=300');
         res.set('X-Cache', 'HIT');
         return res.json(cached);
       }
       
-      console.log(`[CACHE MISS] Generating accounting report for user ${userId}`);
+      console.log(`[CACHE MISS] Generating accounting report for user ${userId} (${monthParam})`);
       
       // Fetch only user's products first
       const t1 = Date.now();
@@ -534,13 +605,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             totalCOGS: 0,
             grossProfit: 0,
           },
+          month: monthParam,
         });
       }
 
       // Get product IDs and fetch only relevant transactions
       const userProductIds = products.map((p: any) => p.id);
       const t2 = Date.now();
-      const transactions = await storage.getInventoryTransactionsByProducts(userProductIds);
+      const transactions = await storage.getInventoryTransactionsByProducts(userProductIds, {
+        startDate: periodStart,
+        endDate: periodEnd,
+      });
       console.log(`  → Fetched ${transactions.length} transactions in ${Date.now() - t2}ms`);
 
       // Map product id -> product
@@ -600,12 +675,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalCOGS,
           grossProfit,
         },
+        month: monthParam,
       };
 
       // Cache the result for 5 minutes
       cache.set(cacheKey, reportData, 300000);
       
-      console.log(`[ACCOUNTING REPORT] Generated in ${Date.now() - startTime}ms (cached for 5min)`);
+      console.log(`[ACCOUNTING REPORT] Generated in ${Date.now() - startTime}ms for ${monthParam} (cached for 5min)`);
       
       // Add cache headers for better performance
       res.set('Cache-Control', 'private, max-age=300'); // Cache for 5 minutes

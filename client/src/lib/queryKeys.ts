@@ -15,7 +15,9 @@ export const queryKeys = {
     detail: (id: string) => ["/api/inventory", id] as const,
   },
   accounting: {
-    entries: ["/api/accounting/entries"] as const,
-    report: ["/api/accounting/report"] as const,
+    entries: (month?: string) => ["/api/accounting/entries", month ?? "all"] as const,
+    entriesRoot: ["/api/accounting/entries"] as const,
+    report: (month?: string) => ["/api/accounting/report", month ?? "current"] as const,
+    reportRoot: ["/api/accounting/report"] as const,
   }
 } as const;

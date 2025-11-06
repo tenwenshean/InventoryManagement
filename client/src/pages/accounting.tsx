@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
@@ -15,6 +15,7 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 export default function Accounting() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -31,9 +32,9 @@ export default function Accounting() {
   }, [isAuthenticated, isLoading, toast]);
 
   const { data: entries, isLoading: entriesLoading, error } = useQuery<AccountingEntry[]>({
-    queryKey: queryKeys.accounting.entries,
+    queryKey: queryKeys.accounting.entries(selectedMonth),
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/accounting/entries");
+      const res = await apiRequest("GET", `/api/accounting/entries?month=${encodeURIComponent(selectedMonth)}`);
       if (!res.ok) throw new Error("Failed to load accounting entries");
       return res.json();
     },
@@ -46,9 +47,9 @@ export default function Accounting() {
   });
 
   const { data: report, isLoading: reportLoading, isFetching } = useQuery({
-    queryKey: queryKeys.accounting.report,
+    queryKey: queryKeys.accounting.report(selectedMonth),
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/accounting/report");
+      const res = await apiRequest("GET", `/api/accounting/report?month=${encodeURIComponent(selectedMonth)}`);
       if (!res.ok) throw new Error("Failed to load accounting report");
       return res.json();
     },
@@ -110,17 +111,30 @@ export default function Accounting() {
     return <div>Loading...</div>;
   }
 
-  const calculateTotals = () => {
+  const { totalDebits, totalCredits, balance } = useMemo(() => {
     if (!entries) return { totalDebits: 0, totalCredits: 0, balance: 0 };
-    
-    const totalDebits = entries.reduce((sum, entry) => sum + parseFloat(entry.debitAmount || "0"), 0);
-    const totalCredits = entries.reduce((sum, entry) => sum + parseFloat(entry.creditAmount || "0"), 0);
-    const balance = totalDebits - totalCredits;
-    
-    return { totalDebits, totalCredits, balance };
-  };
 
-  const { totalDebits, totalCredits, balance } = calculateTotals();
+    const totals = entries.reduce(
+      (acc, entry) => {
+        const debit = parseFloat(entry.debitAmount || "0");
+        const credit = parseFloat(entry.creditAmount || "0");
+        acc.totalDebits += debit;
+        acc.totalCredits += credit;
+        return acc;
+      },
+      { totalDebits: 0, totalCredits: 0 },
+    );
+
+    return { ...totals, balance: totals.totalDebits - totals.totalCredits };
+  }, [entries]);
+
+  const monthLabel = useMemo(() => {
+    try {
+      return new Date(`${selectedMonth}-01`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    } catch {
+      return selectedMonth;
+    }
+  }, [selectedMonth]);
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -136,13 +150,25 @@ export default function Accounting() {
           </p>
         </header>
 
+        <div className="mb-6">
+          <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            Reporting Month
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="ml-3 rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
+
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Debits</p>
+                  <p className="text-sm font-medium text-muted-foreground">Total Debits ({monthLabel})</p>
                   <p className="text-2xl font-bold text-foreground" data-testid="text-total-debits">
                     ${totalDebits.toLocaleString()}
                   </p>
@@ -158,7 +184,7 @@ export default function Accounting() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Credits</p>
+                  <p className="text-sm font-medium text-muted-foreground">Total Credits ({monthLabel})</p>
                   <p className="text-2xl font-bold text-foreground" data-testid="text-total-credits">
                     ${totalCredits.toLocaleString()}
                   </p>
@@ -174,7 +200,7 @@ export default function Accounting() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Net Balance</p>
+                  <p className="text-sm font-medium text-muted-foreground">Net Balance ({monthLabel})</p>
                   <p className={`text-2xl font-bold ${balance >= 0 ? 'text-chart-2' : 'text-primary'}`} data-testid="text-net-balance">
                     ${Math.abs(balance).toLocaleString()}
                   </p>
@@ -275,7 +301,9 @@ export default function Accounting() {
                   </div>
 
                   {/* Sold Summary */}
-                  <h3 className="text-base font-semibold mt-8 mb-3">Sales Summary (Sold Items)</h3>
+                  <h3 className="text-base font-semibold mt-8 mb-3">
+                    Sales Summary ({monthLabel})
+                  </h3>
                   <div className="overflow-x-auto">
                     <table className="w-full border border-border">
                       <thead className="bg-muted">

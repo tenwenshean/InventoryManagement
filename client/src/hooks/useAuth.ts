@@ -27,13 +27,13 @@ export function useAuth() {
           firebaseUser?.email || "Not logged in"
         );
         
-        // If user changed (login, logout, or switch accounts), clear all cached data
-        if (currentUserId !== previousUserId) {
+        // Only clear cache if user actually changed (not on token refresh)
+        if (previousUserId !== null && currentUserId !== previousUserId) {
           console.log("User changed - clearing cache");
           queryClient.clear(); // Clear all cached queries
-          previousUserIdRef.current = currentUserId;
         }
         
+        previousUserIdRef.current = currentUserId;
         setUser(firebaseUser);
         setIsLoading(false);
       },

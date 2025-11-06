@@ -245,7 +245,10 @@ export class DatabaseStorage {
   }
 
   // Get transactions for multiple products (optimized for accounting reports)
-  async getInventoryTransactionsByProducts(productIds: string[]): Promise<InventoryTransaction[]> {
+  async getInventoryTransactionsByProducts(
+    productIds: string[],
+    options?: { startDate?: Date; endDate?: Date }
+  ): Promise<InventoryTransaction[]> {
     if (productIds.length === 0) return [];
     
     // Firestore 'in' operator is limited to 10 items, so batch the queries
@@ -255,8 +258,19 @@ export class DatabaseStorage {
     // Run all batches in parallel for better performance
     for (let i = 0; i < productIds.length; i += batchSize) {
       const batch = productIds.slice(i, i + batchSize);
-      const batchPromise = db.collection("inventoryTransactions")
+      let query: FirebaseFirestore.Query = db.collection("inventoryTransactions")
         .where("productId", "in", batch)
+        .orderBy("createdAt", "desc");
+
+      if (options?.startDate) {
+        query = query.where("createdAt", ">=", options.startDate);
+      }
+
+      if (options?.endDate) {
+        query = query.where("createdAt", "<=", options.endDate);
+      }
+
+      const batchPromise = query
         .get()
         .then(snapshot => 
           snapshot.docs.map(doc => {
@@ -300,37 +314,37 @@ export class DatabaseStorage {
   // ===============================
   // ACCOUNTING ENTRIES
   // ===============================
-  async getAccountingEntries(userId?: string): Promise<AccountingEntry[]> {
+  async getAccountingEntries(
+    userId?: string,
+    options?: { startDate?: Date; endDate?: Date; limit?: number }
+  ): Promise<AccountingEntry[]> {
+    let query: FirebaseFirestore.Query = db.collection("accountingEntries");
+
     if (userId) {
-      // Use where clause directly - simpler and faster
-      const snapshot = await db.collection("accountingEntries")
-        .where("userId", "==", userId)
-        .get();
-      
-      const entries = snapshot.docs.map(doc => {
-        const d = doc.data() as AccountingEntry;
-        (d as any).id = doc.id;
-        return d as AccountingEntry;
-      });
-      
-      // Sort by createdAt descending
-      return entries.sort((a, b) => {
-        const aDate = (a.createdAt as any)?.toDate?.() || a.createdAt || new Date(0);
-        const bDate = (b.createdAt as any)?.toDate?.() || b.createdAt || new Date(0);
-        return new Date(bDate).getTime() - new Date(aDate).getTime();
-      });
-    } else {
-      // No userId filter, fetch all with ordering
-      const snapshot = await db.collection("accountingEntries")
-        .orderBy("createdAt", "desc")
-        .get();
-      
-      return snapshot.docs.map((doc) => {
-        const d = doc.data() as AccountingEntry;
-        (d as any).id = doc.id;
-        return d as AccountingEntry;
-      });
+      query = query.where("userId", "==", userId);
     }
+
+    query = query.orderBy("createdAt", "desc");
+
+    if (options?.startDate) {
+      query = query.where("createdAt", ">=", options.startDate);
+    }
+
+    if (options?.endDate) {
+      query = query.where("createdAt", "<=", options.endDate);
+    }
+
+    if (options?.limit) {
+      query = query.limit(options.limit);
+    }
+
+    const snapshot = await query.get();
+
+    return snapshot.docs.map((doc) => {
+      const d = doc.data() as AccountingEntry;
+      (d as any).id = doc.id;
+      return d as AccountingEntry;
+    });
   }
 
   async addAccountingEntry(data: InsertAccountingEntry, userId?: string): Promise<AccountingEntry> {
@@ -348,6 +362,21 @@ export class DatabaseStorage {
   // Backwards-compatible alias
   async createAccountingEntry(data: InsertAccountingEntry, userId?: string): Promise<AccountingEntry> {
     return this.addAccountingEntry(data, userId);
+  }
+
+  async deleteAccountingEntry(id: string, userId?: string): Promise<void> {
+    const ref = db.collection("accountingEntries").doc(id);
+    const doc = await ref.get();
+    if (!doc.exists) {
+      throw new Error("ACCOUNTING_ENTRY_NOT_FOUND");
+    }
+
+    const data = doc.data() as AccountingEntry;
+    if (userId && data.userId && data.userId !== userId) {
+      throw new Error("FORBIDDEN");
+    }
+
+    await ref.delete();
   }
 
   // ===============================
