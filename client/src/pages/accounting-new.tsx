@@ -28,13 +28,25 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 
 export default function AccountingNew() {
   const { toast } = useToast();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const queryClient = useQueryClient();
   const [selectedMonth, setSelectedMonth] = useState<string | undefined>(undefined);
   const [openDialog, setOpenDialog] = useState(false);
   const balanceSheetRef = useRef<HTMLDivElement>(null);
   const [entryToDelete, setEntryToDelete] = useState<AccountingEntry | null>(null);
   const [hasResolvedMonth, setHasResolvedMonth] = useState(false);
+  const [companyName, setCompanyName] = useState("Your Company Name");
+
+  // Load company name from settings
+  useEffect(() => {
+    if (user?.uid) {
+      const savedSettings = localStorage.getItem(`settings_${user.uid}`);
+      if (savedSettings) {
+        const settings = JSON.parse(savedSettings);
+        setCompanyName(settings.companyName || "Your Company Name");
+      }
+    }
+  }, [user]);
 
   // Form state for new entry
   const [newEntry, setNewEntry] = useState({
@@ -592,7 +604,7 @@ export default function AccountingNew() {
 
               <div ref={balanceSheetRef} className="space-y-8 rounded-xl border bg-background/60 p-6">
                 <div className="header text-center">
-                  <div className="company-name text-lg font-semibold tracking-wide">Your Company Name</div>
+                  <div className="company-name text-lg font-semibold tracking-wide">{companyName}</div>
                   <div className="statement-title text-2xl font-bold">BALANCE SHEET</div>
                   <div className="date text-sm text-muted-foreground">As of {monthName}</div>
                 </div>
@@ -708,7 +720,7 @@ export default function AccountingNew() {
 
               <div className="space-y-8 rounded-xl border bg-background/60 p-6">
                 <div className="header text-center">
-                  <div className="company-name text-lg font-semibold tracking-wide">Your Company Name</div>
+                  <div className="company-name text-lg font-semibold tracking-wide">{companyName}</div>
                   <div className="statement-title text-2xl font-bold">INCOME STATEMENT</div>
                   <div className="date text-sm text-muted-foreground">For the month ended {monthName}</div>
                 </div>
