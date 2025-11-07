@@ -180,6 +180,16 @@ export default async function handler(req, res) {
       }
     }
 
+    // ===== PUBLIC PRODUCTS ROUTE (no auth) =====
+    if (pathParts[0] === 'public' && pathParts[1] === 'products' && req.method === 'GET') {
+      return await handleGetPublicProducts(req, res);
+    }
+
+    // ===== PUBLIC CATEGORIES ROUTE (no auth) =====
+    if (pathParts[0] === 'public' && pathParts[1] === 'categories' && req.method === 'GET') {
+      return await handleGetPublicCategories(req, res);
+    }
+
     // ===== CATEGORIES ROUTES (protected) =====
     if (pathParts[0] === 'categories') {
       const user = await authenticate(req);
@@ -323,6 +333,38 @@ async function handleGetProducts(req, res, user) {
     return res.json(products);
   } catch (error) {
     console.error('Error fetching products:', error);
+    return res.status(500).json({ message: 'Failed to fetch products', error: error.message });
+  }
+}
+
+async function handleGetPublicProducts(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const search = req.query.search;
+    
+    // Get ALL products (no user filter for public view)
+    const snapshot = await db.collection('products')
+      .where('isActive', '==', true)
+      .orderBy('createdAt', 'desc')
+      .get();
+    
+    let products = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    }));
+    
+    if (search) {
+      const s = search.toLowerCase();
+      products = products.filter(p => 
+        (p.name || '').toLowerCase().includes(s) || 
+        (p.sku || '').toLowerCase().includes(s)
+      );
+    }
+    
+    return res.json(products);
+  } catch (error) {
+    console.error('Error fetching public products:', error);
     return res.status(500).json({ message: 'Failed to fetch products', error: error.message });
   }
 }
@@ -568,6 +610,23 @@ async function handleGetCategories(req, res, user) {
     return res.json(categories);
   } catch (error) {
     console.error('Error fetching categories:', error);
+    return res.status(500).json({ message: 'Failed to fetch categories' });
+  }
+}
+
+async function handleGetPublicCategories(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    // Get ALL categories (no user filter for public view)
+    const snapshot = await db.collection('categories')
+      .orderBy('createdAt', 'desc')
+      .get();
+    
+    const categories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return res.json(categories);
+  } catch (error) {
+    console.error('Error fetching public categories:', error);
     return res.status(500).json({ message: 'Failed to fetch categories' });
   }
 }

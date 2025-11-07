@@ -19,6 +19,7 @@ import Reports from "@/pages/reports";
 import Settings from "@/pages/settings";
 import ScanPage from "@/pages/scan";
 import CustomerPortal from "@/pages/customer";
+import ShopPage from "@/pages/shop";
 
 // Optional: you can wrap all authenticated routes with a layout (with sidebar)
 import Sidebar from "@/components/sidebar";
@@ -34,7 +35,7 @@ function AuthenticatedApp() {
   }, [location, setLocation]);
 
   // Check if current route is customer portal
-  const isCustomerPortal = location === "/customer";
+  const isCustomerPortal = location === "/customer" || location === "/shop";
 
   return (
     <div className="flex">
@@ -44,6 +45,7 @@ function AuthenticatedApp() {
           <Route path="/" component={Dashboard} />
           <Route path="/dashboard" component={Dashboard} />
           <Route path="/customer" component={CustomerPortal} />
+          <Route path="/shop" component={ShopPage} />
           <Route path="/scan/:code" component={ScanPage} />
           <Route path="/inventory" component={Inventory} />
           <Route path="/products" component={Products} />
@@ -83,6 +85,7 @@ function UnauthenticatedApp() {
     <Switch>
       <Route path="/" component={Landing} />
       <Route path="/customer" component={CustomerPortal} />
+      <Route path="/shop" component={ShopPage} />
       <Route path="/scan/:code" component={ScanPage} />
       <Route component={NotFound} />
     </Switch>

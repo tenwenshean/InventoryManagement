@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,7 +64,7 @@ export default function CustomerPortal() {
   const { data: products, isLoading } = useQuery<Product[]>({
     queryKey: queryKeys.products.all,
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/products");
+      const response = await apiRequest("GET", "/api/public/products");
       if (!response.ok) throw new Error("Failed to fetch products");
       return response.json();
     },
@@ -165,7 +166,7 @@ export default function CustomerPortal() {
             </p>
             
             {/* Search Bar */}
-            <div className="relative max-w-2xl mx-auto">
+            <div className="relative max-w-2xl mx-auto mb-6">
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-6 h-6" />
               <Input
                 type="text"
@@ -175,6 +176,17 @@ export default function CustomerPortal() {
                 className="pl-14 pr-4 py-7 text-lg border-2 border-gray-300 focus:border-red-500 rounded-full shadow-lg"
               />
             </div>
+
+            {/* Shop All Products Button */}
+            <Link href="/shop">
+              <Button 
+                size="lg" 
+                className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-700 hover:to-orange-600 text-white px-8 py-6 text-lg shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all duration-200"
+              >
+                <Store className="w-6 h-6 mr-2" />
+                Shop All Products
+              </Button>
+            </Link>
           </div>
         </div>
       </section>
