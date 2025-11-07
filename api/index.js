@@ -206,6 +206,31 @@ export default async function handler(req, res) {
       }
     }
 
+    // ===== ACCOUNTING ROUTES (protected) =====
+    if (pathParts[0] === 'accounting') {
+      const user = await authenticate(req);
+
+      // GET /api/accounting/entries
+      if (pathParts[1] === 'entries' && pathParts.length === 2 && req.method === 'GET') {
+        return await handleGetAccountingEntries(req, res, user);
+      }
+
+      // POST /api/accounting/entries
+      if (pathParts[1] === 'entries' && pathParts.length === 2 && req.method === 'POST') {
+        return await handleCreateAccountingEntry(req, res, user);
+      }
+
+      // DELETE /api/accounting/entries/:id
+      if (pathParts[1] === 'entries' && pathParts.length === 3 && req.method === 'DELETE') {
+        return await handleDeleteAccountingEntry(req, res, user, pathParts[2]);
+      }
+
+      // GET /api/accounting/sales-summary
+      if (pathParts[1] === 'sales-summary' && req.method === 'GET') {
+        return await handleGetSalesSummary(req, res, user);
+      }
+    }
+
     // Route not found
     return res.status(404).json({ message: 'Route not found', path: pathParts.join('/') });
 
@@ -629,5 +654,219 @@ async function handleConfirmSale(req, res, code) {
   } catch (error) {
     console.error('Error confirming sale via QR:', error);
     return res.status(500).json({ message: 'Failed to confirm sale' });
+  }
+}
+
+// ===== ACCOUNTING HANDLERS =====
+
+async function handleGetAccountingEntries(req, res, user) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const userId = user.uid;
+    const month = req.query.month;
+    const limitParam = req.query.limit;
+
+    let query = db.collection('accountingEntries').where('userId', '==', userId);
+
+    // Handle month filtering
+    if (month) {
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        return res.status(400).json({ message: 'Invalid month format. Use YYYY-MM' });
+      }
+
+      const [yearStr, monthStr] = month.split('-');
+      const year = Number(yearStr);
+      const monthIndex = Number(monthStr) - 1;
+
+      const startDate = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
+      const endDate = new Date(Date.UTC(year, monthIndex + 1, 0, 23, 59, 59, 999));
+
+      query = query
+        .where('createdAt', '>=', startDate)
+        .where('createdAt', '<=', endDate);
+    }
+
+    // Apply ordering
+    query = query.orderBy('createdAt', 'desc');
+
+    // Apply limit
+    if (limitParam) {
+      const limit = Math.min(Number(limitParam), 1000);
+      if (!isNaN(limit) && limit > 0) {
+        query = query.limit(limit);
+      }
+    }
+
+    const snapshot = await query.get();
+    const entries = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt
+      };
+    });
+
+    return res.json(entries);
+  } catch (error) {
+    console.error('Error fetching accounting entries:', error);
+    return res.status(500).json({ 
+      message: 'Failed to fetch accounting entries',
+      error: error.message 
+    });
+  }
+}
+
+async function handleCreateAccountingEntry(req, res, user) {
+  const { db } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
+  
+  try {
+    const entryData = req.body;
+    
+    // Validate required fields
+    if (!entryData.accountType || !entryData.accountName) {
+      return res.status(400).json({ 
+        message: 'Missing required fields: accountType and accountName are required' 
+      });
+    }
+
+    const ref = db.collection('accountingEntries').doc();
+    const newEntry = {
+      ...entryData,
+      id: ref.id,
+      userId: user.uid,
+      debitAmount: entryData.debitAmount || '0',
+      creditAmount: entryData.creditAmount || '0',
+      createdAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+    };
+
+    await ref.set(newEntry);
+
+    // Fetch the created document to get actual timestamp
+    const createdDoc = await ref.get();
+    const createdData = createdDoc.data();
+
+    const responseData = {
+      id: ref.id,
+      ...createdData,
+      createdAt: createdData.createdAt?.toDate?.()?.toISOString() || createdData.createdAt
+    };
+
+    return res.status(201).json(responseData);
+  } catch (error) {
+    console.error('Error creating accounting entry:', error);
+    return res.status(400).json({ 
+      message: 'Failed to create accounting entry',
+      error: error.message 
+    });
+  }
+}
+
+async function handleDeleteAccountingEntry(req, res, user, entryId) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const entryRef = db.collection('accountingEntries').doc(entryId);
+    const doc = await entryRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ message: 'Accounting entry not found' });
+    }
+
+    const data = doc.data();
+    if (data.userId !== user.uid) {
+      return res.status(403).json({ message: 'Not allowed to delete this entry' });
+    }
+
+    await entryRef.delete();
+    return res.status(204).send();
+  } catch (error) {
+    console.error('Error deleting accounting entry:', error);
+    return res.status(500).json({ 
+      message: 'Failed to delete accounting entry',
+      error: error.message 
+    });
+  }
+}
+
+async function handleGetSalesSummary(req, res, user) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const month = req.query.month;
+
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+      return res.status(400).json({ message: 'Invalid month format. Use YYYY-MM' });
+    }
+
+    const [yearStr, monthStr] = month.split('-');
+    const year = Number(yearStr);
+    const monthIndex = Number(monthStr) - 1;
+    const startDate = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
+    const endDate = new Date(Date.UTC(year, monthIndex + 1, 0, 23, 59, 59, 999));
+
+    // Get user's products
+    const productsSnap = await db.collection('products')
+      .where('userId', '==', user.uid)
+      .get();
+
+    if (productsSnap.empty) {
+      return res.json({ totalRevenue: 0, totalCOGS: 0, unitsSold: 0, grossProfit: 0 });
+    }
+
+    const products = productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const productIds = products.map(p => p.id);
+    const productById = new Map(products.map(p => [p.id, p]));
+
+    // Get transactions for the month (batch if needed)
+    let allTransactions = [];
+    const batchSize = 10;
+    
+    for (let i = 0; i < productIds.length; i += batchSize) {
+      const batch = productIds.slice(i, i + batchSize);
+      const txSnap = await db.collection('inventoryTransactions')
+        .where('productId', 'in', batch)
+        .where('createdAt', '>=', startDate)
+        .where('createdAt', '<=', endDate)
+        .get();
+      
+      allTransactions = allTransactions.concat(txSnap.docs.map(doc => doc.data()));
+    }
+
+    let totalRevenue = 0;
+    let totalCOGS = 0;
+    let unitsSold = 0;
+
+    for (const tx of allTransactions) {
+      if (tx.type !== 'out') continue;
+      
+      const product = productById.get(tx.productId);
+      const unitPrice = tx.unitPrice 
+        ? parseFloat(tx.unitPrice) 
+        : product ? parseFloat(product.price || 0) : 0;
+      const costPrice = product && product.costPrice ? parseFloat(product.costPrice) : 0;
+      const qty = tx.quantity || 0;
+
+      totalRevenue += unitPrice * qty;
+      totalCOGS += costPrice * qty;
+      unitsSold += qty;
+    }
+
+    const summary = {
+      totalRevenue,
+      totalCOGS,
+      unitsSold,
+      grossProfit: totalRevenue - totalCOGS
+    };
+
+    return res.json(summary);
+  } catch (error) {
+    console.error('Error fetching sales summary:', error);
+    return res.status(500).json({ 
+      message: 'Failed to fetch sales summary',
+      error: error.message 
+    });
   }
 }
