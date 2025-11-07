@@ -324,15 +324,19 @@ export class DatabaseStorage {
       query = query.where("userId", "==", userId);
     }
 
-    query = query.orderBy("createdAt", "desc");
-
-    if (options?.startDate) {
+    // Apply date filters BEFORE ordering to avoid Firestore composite index requirement
+    if (options?.startDate && options?.endDate) {
+      query = query
+        .where("createdAt", ">=", options.startDate)
+        .where("createdAt", "<=", options.endDate);
+    } else if (options?.startDate) {
       query = query.where("createdAt", ">=", options.startDate);
-    }
-
-    if (options?.endDate) {
+    } else if (options?.endDate) {
       query = query.where("createdAt", "<=", options.endDate);
     }
+
+    // Order by createdAt (desc) - this must come after where clauses
+    query = query.orderBy("createdAt", "desc");
 
     if (options?.limit) {
       query = query.limit(options.limit);
