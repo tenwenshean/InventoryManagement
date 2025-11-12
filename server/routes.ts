@@ -294,7 +294,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===================== REPORTS ROUTE =====================
   app.get("/api/reports/data", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.uid;
+      const userId = req.user?.uid;
+      
+      if (!userId) {
+        console.error("[REPORTS] No userId found in request");
+        return res.status(401).json({ message: "User ID not found" });
+      }
       
       console.log(`[REPORTS] Generating report for user: ${userId}`);
       
@@ -302,8 +307,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const products = await storage.getProducts(undefined, userId);
       const categories = await storage.getCategories(userId);
       
+      console.log(`[REPORTS] Fetched ${products.length} products, ${categories.length} categories`);
+      
       // Get accounting entries for financial data (already filtered by userId)
-      const accountingEntries = await storage.getAccountingEntries(userId);
+      let accountingEntries: any[] = [];
+      try {
+        accountingEntries = await storage.getAccountingEntries(userId);
+        console.log(`[REPORTS] Fetched ${accountingEntries.length} accounting entries`);
+      } catch (error: any) {
+        console.error(`[REPORTS] Error fetching accounting entries:`, error.message);
+        // Continue with empty accounting entries if there's an error
+        accountingEntries = [];
+      }
       
       console.log(`[REPORTS] User ${userId} has ${products.length} products, ${categories.length} categories, ${accountingEntries.length} accounting entries`);
       
@@ -508,9 +523,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       res.json(responseData);
-    } catch (error) {
-      console.error("Error building reports data:", error);
-      res.status(500).json({ message: "Failed to fetch reports" });
+    } catch (error: any) {
+      console.error("[REPORTS] Error building reports data:", error);
+      console.error("[REPORTS] Error stack:", error.stack);
+      res.status(500).json({ 
+        message: "Failed to fetch reports", 
+        error: error.message,
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
     }
   });
 
