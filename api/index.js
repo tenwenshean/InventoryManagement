@@ -241,6 +241,12 @@ export default async function handler(req, res) {
       }
     }
 
+    // ===== REPORTS ROUTE (protected) =====
+    if (pathParts[0] === 'reports' && pathParts[1] === 'data' && req.method === 'GET') {
+      const user = await authenticate(req);
+      return await handleGetReportsData(req, res, user);
+    }
+
     // Route not found
     return res.status(404).json({ message: 'Route not found', path: pathParts.join('/') });
 
@@ -926,6 +932,230 @@ async function handleGetSalesSummary(req, res, user) {
     return res.status(500).json({ 
       message: 'Failed to fetch sales summary',
       error: error.message 
+    });
+  }
+}
+
+// ===== REPORTS DATA HANDLER =====
+async function handleGetReportsData(req, res, user) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const userId = user.uid;
+    console.log(`[REPORTS] Generating report for user: ${userId}`);
+
+    // Get user-specific products
+    const productsSnap = await db.collection('products')
+      .where('userId', '==', userId)
+      .get();
+    const products = productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    // Get user-specific categories
+    const categoriesSnap = await db.collection('categories')
+      .where('userId', '==', userId)
+      .get();
+    const categories = categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    console.log(`[REPORTS] Fetched ${products.length} products, ${categories.length} categories`);
+
+    // Get accounting entries
+    let accountingEntries = [];
+    try {
+      const accountingSnap = await db.collection('accountingEntries')
+        .where('userId', '==', userId)
+        .orderBy('createdAt', 'desc')
+        .get();
+      accountingEntries = accountingSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      console.log(`[REPORTS] Fetched ${accountingEntries.length} accounting entries`);
+    } catch (error) {
+      console.error(`[REPORTS] Error fetching accounting entries:`, error.message);
+      accountingEntries = [];
+    }
+
+    // Get transactions for user's products
+    const productIds = products.map(p => p.id);
+    let transactions = [];
+    
+    if (productIds.length > 0) {
+      const batchSize = 10;
+      for (let i = 0; i < productIds.length; i += batchSize) {
+        const batch = productIds.slice(i, i + batchSize);
+        const txSnap = await db.collection('inventoryTransactions')
+          .where('productId', 'in', batch)
+          .get();
+        transactions = transactions.concat(txSnap.docs.map(doc => doc.data()));
+      }
+    }
+
+    console.log(`[REPORTS] Found ${transactions.length} transactions`);
+
+    // Calculate metrics
+    const unitsSold = transactions
+      .filter(t => t.type === 'out')
+      .reduce((sum, t) => sum + (t.quantity || 0), 0);
+
+    const productById = new Map(products.map(p => [p.id, p]));
+    const totalRevenueNumber = transactions
+      .filter(t => t.type === 'out')
+      .reduce((sum, t) => {
+        const product = productById.get(t.productId);
+        const price = product ? parseFloat(product.price || 0) : 0;
+        return sum + price * (t.quantity || 0);
+      }, 0);
+
+    const keyMetrics = {
+      totalRevenue: `$${totalRevenueNumber.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+      unitsSold,
+      avgOrderValue: unitsSold > 0 ? `$${(totalRevenueNumber / unitsSold).toFixed(2)}` : '$0',
+      returnRate: '0%'
+    };
+
+    // Group by month
+    const monthKey = (date) => {
+      const d = date.toDate ? date.toDate() : new Date(date);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    };
+
+    const byMonth = {};
+    for (const tx of transactions) {
+      const key = monthKey(tx.createdAt);
+      byMonth[key] = byMonth[key] || { sales: 0, returns: 0, inStock: 0, outStock: 0, revenue: 0 };
+      
+      if (tx.type === 'in') byMonth[key].inStock += tx.quantity || 0;
+      if (tx.type === 'out') {
+        byMonth[key].outStock += tx.quantity || 0;
+        byMonth[key].sales += tx.quantity || 0;
+        const product = productById.get(tx.productId);
+        const price = product ? parseFloat(product.price || 0) : 0;
+        byMonth[key].revenue += price * (tx.quantity || 0);
+      }
+    }
+
+    const sortedMonths = Object.keys(byMonth).sort();
+    const salesData = sortedMonths.map(m => ({ month: m, sales: byMonth[m].sales, returns: byMonth[m].returns }));
+    const inventoryTrends = sortedMonths.map(m => ({ month: m, inStock: byMonth[m].inStock, outStock: byMonth[m].outStock }));
+
+    // Accounting data
+    const accountingByMonth = {};
+    for (const entry of accountingEntries) {
+      const key = monthKey(entry.createdAt);
+      accountingByMonth[key] = accountingByMonth[key] || { revenue: 0, expenses: 0, profit: 0 };
+      
+      const debit = parseFloat(entry.debitAmount || 0);
+      const credit = parseFloat(entry.creditAmount || 0);
+      
+      if (entry.accountType === 'revenue') accountingByMonth[key].revenue += credit;
+      else if (entry.accountType === 'expense') accountingByMonth[key].expenses += debit;
+    }
+
+    // Add transaction revenue
+    for (const month in byMonth) {
+      accountingByMonth[month] = accountingByMonth[month] || { revenue: 0, expenses: 0, profit: 0 };
+      accountingByMonth[month].revenue += byMonth[month].revenue;
+    }
+
+    // Calculate profit
+    for (const month in accountingByMonth) {
+      const data = accountingByMonth[month];
+      data.profit = data.revenue - data.expenses;
+    }
+
+    const sortedAccountingMonths = Object.keys(accountingByMonth).sort();
+    const accountingData = sortedAccountingMonths.map(m => ({
+      month: m,
+      revenue: Math.round(accountingByMonth[m].revenue * 100) / 100,
+      expenses: Math.round(accountingByMonth[m].expenses * 100) / 100,
+      profit: Math.round(accountingByMonth[m].profit * 100) / 100,
+    }));
+
+    // Cash flow
+    const cashFlow = [];
+    for (let index = 0; index < sortedAccountingMonths.length; index++) {
+      const m = sortedAccountingMonths[index];
+      const data = accountingByMonth[m];
+      const previousBalance = index > 0 ? (cashFlow[index - 1]?.balance || 0) : 0;
+      const balance = previousBalance + data.profit;
+      
+      cashFlow.push({
+        month: m,
+        inflow: data.revenue,
+        outflow: data.expenses,
+        balance: Math.round(balance * 100) / 100,
+      });
+    }
+
+    // Simple predictions (without ML service in serverless)
+    const predictions = sortedAccountingMonths.slice(-3).map((m, index) => {
+      const [year, month] = m.split('-');
+      const nextDate = new Date(parseInt(year), parseInt(month) + index, 1);
+      const predicted = accountingByMonth[m]?.revenue || 0;
+      
+      return {
+        period: `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`,
+        predicted: Math.round(predicted * 1.1 * 100) / 100, // Simple 10% growth prediction
+        confidence: 0.75
+      };
+    });
+
+    // Insights
+    const recentRevenues = sortedAccountingMonths.slice(-3).map(m => accountingByMonth[m]?.revenue || 0);
+    const avgRevenue = recentRevenues.reduce((a, b) => a + b, 0) / recentRevenues.length;
+    const latestRevenue = recentRevenues[recentRevenues.length - 1] || 0;
+    
+    const insights = {
+      trend: latestRevenue > avgRevenue ? 'increasing' : latestRevenue < avgRevenue ? 'decreasing' : 'stable',
+      recommendation: latestRevenue > avgRevenue 
+        ? 'Revenue is trending upward. Consider expanding inventory for high-demand products.'
+        : 'Revenue is stable or declining. Review pricing and marketing strategies.',
+      anomalies: 0
+    };
+
+    // Category distribution
+    const categoryIdToName = new Map(categories.map(c => [c.id, c.name]));
+    const categoryTotals = {};
+    for (const p of products) {
+      const name = categoryIdToName.get(p.categoryId) || 'Uncategorized';
+      categoryTotals[name] = (categoryTotals[name] || 0) + (p.quantity || 0);
+    }
+    const categoryData = Object.entries(categoryTotals).map(([name, value]) => ({ name, value }));
+
+    // Top products
+    const soldByProduct = {};
+    for (const tx of transactions) {
+      if (tx.type === 'out') {
+        soldByProduct[tx.productId] = (soldByProduct[tx.productId] || 0) + (tx.quantity || 0);
+      }
+    }
+    const topProducts = Object.entries(soldByProduct)
+      .map(([productId, sales]) => ({
+        name: productById.get(productId)?.name || 'Unknown',
+        sales,
+        change: 0
+      }))
+      .sort((a, b) => b.sales - a.sales)
+      .slice(0, 10);
+
+    const responseData = {
+      keyMetrics,
+      salesData,
+      inventoryTrends,
+      categoryData,
+      topProducts,
+      accountingData,
+      predictions,
+      cashFlow,
+      insights
+    };
+
+    console.log(`[REPORTS] Sending response for user ${userId}`);
+    return res.json(responseData);
+  } catch (error) {
+    console.error('[REPORTS] Error building reports data:', error);
+    console.error('[REPORTS] Error stack:', error.stack);
+    return res.status(500).json({ 
+      message: 'Failed to fetch reports', 
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 }
