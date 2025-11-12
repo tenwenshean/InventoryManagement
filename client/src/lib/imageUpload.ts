@@ -1,4 +1,4 @@
-import { storage } from "../../../firebaseClient";
+import { storage } from "@/lib/firebaseClient";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 
 // Toggle between Firebase Storage and Base64 encoding

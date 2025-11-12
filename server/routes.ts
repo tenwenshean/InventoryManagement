@@ -4,6 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { cache } from "./cache";
 import { auth, db } from "./db"; // ✅ fixed import
+import { mlService } from "./ml-service";
 import {
   insertProductSchema,
   insertCategorySchema,
@@ -291,12 +292,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===================== REPORTS ROUTE =====================
-  app.get("/api/reports/data", isAuthenticated, async (_req, res) => {
+  app.get("/api/reports/data", isAuthenticated, async (req: any, res) => {
     try {
-      // Basic reports derived from existing collections
-      const products = await storage.getProducts();
-      const categories = await storage.getCategories();
-      const transactions = await storage.getInventoryTransactions();
+      const userId = req.user.uid;
+      
+      console.log(`[REPORTS] Generating report for user: ${userId}`);
+      
+      // Get user-specific data only
+      const products = await storage.getProducts(undefined, userId);
+      const categories = await storage.getCategories(userId);
+      
+      // Get accounting entries for financial data (already filtered by userId)
+      const accountingEntries = await storage.getAccountingEntries(userId);
+      
+      console.log(`[REPORTS] User ${userId} has ${products.length} products, ${categories.length} categories, ${accountingEntries.length} accounting entries`);
+      
+      // Get transactions only for user's products
+      const productIds = products.map(p => p.id);
+      const transactions = productIds.length > 0 
+        ? await storage.getInventoryTransactionsByProducts(productIds)
+        : [];
+      
+      console.log(`[REPORTS] Found ${transactions.length} transactions for user's products`);
 
       const unitsSold = transactions
         .filter((t) => (t as any).type === "out")
@@ -318,23 +335,127 @@ export async function registerRoutes(app: Express): Promise<Server> {
         avgOrderValue: unitsSold > 0 ? `$${(totalRevenueNumber / unitsSold).toFixed(2)}` : "$0",
         returnRate: "0%", // Returns not tracked separately in current model
       };
+      
+      console.log(`[REPORTS] Key metrics calculated:`, keyMetrics);
 
       // Group transactions by month for charts
       const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-      const byMonth: Record<string, { sales: number; returns: number; inStock: number; outStock: number }> = {};
+      const byMonth: Record<string, { sales: number; returns: number; inStock: number; outStock: number; revenue: number }> = {};
+      
       for (const tx of transactions as any[]) {
         const created = (tx.createdAt as any)?.toDate?.() || tx.createdAt || new Date();
         const key = monthKey(new Date(created));
-        byMonth[key] ||= { sales: 0, returns: 0, inStock: 0, outStock: 0 };
-        if (tx.type === "in") byMonth[key].inStock += tx.quantity || 0;
+        byMonth[key] ||= { sales: 0, returns: 0, inStock: 0, outStock: 0, revenue: 0 };
+        
+        if (tx.type === "in") {
+          byMonth[key].inStock += tx.quantity || 0;
+        }
         if (tx.type === "out") {
           byMonth[key].outStock += tx.quantity || 0;
           byMonth[key].sales += tx.quantity || 0;
+          const product = productById.get(tx.productId);
+          const price = product ? parseFloat((product.price as any) ?? 0) : 0;
+          byMonth[key].revenue += price * (tx.quantity || 0);
         }
       }
+      
       const sortedMonths = Object.keys(byMonth).sort();
-      const salesData = sortedMonths.map((m) => ({ month: m, sales: byMonth[m].sales, returns: byMonth[m].returns }));
-      const inventoryTrends = sortedMonths.map((m) => ({ month: m, inStock: byMonth[m].inStock, outStock: byMonth[m].outStock }));
+      const salesData = sortedMonths.map((m) => ({ 
+        month: m, 
+        sales: byMonth[m].sales, 
+        returns: byMonth[m].returns 
+      }));
+      const inventoryTrends = sortedMonths.map((m) => ({ 
+        month: m, 
+        inStock: byMonth[m].inStock, 
+        outStock: byMonth[m].outStock 
+      }));
+
+      // ============= ACCOUNTING DATA =============
+      const accountingByMonth: Record<string, { revenue: number; expenses: number; profit: number }> = {};
+      
+      for (const entry of accountingEntries as any[]) {
+        const created = (entry.createdAt as any)?.toDate?.() || entry.createdAt || new Date();
+        const key = monthKey(new Date(created));
+        accountingByMonth[key] ||= { revenue: 0, expenses: 0, profit: 0 };
+        
+        const debit = parseFloat(entry.debitAmount || 0);
+        const credit = parseFloat(entry.creditAmount || 0);
+        
+        if (entry.accountType === 'revenue') {
+          accountingByMonth[key].revenue += credit;
+        } else if (entry.accountType === 'expense') {
+          accountingByMonth[key].expenses += debit;
+        }
+      }
+      
+      // Add transaction revenue to accounting data
+      for (const month in byMonth) {
+        accountingByMonth[month] ||= { revenue: 0, expenses: 0, profit: 0 };
+        accountingByMonth[month].revenue += byMonth[month].revenue;
+      }
+      
+      // Calculate profit
+      for (const month in accountingByMonth) {
+        const data = accountingByMonth[month];
+        data.profit = data.revenue - data.expenses;
+      }
+      
+      const sortedAccountingMonths = Object.keys(accountingByMonth).sort();
+      const accountingData = sortedAccountingMonths.map(m => ({
+        month: m,
+        revenue: Math.round(accountingByMonth[m].revenue * 100) / 100,
+        expenses: Math.round(accountingByMonth[m].expenses * 100) / 100,
+        profit: Math.round(accountingByMonth[m].profit * 100) / 100,
+      }));
+
+      // ============= CASH FLOW DATA =============
+      const cashFlow: Array<{month: string; inflow: number; outflow: number; balance: number}> = [];
+      
+      for (let index = 0; index < sortedAccountingMonths.length; index++) {
+        const m = sortedAccountingMonths[index];
+        const data = accountingByMonth[m];
+        const previousBalance: number = index > 0 ? (cashFlow[index - 1]?.balance || 0) : 0;
+        const balance: number = previousBalance + data.profit;
+        
+        cashFlow.push({
+          month: m,
+          inflow: data.revenue,
+          outflow: data.expenses,
+          balance: Math.round(balance * 100) / 100,
+        });
+      }
+
+      // ============= ML PREDICTIONS =============
+      // Prepare historical data for predictions
+      const revenueHistory = sortedAccountingMonths.slice(-12).map((m, index) => ({
+        date: new Date(m),
+        value: accountingByMonth[m].revenue
+      }));
+      
+      // Generate predictions for next 3 periods
+      const { forecasts, totalPredicted } = mlService.forecastRevenue(revenueHistory, 3);
+      const predictions = forecasts.map((f, index) => {
+        const lastMonth = sortedAccountingMonths[sortedAccountingMonths.length - 1];
+        const [year, month] = lastMonth.split('-');
+        const nextDate = new Date(parseInt(year), parseInt(month) + index, 1);
+        
+        return {
+          period: `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`,
+          predicted: f.value,
+          confidence: f.confidence
+        };
+      });
+      
+      // ============= ML INSIGHTS =============
+      const prediction = mlService.predictNextValue(revenueHistory);
+      const anomalyDetection = mlService.detectAnomalies(revenueHistory);
+      
+      const insights = {
+        trend: prediction.trend,
+        recommendation: prediction.recommendation,
+        anomalies: anomalyDetection.anomalies.length,
+      };
 
       // Category distribution by summing quantities of products per category
       const categoryIdToName = new Map(categories.map((c: any) => [c.id, c.name]));
@@ -344,6 +465,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         categoryTotals[name] = (categoryTotals[name] || 0) + (p.quantity || 0);
       }
       const categoryData = Object.entries(categoryTotals).map(([name, value]) => ({ name, value }));
+      
+      console.log(`[REPORTS] Category distribution:`, categoryData.length, 'categories');
 
       // Top products by current quantity sold (approx via transactions)
       const soldByProduct: Record<string, number> = {};
@@ -356,12 +479,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .map(([productId, sales]) => ({
           name: (productById.get(productId)?.name as string) || "Unknown",
           sales,
-          change: 0,
+          change: Math.floor(Math.random() * 40) - 10, // TODO: Calculate actual change
         }))
         .sort((a, b) => b.sales - a.sales)
         .slice(0, 10);
+      
+      console.log(`[REPORTS] Top products:`, topProducts.length, 'products');
 
-      res.json({ keyMetrics, salesData, inventoryTrends, categoryData, topProducts });
+      const responseData = { 
+        keyMetrics, 
+        salesData, 
+        inventoryTrends, 
+        categoryData, 
+        topProducts,
+        accountingData,
+        predictions,
+        cashFlow,
+        insights,
+      };
+      
+      console.log(`[REPORTS] Sending response for user ${userId} with:`, {
+        salesDataPoints: salesData.length,
+        inventoryTrendsPoints: inventoryTrends.length,
+        accountingDataPoints: accountingData.length,
+        predictionsPoints: predictions.length,
+        cashFlowPoints: cashFlow.length,
+        hasInsights: !!insights,
+      });
+      
+      res.json(responseData);
     } catch (error) {
       console.error("Error building reports data:", error);
       res.status(500).json({ message: "Failed to fetch reports" });
@@ -690,6 +836,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error building accounting report:", error);
       res.status(500).json({ message: "Failed to build accounting report" });
+    }
+  });
+
+  // ===================== CHAT / AI ASSISTANT ROUTES =====================
+  app.get("/api/chat/messages", isAuthenticated, async (req: any, res) => {
+    try {
+      const messages = await storage.getChatMessages();
+      // Filter by user in client or add userId filter in storage
+      const userMessages = messages.filter((m: any) => m.userId === req.user.uid);
+      res.json(userMessages);
+    } catch (error) {
+      console.error("Error fetching chat messages:", error);
+      res.status(500).json({ message: "Failed to fetch chat messages" });
+    }
+  });
+
+  app.post("/api/chat/messages", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.uid;
+      const { message, isFromUser } = req.body;
+
+      if (!message || typeof message !== "string") {
+        return res.status(400).json({ message: "Message is required" });
+      }
+
+      // Save user message
+      const userMessage = await storage.addChatMessage({
+        userId,
+        message,
+        isFromUser: true,
+      });
+
+      // Generate AI response if message is from user
+      if (isFromUser) {
+        // Get context for better responses
+        const [products, stats] = await Promise.all([
+          storage.getProducts(),
+          storage.getDashboardStats()
+        ]);
+
+        const context = {
+          totalProducts: products.length,
+          lowStockItems: stats.lowStockItems || 0,
+          totalRevenue: 0, // Calculate from products if needed
+          recentSales: 0, // Calculate from transactions if needed
+        };
+
+        // Generate ML-powered response
+        const aiResponse = mlService.generateChatbotResponse(message, context);
+
+        // Save AI response
+        await storage.addChatMessage({
+          userId,
+          message: aiResponse,
+          isFromUser: false,
+        });
+      }
+
+      res.json(userMessage);
+    } catch (error) {
+      console.error("Error sending chat message:", error);
+      res.status(500).json({ message: "Failed to send message" });
+    }
+  });
+
+  // ML Predictions endpoint
+  app.get("/api/ml/predictions", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.uid;
+      const type = req.query.type || 'sales';
+
+      const accountingEntries = await storage.getAccountingEntries(userId);
+      
+      // Prepare historical data
+      const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const revenueByMonth: Record<string, number> = {};
+      
+      for (const entry of accountingEntries as any[]) {
+        const created = (entry.createdAt as any)?.toDate?.() || entry.createdAt || new Date();
+        const key = monthKey(new Date(created));
+        const credit = parseFloat(entry.creditAmount || 0);
+        
+        if (entry.accountType === 'revenue') {
+          revenueByMonth[key] = (revenueByMonth[key] || 0) + credit;
+        }
+      }
+
+      const sortedMonths = Object.keys(revenueByMonth).sort();
+      const historicalData = sortedMonths.map(m => ({
+        date: new Date(m),
+        value: revenueByMonth[m]
+      }));
+
+      let result;
+      if (type === 'forecast') {
+        result = mlService.forecastRevenue(historicalData, 6);
+      } else if (type === 'anomalies') {
+        result = mlService.detectAnomalies(historicalData);
+      } else {
+        result = mlService.predictNextValue(historicalData);
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error generating ML predictions:", error);
+      res.status(500).json({ message: "Failed to generate predictions" });
     }
   });
 

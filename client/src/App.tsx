@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect } from "react";
+import { auth } from "@/lib/firebaseClient";
 
 // Pages
 import Landing from "@/pages/landing";
@@ -26,16 +27,78 @@ import Sidebar from "@/components/sidebar";
 
 function AuthenticatedApp() {
   const [location, setLocation] = useLocation();
-
-  // Redirect root to dashboard when authenticated
-  useEffect(() => {
-    if (location === "/") {
-      setLocation("/dashboard");
-    }
-  }, [location, setLocation]);
+  const { logout } = useAuth();
 
   // Check if current route is customer portal
   const isCustomerPortal = location === "/customer" || location === "/shop";
+  
+  // Check if current route is enterprise dashboard
+  const isEnterpriseDashboard = [
+    "/dashboard",
+    "/inventory", 
+    "/products",
+    "/accounting",
+    "/qr-codes",
+    "/reports",
+    "/settings",
+    "/scan"
+  ].some(route => location.startsWith(route));
+
+  // Force logout enterprise users when they access customer routes
+  useEffect(() => {
+    const handleCustomerPortalAccess = async () => {
+      if (isCustomerPortal) {
+        const user = auth.currentUser;
+        if (user) {
+          // Check if user is enterprise (Google or Email login)
+          const isEnterpriseUser = user.providerData.some(
+            (provider: any) => provider.providerId === 'google.com'
+          ) || (user.email && !user.phoneNumber);
+
+          if (isEnterpriseUser) {
+            console.log("Enterprise user accessing customer portal - forcing logout");
+            await logout();
+          }
+        }
+      }
+    };
+
+    handleCustomerPortalAccess();
+  }, [location, isCustomerPortal, logout]);
+
+  // Force logout phone users (customers) when they access enterprise routes
+  useEffect(() => {
+    const handleEnterpriseDashboardAccess = async () => {
+      if (isEnterpriseDashboard) {
+        const user = auth.currentUser;
+        if (user) {
+          // Check if user is phone-only (customer account)
+          const isPhoneUser = user.phoneNumber && user.providerData.some(
+            (provider: any) => provider.providerId === 'phone'
+          );
+          const hasGoogleAuth = user.providerData.some(
+            (provider: any) => provider.providerId === 'google.com'
+          );
+          
+          // If phone user without Google auth, they're a customer - log them out
+          if (isPhoneUser && !hasGoogleAuth) {
+            console.log("Customer account detected on enterprise dashboard - logging out");
+            await logout();
+            setLocation("/");
+          }
+        }
+      }
+    };
+
+    handleEnterpriseDashboardAccess();
+  }, [location, isEnterpriseDashboard, logout, setLocation]);
+
+  // Redirect root to dashboard when authenticated (but not on customer pages)
+  useEffect(() => {
+    if (location === "/" && !isCustomerPortal) {
+      setLocation("/dashboard");
+    }
+  }, [location, setLocation, isCustomerPortal]);
 
   return (
     <div className="flex">

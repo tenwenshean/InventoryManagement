@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +23,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import type { Product } from "@/types";
 import CustomerLoginModal from "@/components/customer-login-modal";
-import { auth } from "../../../firebaseClient";
+import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -32,14 +32,65 @@ export default function CustomerPortal() {
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [customerUser, setCustomerUser] = useState<any>(null);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const { toast } = useToast();
+  const [location, setLocation] = useLocation();
 
-  // Listen to auth state changes
+  // Force logout enterprise users when accessing customer portal
+  useEffect(() => {
+    const checkAndLogoutEnterpriseUser = async () => {
+      const currentUser = auth.currentUser;
+      
+      if (currentUser) {
+        // Check if user logged in with Google (enterprise account)
+        const isGoogleUser = currentUser.providerData.some(
+          provider => provider.providerId === 'google.com'
+        );
+        
+        const isEmailUser = currentUser.email && !currentUser.phoneNumber;
+        
+        // If user is logged in with Google or Email (enterprise), force logout
+        if (isGoogleUser || isEmailUser) {
+          console.log("Enterprise user detected on customer portal - logging out");
+          try {
+            await signOut(auth);
+            toast({
+              title: "Logged Out",
+              description: "Customer portal requires phone number login. Please login with your phone number.",
+              variant: "default",
+            });
+          } catch (error) {
+            console.error("Error logging out enterprise user:", error);
+          }
+        }
+      }
+      
+      setIsCheckingAuth(false);
+    };
+
+    checkAndLogoutEnterpriseUser();
+  }, [toast]);
+
+  // Listen to auth state changes - only allow phone number users
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCustomerUser(user);
       if (user) {
-        console.log("Customer logged in:", user.phoneNumber);
+        // Only allow phone number authentication for customer portal
+        const isPhoneUser = user.phoneNumber && user.providerData.some(
+          provider => provider.providerId === 'phone'
+        );
+        
+        if (isPhoneUser) {
+          setCustomerUser(user);
+          console.log("Customer logged in with phone:", user.phoneNumber);
+        } else {
+          // If not a phone user, sign them out
+          console.log("Non-phone user detected, signing out");
+          signOut(auth).catch(console.error);
+          setCustomerUser(null);
+        }
+      } else {
+        setCustomerUser(null);
       }
     });
 

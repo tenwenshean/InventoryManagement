@@ -11,7 +11,7 @@ import {
   orderBy,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db } from '../../../firebaseClient';
+import { db } from '@/lib/firebaseClient';
 import type { Category, InsertCategory } from '../types';
 
 const CATEGORIES_COLLECTION = 'categories';

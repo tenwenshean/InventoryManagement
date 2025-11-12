@@ -1,6 +1,6 @@
 // pages/landing.tsx
 import { useState } from "react";
-import { loginWithGoogle } from "../../../firebaseClient";
+import { loginWithGoogle } from "@/lib/firebaseClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";

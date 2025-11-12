@@ -1,5 +1,5 @@
 // apiClient.ts
-import { auth } from "./firebaseClient";
+import { auth } from "./client/src/lib/firebaseClient";
 
 export async function apiFetch(path: string, options: RequestInit = {}) {
   try {

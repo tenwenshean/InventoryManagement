@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +20,9 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import type { Product } from "@/types";
+import { auth } from "@/lib/firebaseClient";
+import { signOut } from "firebase/auth";
+import { useToast } from "@/hooks/use-toast";
 
 export default function ShopPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -27,6 +30,40 @@ export default function ShopPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
+  const { toast } = useToast();
+
+  // Force logout enterprise users when accessing shop page
+  useEffect(() => {
+    const checkAndLogoutEnterpriseUser = async () => {
+      const currentUser = auth.currentUser;
+      
+      if (currentUser) {
+        // Check if user logged in with Google (enterprise account)
+        const isGoogleUser = currentUser.providerData.some(
+          provider => provider.providerId === 'google.com'
+        );
+        
+        const isEmailUser = currentUser.email && !currentUser.phoneNumber;
+        
+        // If user is logged in with Google or Email (enterprise), force logout
+        if (isGoogleUser || isEmailUser) {
+          console.log("Enterprise user detected on shop page - logging out");
+          try {
+            await signOut(auth);
+            toast({
+              title: "Logged Out",
+              description: "Shop page is for customers only. Enterprise users, please use the main dashboard.",
+              variant: "default",
+            });
+          } catch (error) {
+            console.error("Error logging out enterprise user:", error);
+          }
+        }
+      }
+    };
+
+    checkAndLogoutEnterpriseUser();
+  }, [toast]);
 
   // Fetch all products
   const { data: products, isLoading } = useQuery<Product[]>({

@@ -1,5 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { auth } from "../../../firebaseClient";
+import { auth } from "@/lib/firebaseClient";
 
 const API_BASE = (import.meta as any)?.env?.VITE_API_BASE || "";
 

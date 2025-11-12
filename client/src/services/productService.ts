@@ -12,7 +12,7 @@ import {
   orderBy,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db } from '../../../firebaseClient';
+import { db } from '@/lib/firebaseClient';
 import type { Product, InsertProduct } from '@/types';
 
 const PRODUCTS_COLLECTION = 'products';

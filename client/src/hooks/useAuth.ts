@@ -1,7 +1,7 @@
 // hooks/useAuth.ts
 import { useState, useEffect, useRef } from "react";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
-import { auth } from "../../../firebaseClient";
+import { auth } from "@/lib/firebaseClient";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function useAuth() {

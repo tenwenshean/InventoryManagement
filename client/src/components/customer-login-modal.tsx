@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Smartphone, Lock, Loader2 } from "lucide-react";
-import { initRecaptcha, sendOTP, verifyOTP } from "../../../firebaseClient";
+import { initRecaptcha, sendOTP, verifyOTP } from "@/lib/firebaseClient";
 import type { RecaptchaVerifier } from "firebase/auth";
 
 interface CustomerLoginModalProps {
