@@ -85,8 +85,17 @@ export default function Reports() {
   const { data: reportsData, isLoading, error } = useQuery<ReportsData>({
     queryKey: ['/api/reports/data', timeRange],
     queryFn: async () => {
-      const response = await apiRequest('GET', `/api/reports/data?range=${timeRange}`);
-      return response.json();
+      console.log('[REPORTS] Fetching reports data...');
+      try {
+        const response = await apiRequest('GET', `/api/reports/data?range=${timeRange}`);
+        const data = await response.json();
+        console.log('[REPORTS] Data received:', data);
+        return data;
+      } catch (err: any) {
+        console.error('[REPORTS] Error fetching data:', err);
+        console.error('[REPORTS] Error message:', err.message);
+        throw err;
+      }
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
@@ -103,11 +112,13 @@ export default function Reports() {
   }
 
   if (error) {
+    console.error('[REPORTS] Render error:', error);
     return (
       <div className="container mx-auto p-6">
         <div className="text-center py-8">
           <h2 className="text-2xl font-bold text-red-600 mb-2">Error Loading Reports</h2>
           <p className="text-gray-600">Unable to fetch reports data. Please try again later.</p>
+          <p className="text-sm text-gray-500 mt-2">Error: {error instanceof Error ? error.message : 'Unknown error'}</p>
         </div>
       </div>
     );
