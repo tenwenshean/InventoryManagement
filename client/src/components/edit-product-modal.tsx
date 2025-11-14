@@ -88,6 +88,8 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
       minStockLevel: 0,
       maxStockLevel: 0,
       barcode: "",
+      location: "",
+      notes: "",
     },
   });
 
@@ -106,6 +108,8 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
         minStockLevel: product.minStockLevel || 0,
         maxStockLevel: product.maxStockLevel || 0,
         barcode: product.barcode || "",
+        location: product.location || "",
+        notes: product.notes || "",
       });
       
       // Reset image states when product changes
@@ -399,18 +403,52 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
 
               <FormField
                 control={form.control}
-                name="barcode"
+                name="location"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Barcode</FormLabel>
+                    <FormLabel>Storage Location</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter barcode" {...field} data-testid="input-edit-product-barcode" />
+                      <Input placeholder="e.g., Warehouse A, Shelf 3" {...field} data-testid="input-edit-product-location" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="barcode"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Barcode</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Enter barcode" {...field} data-testid="input-edit-product-barcode" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="notes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Notes / Remarks</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Additional notes or remarks"
+                      className="resize-none"
+                      rows={3}
+                      {...field}
+                      data-testid="textarea-edit-product-notes"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField

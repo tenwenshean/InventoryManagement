@@ -62,6 +62,8 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
       minStockLevel: 0,
       maxStockLevel: 100,
       barcode: "",
+      location: "",
+      notes: "",
       isActive: true,
     },
   });
@@ -412,6 +414,22 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
 
               <FormField
                 control={form.control}
+                name="location"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Storage Location</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., Warehouse A, Shelf 3" {...field} data-testid="input-product-location" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
                 name="barcode"
                 render={({ field }) => (
                   <FormItem>
@@ -424,6 +442,26 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="notes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Notes / Remarks</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Additional notes or remarks about this product"
+                      className="resize-none"
+                      rows={3}
+                      {...field}
+                      data-testid="textarea-product-notes"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField

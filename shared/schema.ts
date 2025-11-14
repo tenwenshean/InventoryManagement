@@ -58,6 +58,8 @@ export const products = pgTable("products", {
   barcode: varchar("barcode"),
   qrCode: varchar("qr_code"),
   imageUrl: text("image_url"),
+  location: varchar("location"), // Storage location
+  notes: text("notes"), // Remarks/notes for the product
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
