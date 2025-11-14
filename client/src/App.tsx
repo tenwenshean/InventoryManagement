@@ -20,6 +20,7 @@ import Reports from "@/pages/reports";
 import Settings from "@/pages/settings";
 import ScanPage from "@/pages/scan";
 import CustomerPortal from "@/pages/customer";
+import CustomerProfile from "@/pages/customer-profile";
 import ShopPage from "@/pages/shop";
 
 // Optional: you can wrap all authenticated routes with a layout (with sidebar)
@@ -30,7 +31,7 @@ function AuthenticatedApp() {
   const { logout } = useAuth();
 
   // Check if current route is customer portal
-  const isCustomerPortal = location === "/customer" || location === "/shop";
+  const isCustomerPortal = location === "/customer" || location === "/customer-profile" || location === "/shop";
   
   // Check if current route is enterprise dashboard
   const isEnterpriseDashboard = [
@@ -44,54 +45,50 @@ function AuthenticatedApp() {
     "/scan"
   ].some(route => location.startsWith(route));
 
-  // Force logout enterprise users when they access customer routes
+  // Track the context where user logged in (customer vs enterprise)
   useEffect(() => {
-    const handleCustomerPortalAccess = async () => {
-      if (isCustomerPortal) {
-        const user = auth.currentUser;
-        if (user) {
-          // Check if user is enterprise (Google or Email login)
-          const isEnterpriseUser = user.providerData.some(
-            (provider: any) => provider.providerId === 'google.com'
-          ) || (user.email && !user.phoneNumber);
+    const handleContextSwitch = async () => {
+      const loginContext = localStorage.getItem('loginContext'); // 'customer' or 'enterprise'
+      const user = auth.currentUser;
 
-          if (isEnterpriseUser) {
-            console.log("Enterprise user accessing customer portal - forcing logout");
-            await logout();
-          }
-        }
+      console.log("Context switch check:", {
+        loginContext,
+        hasUser: !!user,
+        location,
+        isCustomerPortal,
+        isEnterpriseDashboard
+      });
+
+      if (!user) return;
+
+      // If no login context is set, don't allow access to either side
+      if (!loginContext) {
+        console.log("⚠️ No login context found - logging out");
+        await logout();
+        return;
+      }
+
+      // If accessing enterprise dashboard but logged in as customer
+      if (isEnterpriseDashboard && loginContext === 'customer') {
+        console.log("🚫 Customer session detected on enterprise dashboard - logging out");
+        await logout();
+        localStorage.removeItem('loginContext');
+        setLocation("/");
+        return;
+      }
+
+      // If accessing customer portal but logged in as enterprise
+      if (isCustomerPortal && loginContext === 'enterprise') {
+        console.log("🚫 Enterprise session detected on customer portal - logging out");
+        await logout();
+        localStorage.removeItem('loginContext');
+        // Stay on customer page to allow re-login
+        return;
       }
     };
 
-    handleCustomerPortalAccess();
-  }, [location, isCustomerPortal, logout]);
-
-  // Force logout phone users (customers) when they access enterprise routes
-  useEffect(() => {
-    const handleEnterpriseDashboardAccess = async () => {
-      if (isEnterpriseDashboard) {
-        const user = auth.currentUser;
-        if (user) {
-          // Check if user is phone-only (customer account)
-          const isPhoneUser = user.phoneNumber && user.providerData.some(
-            (provider: any) => provider.providerId === 'phone'
-          );
-          const hasGoogleAuth = user.providerData.some(
-            (provider: any) => provider.providerId === 'google.com'
-          );
-          
-          // If phone user without Google auth, they're a customer - log them out
-          if (isPhoneUser && !hasGoogleAuth) {
-            console.log("Customer account detected on enterprise dashboard - logging out");
-            await logout();
-            setLocation("/");
-          }
-        }
-      }
-    };
-
-    handleEnterpriseDashboardAccess();
-  }, [location, isEnterpriseDashboard, logout, setLocation]);
+    handleContextSwitch();
+  }, [location, isCustomerPortal, isEnterpriseDashboard, logout, setLocation]);
 
   // Redirect root to dashboard when authenticated (but not on customer pages)
   useEffect(() => {
@@ -108,6 +105,7 @@ function AuthenticatedApp() {
           <Route path="/" component={Dashboard} />
           <Route path="/dashboard" component={Dashboard} />
           <Route path="/customer" component={CustomerPortal} />
+          <Route path="/customer-profile" component={CustomerProfile} />
           <Route path="/shop" component={ShopPage} />
           <Route path="/scan/:code" component={ScanPage} />
           <Route path="/inventory" component={Inventory} />
@@ -148,6 +146,7 @@ function UnauthenticatedApp() {
     <Switch>
       <Route path="/" component={Landing} />
       <Route path="/customer" component={CustomerPortal} />
+      <Route path="/customer-profile" component={CustomerProfile} />
       <Route path="/shop" component={ShopPage} />
       <Route path="/scan/:code" component={ScanPage} />
       <Route component={NotFound} />

@@ -37,64 +37,55 @@ export default function CustomerPortal() {
   const [showCartModal, setShowCartModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<(Product & { companyName?: string }) | null>(null);
   const [customerUser, setCustomerUser] = useState<any>(null);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
 
-  // Force logout enterprise users when accessing customer portal
-  useEffect(() => {
-    const checkAndLogoutEnterpriseUser = async () => {
-      const currentUser = auth.currentUser;
-      
-      if (currentUser) {
-        // Check if user logged in with Google (enterprise account)
-        const isGoogleUser = currentUser.providerData.some(
-          provider => provider.providerId === 'google.com'
-        );
-        
-        const isEmailUser = currentUser.email && !currentUser.phoneNumber;
-        
-        // If user is logged in with Google or Email (enterprise), force logout
-        if (isGoogleUser || isEmailUser) {
-          console.log("Enterprise user detected on customer portal - logging out");
-          try {
-            await signOut(auth);
-            toast({
-              title: "Logged Out",
-              description: "Customer portal requires phone number login. Please login with your phone number.",
-              variant: "default",
-            });
-          } catch (error) {
-            console.error("Error logging out enterprise user:", error);
-          }
-        }
+  // Helper function to get display name
+  const getDisplayName = (user: any): string => {
+    if (!user) return "Guest";
+    
+    // Try display name first
+    if (user.displayName && user.displayName.trim() !== "") {
+      return user.displayName;
+    }
+    
+    // Try email
+    if (user.email && user.email.trim() !== "") {
+      return user.email;
+    }
+    
+    // Try to extract from provider data
+    if (user.providerData && user.providerData.length > 0) {
+      const providerData = user.providerData[0];
+      if (providerData.displayName && providerData.displayName.trim() !== "") {
+        return providerData.displayName;
       }
-      
-      setIsCheckingAuth(false);
-    };
+      if (providerData.email && providerData.email.trim() !== "") {
+        return providerData.email;
+      }
+    }
+    
+    // Fallback
+    return "User";
+  };
 
-    checkAndLogoutEnterpriseUser();
-  }, [toast]);
-
-  // Listen to auth state changes - only allow phone number users
+  // Listen to auth state changes - allow any authenticated user
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        // Only allow phone number authentication for customer portal
-        const isPhoneUser = user.phoneNumber && user.providerData.some(
-          provider => provider.providerId === 'phone'
-        );
-        
-        if (isPhoneUser) {
-          setCustomerUser(user);
-          console.log("Customer logged in with phone:", user.phoneNumber);
-        } else {
-          // If not a phone user, sign them out
-          console.log("Non-phone user detected, signing out");
-          signOut(auth).catch(console.error);
-          setCustomerUser(null);
-        }
+        console.log("Customer logged in - Full user object:", user);
+        console.log("Customer logged in - Details:", {
+          email: user.email,
+          displayName: user.displayName,
+          uid: user.uid,
+          photoURL: user.photoURL,
+          emailVerified: user.emailVerified,
+          providerId: user.providerId,
+          providerData: user.providerData
+        });
+        setCustomerUser(user);
       } else {
+        console.log("No customer user logged in");
         setCustomerUser(null);
       }
     });
@@ -106,6 +97,7 @@ export default function CustomerPortal() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      localStorage.removeItem('loginContext');
       setCustomerUser(null);
       toast({
         title: "Logged Out",
@@ -221,10 +213,20 @@ export default function CustomerPortal() {
             <div className="flex items-center space-x-3">
               {customerUser ? (
                 <>
-                  <div className="hidden md:flex items-center space-x-2 bg-white/10 px-4 py-2 rounded-lg">
-                    <User className="w-4 h-4" />
-                    <span className="text-sm">{customerUser.phoneNumber}</span>
-                  </div>
+                  <Link href="/customer-profile">
+                    <Button
+                      variant="ghost"
+                      className="hidden md:flex items-center space-x-2 bg-white/10 hover:bg-white/20 text-white"
+                    >
+                      <User className="w-4 h-4" />
+                      <div className="text-left">
+                        <div className="text-xs text-red-100">Logged in as</div>
+                        <div className="text-sm font-medium">
+                          {getDisplayName(customerUser)}
+                        </div>
+                      </div>
+                    </Button>
+                  </Link>
                   <Button
                     variant="outline"
                     className="bg-white/10 border-white/20 hover:bg-white/20 text-white"

@@ -17,6 +17,10 @@ export default function Landing() {
     try {
       await loginWithGoogle();
 
+      // Mark this as an enterprise login session
+      localStorage.setItem('loginContext', 'enterprise');
+      console.log("✅ Set loginContext to 'enterprise'");
+
       toast({
         title: "Success",
         description: "Logged in successfully!",

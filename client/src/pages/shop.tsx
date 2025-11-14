@@ -15,14 +15,17 @@ import {
   Grid3x3,
   List,
   Star,
-  Package
+  Package,
+  User,
+  LogOut
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import type { Product } from "@/types";
 import { auth } from "@/lib/firebaseClient";
-import { signOut } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
+import CustomerLoginModal from "@/components/customer-login-modal";
 
 export default function ShopPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -30,40 +33,74 @@ export default function ShopPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const { toast } = useToast();
 
-  // Force logout enterprise users when accessing shop page
-  useEffect(() => {
-    const checkAndLogoutEnterpriseUser = async () => {
-      const currentUser = auth.currentUser;
-      
-      if (currentUser) {
-        // Check if user logged in with Google (enterprise account)
-        const isGoogleUser = currentUser.providerData.some(
-          provider => provider.providerId === 'google.com'
-        );
-        
-        const isEmailUser = currentUser.email && !currentUser.phoneNumber;
-        
-        // If user is logged in with Google or Email (enterprise), force logout
-        if (isGoogleUser || isEmailUser) {
-          console.log("Enterprise user detected on shop page - logging out");
-          try {
-            await signOut(auth);
-            toast({
-              title: "Logged Out",
-              description: "Shop page is for customers only. Enterprise users, please use the main dashboard.",
-              variant: "default",
-            });
-          } catch (error) {
-            console.error("Error logging out enterprise user:", error);
-          }
-        }
+  // Helper function to get display name
+  const getDisplayName = (user: any): string => {
+    if (!user) return "Guest";
+    
+    // Try display name first
+    if (user.displayName && user.displayName.trim() !== "") {
+      return user.displayName;
+    }
+    
+    // Try email
+    if (user.email && user.email.trim() !== "") {
+      return user.email;
+    }
+    
+    // Try to extract from provider data
+    if (user.providerData && user.providerData.length > 0) {
+      const providerData = user.providerData[0];
+      if (providerData.displayName && providerData.displayName.trim() !== "") {
+        return providerData.displayName;
       }
-    };
+      if (providerData.email && providerData.email.trim() !== "") {
+        return providerData.email;
+      }
+    }
+    
+    // Fallback
+    return "User";
+  };
 
-    checkAndLogoutEnterpriseUser();
-  }, [toast]);
+  // Listen to auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        console.log("User logged in on shop page - Full object:", user);
+        console.log("User logged in on shop page - Details:", {
+          email: user.email,
+          displayName: user.displayName,
+          uid: user.uid,
+          providerData: user.providerData
+        });
+        setCurrentUser(user);
+      } else {
+        console.log("No user logged in on shop page");
+        setCurrentUser(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      localStorage.removeItem('loginContext');
+      setCurrentUser(null);
+      toast({
+        title: "Logged Out",
+        description: "You have been logged out successfully",
+      });
+    } catch (error) {
+      console.error("Error logging out:", error);
+    }
+  };
 
   // Fetch all products
   const { data: products, isLoading } = useQuery<Product[]>({
@@ -150,15 +187,51 @@ export default function ShopPage() {
                 </div>
               </div>
             </div>
-            <Button className="relative bg-white text-red-600 hover:bg-red-50">
-              <ShoppingCart className="w-5 h-5 mr-2" />
-              Cart
-              {cart.length > 0 && (
-                <Badge className="absolute -top-2 -right-2 bg-orange-500 text-white">
-                  {cart.length}
-                </Badge>
+            <div className="flex items-center space-x-3">
+              {currentUser ? (
+                <>
+                  <Link href="/customer-profile">
+                    <Button
+                      variant="ghost"
+                      className="hidden md:flex items-center space-x-2 bg-white/10 hover:bg-white/20 text-white"
+                    >
+                      <User className="w-4 h-4" />
+                      <div className="text-left">
+                        <div className="text-xs text-red-100">Logged in as</div>
+                        <div className="text-sm font-medium">
+                          {getDisplayName(currentUser)}
+                        </div>
+                      </div>
+                    </Button>
+                  </Link>
+                  <Button
+                    variant="outline"
+                    className="bg-white/10 border-white/20 hover:bg-white/20 text-white"
+                    onClick={handleLogout}
+                  >
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Logout
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  className="bg-white text-red-600 hover:bg-red-50"
+                  onClick={() => setShowLoginModal(true)}
+                >
+                  <User className="w-4 h-4 mr-2" />
+                  Login
+                </Button>
               )}
-            </Button>
+              <Button className="relative bg-white text-red-600 hover:bg-red-50">
+                <ShoppingCart className="w-5 h-5 mr-2" />
+                Cart
+                {cart.length > 0 && (
+                  <Badge className="absolute -top-2 -right-2 bg-orange-500 text-white">
+                    {cart.length}
+                  </Badge>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -450,6 +523,16 @@ export default function ShopPage() {
           </div>
         </div>
       )}
+
+      {/* Login Modal */}
+      <CustomerLoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          setShowLoginModal(false);
+        }}
+      />
     </div>
   );
 }

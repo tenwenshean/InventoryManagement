@@ -56,6 +56,8 @@ export function useAuth() {
     try {
       await signOut(auth);
       console.log("User signed out");
+      // Clear login context when logging out
+      localStorage.removeItem('loginContext');
       setUser(null);
     } catch (err: any) {
       console.error("Error during logout:", err);
