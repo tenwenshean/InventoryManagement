@@ -403,8 +403,11 @@ async function handleGetPublicProducts(req, res) {
       ...doc.data() 
     }));
     
+    console.log(`📦 Found ${products.length} total active products`);
+    
     // Get all user IDs from products
     const userIds = [...new Set(products.map(p => p.userId).filter(Boolean))];
+    console.log(`👥 Found ${userIds.length} unique user IDs:`, userIds);
     
     // Fetch user settings for each user to check if they have company name
     const userSettingsMap = new Map();
@@ -418,6 +421,8 @@ async function handleGetPublicProducts(req, res) {
           const settings = userData.settings || {};
           const companyName = settings.companyName || userData.companyName || '';
           
+          console.log(`🏢 User ${userId}: companyName = "${companyName}"`);
+          
           if (companyName && companyName.trim() !== '') {
             userSettingsMap.set(userId, {
               companyName: companyName,
@@ -425,11 +430,15 @@ async function handleGetPublicProducts(req, res) {
               displayName: userData.displayName
             });
           }
+        } else {
+          console.log(`⚠️ User document not found for ${userId}`);
         }
       } catch (e) {
         console.error(`Error fetching settings for user ${userId}:`, e);
       }
     }
+    
+    console.log(`✅ Found ${userSettingsMap.size} users with company names`);
     
     // Filter products - only show if user has company name set
     products = products.filter(p => {
@@ -437,6 +446,8 @@ async function handleGetPublicProducts(req, res) {
       const userSettings = userSettingsMap.get(p.userId);
       return userSettings && userSettings.companyName;
     });
+    
+    console.log(`🎯 Filtered to ${products.length} products from users with company names`);
     
     // Enhance products with company information
     products = products.map(p => {
