@@ -74,7 +74,7 @@ export default function SettingsPage() {
   }, [timezone]);
 
   // Save settings
-  const handleSaveSettings = () => {
+  const handleSaveSettings = async () => {
     setIsSaving(true);
     const settings = {
       companyName,
@@ -82,7 +82,27 @@ export default function SettingsPage() {
       updatedAt: new Date().toISOString(),
     };
     
+    // Save to localStorage
     localStorage.setItem(`settings_${user?.uid}`, JSON.stringify(settings));
+    
+    // Also save companyName to Firestore user document
+    try {
+      if (user?.uid) {
+        const response = await fetch(`/api/users/${user.uid}/settings`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ companyName, timezone }),
+        });
+        
+        if (!response.ok) {
+          console.error('Failed to save settings to server');
+        }
+      }
+    } catch (error) {
+      console.error('Error saving settings to server:', error);
+    }
     
     setTimeout(() => {
       setIsSaving(false);

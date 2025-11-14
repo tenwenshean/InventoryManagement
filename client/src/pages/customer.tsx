@@ -17,20 +17,25 @@ import {
   Clock,
   CheckCircle2,
   User,
-  LogOut
+  LogOut,
+  Eye
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import type { Product } from "@/types";
 import CustomerLoginModal from "@/components/customer-login-modal";
+import ProductDetailModal from "@/components/product-detail-modal";
+import CartModal from "@/components/cart-modal";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 
 export default function CustomerPortal() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
+  const [cart, setCart] = useState<{ product: Product & { companyName?: string }; quantity: number }[]>([]);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showCartModal, setShowCartModal] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<(Product & { companyName?: string }) | null>(null);
   const [customerUser, setCustomerUser] = useState<any>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const { toast } = useToast();
@@ -111,8 +116,8 @@ export default function CustomerPortal() {
     }
   };
 
-  // Fetch all products (public access - no auth required)
-  const { data: products, isLoading } = useQuery<Product[]>({
+  // Fetch all products (public access - no auth required) - only from users with company names
+  const { data: products, isLoading } = useQuery<(Product & { companyName?: string; sellerEmail?: string; sellerName?: string })[]>({
     queryKey: queryKeys.products.all,
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/public/products");
@@ -132,7 +137,7 @@ export default function CustomerPortal() {
   const recentProducts = products?.slice(0, 6) || [];
 
   // Add to cart
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product & { companyName?: string }) => {
     const existingItem = cart.find((item) => item.product.id === product.id);
     if (existingItem) {
       setCart(
@@ -145,6 +150,53 @@ export default function CustomerPortal() {
     } else {
       setCart([...cart, { product, quantity: 1 }]);
     }
+    
+    toast({
+      title: "Added to cart",
+      description: `${product.name} has been added to your cart`,
+    });
+  };
+
+  // Update cart quantity
+  const updateCartQuantity = (productId: string, newQuantity: number) => {
+    if (newQuantity <= 0) {
+      removeFromCart(productId);
+      return;
+    }
+    setCart(cart.map(item => 
+      item.product.id === productId 
+        ? { ...item, quantity: newQuantity }
+        : item
+    ));
+  };
+
+  // Remove from cart
+  const removeFromCart = (productId: string) => {
+    setCart(cart.filter(item => item.product.id !== productId));
+    toast({
+      title: "Removed from cart",
+      description: "Item has been removed from your cart",
+    });
+  };
+
+  // Handle checkout
+  const handleCheckout = () => {
+    if (!customerUser) {
+      setShowCartModal(false);
+      setShowLoginModal(true);
+      toast({
+        title: "Login Required",
+        description: "Please login to proceed with checkout",
+        variant: "default",
+      });
+      return;
+    }
+    
+    toast({
+      title: "Checkout",
+      description: "Proceeding to checkout...",
+    });
+    // Implement actual checkout logic here
   };
 
   // Calculate cart total
@@ -191,12 +243,12 @@ export default function CustomerPortal() {
                   Login
                 </Button>
               )}
-              <Button className="relative bg-white text-red-600 hover:bg-red-50">
+              <Button className="relative bg-white text-red-600 hover:bg-red-50" onClick={() => setShowCartModal(true)}>
                 <ShoppingCart className="w-5 h-5 mr-2" />
                 Cart
                 {cart.length > 0 && (
                   <Badge className="absolute -top-2 -right-2 bg-orange-500 text-white">
-                    {cart.length}
+                    {cart.reduce((total, item) => total + item.quantity, 0)}
                   </Badge>
                 )}
               </Button>
@@ -336,7 +388,13 @@ export default function CustomerPortal() {
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <CardTitle className="text-xl">{product.name}</CardTitle>
-                        <CardDescription className="mt-2">
+                        {product.companyName && (
+                          <div className="flex items-center gap-1 mt-1 text-sm text-gray-600">
+                            <Store className="w-4 h-4" />
+                            <span>{product.companyName}</span>
+                          </div>
+                        )}
+                        <CardDescription className="mt-2 line-clamp-2">
                           {product.description || "No description available"}
                         </CardDescription>
                       </div>
@@ -362,14 +420,24 @@ export default function CustomerPortal() {
                           </p>
                         </div>
                       </div>
-                      <Button
-                        className="w-full bg-red-600 hover:bg-red-700"
-                        onClick={() => addToCart(product)}
-                        disabled={product.quantity === 0}
-                      >
-                        <ShoppingCart className="w-4 h-4 mr-2" />
-                        Add to Cart
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => setSelectedProduct(product)}
+                        >
+                          <Eye className="w-4 h-4 mr-2" />
+                          View Details
+                        </Button>
+                        <Button
+                          className="flex-1 bg-red-600 hover:bg-red-700"
+                          onClick={() => addToCart(product)}
+                          disabled={product.quantity === 0}
+                        >
+                          <ShoppingCart className="w-4 h-4 mr-2" />
+                          Add to Cart
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -467,6 +535,12 @@ export default function CustomerPortal() {
                         </div>
                       )}
                       <CardTitle className="text-lg">{product.name}</CardTitle>
+                      {product.companyName && (
+                        <div className="flex items-center gap-1 text-xs text-gray-600">
+                          <Store className="w-3 h-3" />
+                          <span>{product.companyName}</span>
+                        </div>
+                      )}
                       {product.quantity > 0 ? (
                         <Badge className="bg-green-500 w-fit">In Stock</Badge>
                       ) : (
@@ -477,15 +551,26 @@ export default function CustomerPortal() {
                       <p className="text-2xl font-bold text-red-600 mb-4">
                         ${parseFloat(product.price).toFixed(2)}
                       </p>
-                      <Button
-                        className="w-full bg-red-600 hover:bg-red-700"
-                        onClick={() => addToCart(product)}
-                        disabled={product.quantity === 0}
-                        size="sm"
-                      >
-                        <ShoppingCart className="w-4 h-4 mr-2" />
-                        Add to Cart
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => setSelectedProduct(product)}
+                          size="sm"
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          View
+                        </Button>
+                        <Button
+                          className="flex-1 bg-red-600 hover:bg-red-700"
+                          onClick={() => addToCart(product)}
+                          disabled={product.quantity === 0}
+                          size="sm"
+                        >
+                          <ShoppingCart className="w-4 h-4 mr-1" />
+                          Add
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 ))}
@@ -557,18 +642,42 @@ export default function CustomerPortal() {
           <div className="container mx-auto flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">
-                {cart.length} item(s) in cart
+                {cart.reduce((total, item) => total + item.quantity, 0)} item(s) in cart
               </p>
               <p className="text-2xl font-bold text-gray-900">
                 Total: ${cartTotal.toFixed(2)}
               </p>
             </div>
-            <Button size="lg" className="bg-red-600 hover:bg-red-700 text-lg px-8">
-              Proceed to Checkout
+            <Button 
+              size="lg" 
+              className="bg-red-600 hover:bg-red-700 text-lg px-8"
+              onClick={() => setShowCartModal(true)}
+            >
+              View Cart & Checkout
             </Button>
           </div>
         </div>
       )}
+
+      {/* Product Detail Modal */}
+      {selectedProduct && (
+        <ProductDetailModal
+          isOpen={!!selectedProduct}
+          onClose={() => setSelectedProduct(null)}
+          product={selectedProduct}
+          onAddToCart={addToCart}
+        />
+      )}
+
+      {/* Cart Modal */}
+      <CartModal
+        isOpen={showCartModal}
+        onClose={() => setShowCartModal(false)}
+        cart={cart}
+        onUpdateQuantity={updateCartQuantity}
+        onRemoveItem={removeFromCart}
+        onCheckout={handleCheckout}
+      />
 
       {/* Customer Login Modal */}
       <CustomerLoginModal

@@ -139,6 +139,17 @@ export default async function handler(req, res) {
       return await handleGetUser(req, res, user);
     }
 
+    // ===== USER SETTINGS ROUTES (protected) =====
+    if (pathParts[0] === 'users' && pathParts[2] === 'settings' && req.method === 'PUT') {
+      const user = await authenticate(req);
+      const userId = pathParts[1];
+      // Ensure user can only update their own settings
+      if (user.uid !== userId) {
+        return res.status(403).json({ message: 'Forbidden: Cannot update other user settings' });
+      }
+      return await handleUpdateUserSettings(req, res, user, userId);
+    }
+
     // ===== DASHBOARD ROUTES (protected) =====
     if (pathParts[0] === 'dashboard' && pathParts[1] === 'stats' && req.method === 'GET') {
       const user = await authenticate(req);
@@ -312,6 +323,38 @@ async function handleGetUser(req, res, user) {
   }
 }
 
+async function handleUpdateUserSettings(req, res, user, userId) {
+  const { db } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
+  
+  try {
+    const { companyName, timezone } = req.body;
+    
+    const userRef = db.collection('users').doc(userId);
+    const updateData = {
+      settings: {
+        companyName: companyName || '',
+        timezone: timezone || 'UTC',
+        updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+      },
+      // Also store companyName at top level for easier querying
+      companyName: companyName || '',
+      updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+    };
+    
+    await userRef.set(updateData, { merge: true });
+    
+    return res.json({ 
+      success: true, 
+      message: 'Settings updated successfully',
+      data: { companyName, timezone }
+    });
+  } catch (error) {
+    console.error('Error updating user settings:', error);
+    return res.status(500).json({ message: 'Failed to update settings', error: error.message });
+  }
+}
+
 async function handleGetProducts(req, res, user) {
   const { db } = await initializeFirebase();
   
@@ -360,11 +403,58 @@ async function handleGetPublicProducts(req, res) {
       ...doc.data() 
     }));
     
+    // Get all user IDs from products
+    const userIds = [...new Set(products.map(p => p.userId).filter(Boolean))];
+    
+    // Fetch user settings for each user to check if they have company name
+    const userSettingsMap = new Map();
+    
+    for (const userId of userIds) {
+      try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          // Check localStorage-style settings or direct fields
+          const settings = userData.settings || {};
+          const companyName = settings.companyName || userData.companyName || '';
+          
+          if (companyName && companyName.trim() !== '') {
+            userSettingsMap.set(userId, {
+              companyName: companyName,
+              email: userData.email,
+              displayName: userData.displayName
+            });
+          }
+        }
+      } catch (e) {
+        console.error(`Error fetching settings for user ${userId}:`, e);
+      }
+    }
+    
+    // Filter products - only show if user has company name set
+    products = products.filter(p => {
+      if (!p.userId) return false;
+      const userSettings = userSettingsMap.get(p.userId);
+      return userSettings && userSettings.companyName;
+    });
+    
+    // Enhance products with company information
+    products = products.map(p => {
+      const userSettings = userSettingsMap.get(p.userId);
+      return {
+        ...p,
+        companyName: userSettings?.companyName || '',
+        sellerEmail: userSettings?.email || '',
+        sellerName: userSettings?.displayName || ''
+      };
+    });
+    
     if (search) {
       const s = search.toLowerCase();
       products = products.filter(p => 
         (p.name || '').toLowerCase().includes(s) || 
-        (p.sku || '').toLowerCase().includes(s)
+        (p.sku || '').toLowerCase().includes(s) ||
+        (p.companyName || '').toLowerCase().includes(s)
       );
     }
     
