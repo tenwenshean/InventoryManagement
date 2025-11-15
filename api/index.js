@@ -392,29 +392,27 @@ async function handleGetPublicProducts(req, res) {
   try {
     const search = req.query.search;
     
-    // Get ALL active products for public view
+    // Match local behavior: Get ALL products without user filtering
+    // No userId filter - return products from all enterprise users
     const snapshot = await db.collection('products')
-      .where('isActive', '==', true)
       .orderBy('createdAt', 'desc')
       .get();
-
-    let products = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
+    
+    let products = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
     }));
-
-    console.log(`📦 Found ${products.length} total active products (public)`);
-
-    // Optional text search (name / sku / description)
+    
+    // Apply client-side search filter if provided
     if (search) {
       const s = search.toLowerCase();
-      products = products.filter(p =>
-        (p.name || '').toLowerCase().includes(s) ||
+      products = products.filter(p => 
+        (p.name || '').toLowerCase().includes(s) || 
         (p.sku || '').toLowerCase().includes(s) ||
         (p.description || '').toLowerCase().includes(s)
       );
     }
-
+    
     return res.json(products);
   } catch (error) {
     console.error('Error fetching public products:', error);

@@ -126,6 +126,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public categories endpoint (no auth required)
+  app.get("/api/public/categories", async (_req, res) => {
+    try {
+      const categories = await storage.getCategories();
+      res.json(categories);
+    } catch (error) {
+      console.error("[public] Error fetching categories:", error);
+      res.status(500).json({ error: (error as any)?.message || String(error) });
+    }
+  });
+
   app.get("/api/products/:id", isAuthenticated, async (req, res) => {
     try {
       const product = await storage.getProduct(req.params.id);
