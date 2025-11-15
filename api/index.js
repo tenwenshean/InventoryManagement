@@ -392,83 +392,29 @@ async function handleGetPublicProducts(req, res) {
   try {
     const search = req.query.search;
     
-    // Get ALL products (no user filter for public view)
+    // Get ALL active products for public view
     const snapshot = await db.collection('products')
       .where('isActive', '==', true)
       .orderBy('createdAt', 'desc')
       .get();
-    
-    let products = snapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data() 
+
+    let products = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
     }));
-    
-    console.log(`📦 Found ${products.length} total active products`);
-    
-    // Get all user IDs from products
-    const userIds = [...new Set(products.map(p => p.userId).filter(Boolean))];
-    console.log(`👥 Found ${userIds.length} unique user IDs:`, userIds);
-    
-    // Fetch user settings for each user to check if they have company name
-    const userSettingsMap = new Map();
-    
-    for (const userId of userIds) {
-      try {
-        const userDoc = await db.collection('users').doc(userId).get();
-        if (userDoc.exists) {
-          const userData = userDoc.data();
-          // Check localStorage-style settings or direct fields
-          const settings = userData.settings || {};
-          const companyName = settings.companyName || userData.companyName || '';
-          
-          console.log(`🏢 User ${userId}: companyName = "${companyName}"`);
-          
-          if (companyName && companyName.trim() !== '') {
-            userSettingsMap.set(userId, {
-              companyName: companyName,
-              email: userData.email,
-              displayName: userData.displayName
-            });
-          }
-        } else {
-          console.log(`⚠️ User document not found for ${userId}`);
-        }
-      } catch (e) {
-        console.error(`Error fetching settings for user ${userId}:`, e);
-      }
-    }
-    
-    console.log(`✅ Found ${userSettingsMap.size} users with company names`);
-    
-    // Filter products - only show if user has company name set
-    products = products.filter(p => {
-      if (!p.userId) return false;
-      const userSettings = userSettingsMap.get(p.userId);
-      return userSettings && userSettings.companyName;
-    });
-    
-    console.log(`🎯 Filtered to ${products.length} products from users with company names`);
-    
-    // Enhance products with company information
-    products = products.map(p => {
-      const userSettings = userSettingsMap.get(p.userId);
-      return {
-        ...p,
-        companyName: userSettings?.companyName || '',
-        sellerEmail: userSettings?.email || '',
-        sellerName: userSettings?.displayName || ''
-      };
-    });
-    
+
+    console.log(`📦 Found ${products.length} total active products (public)`);
+
+    // Optional text search (name / sku / description)
     if (search) {
       const s = search.toLowerCase();
-      products = products.filter(p => 
-        (p.name || '').toLowerCase().includes(s) || 
+      products = products.filter(p =>
+        (p.name || '').toLowerCase().includes(s) ||
         (p.sku || '').toLowerCase().includes(s) ||
-        (p.companyName || '').toLowerCase().includes(s)
+        (p.description || '').toLowerCase().includes(s)
       );
     }
-    
+
     return res.json(products);
   } catch (error) {
     console.error('Error fetching public products:', error);
