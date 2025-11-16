@@ -25,20 +25,19 @@ import { queryKeys } from "@/lib/queryKeys";
 import type { Product } from "@/types";
 import CustomerLoginModal from "@/components/customer-login-modal";
 import ProductDetailModal from "@/components/product-detail-modal";
-import CartModal from "@/components/cart-modal";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
+import { useCart } from "@/contexts/CartContext";
 
 export default function CustomerPortal() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [cart, setCart] = useState<{ product: Product & { companyName?: string }; quantity: number }[]>([]);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [showCartModal, setShowCartModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<(Product & { companyName?: string }) | null>(null);
   const [customerUser, setCustomerUser] = useState<any>(null);
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
+  const { addToCart, cartCount } = useCart();
 
   // Helper function to get display name
   const getDisplayName = (user: any): string => {
@@ -128,74 +127,14 @@ export default function CustomerPortal() {
   // Get recently added products (last 6)
   const recentProducts = products?.slice(0, 6) || [];
 
-  // Add to cart
-  const addToCart = (product: Product & { companyName?: string }) => {
-    const existingItem = cart.find((item) => item.product.id === product.id);
-    if (existingItem) {
-      setCart(
-        cart.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        )
-      );
-    } else {
-      setCart([...cart, { product, quantity: 1 }]);
-    }
-    
+  // Add toast notification when adding to cart
+  const handleAddToCart = (product: Product & { companyName?: string }) => {
+    addToCart(product);
     toast({
       title: "Added to cart",
       description: `${product.name} has been added to your cart`,
     });
   };
-
-  // Update cart quantity
-  const updateCartQuantity = (productId: string, newQuantity: number) => {
-    if (newQuantity <= 0) {
-      removeFromCart(productId);
-      return;
-    }
-    setCart(cart.map(item => 
-      item.product.id === productId 
-        ? { ...item, quantity: newQuantity }
-        : item
-    ));
-  };
-
-  // Remove from cart
-  const removeFromCart = (productId: string) => {
-    setCart(cart.filter(item => item.product.id !== productId));
-    toast({
-      title: "Removed from cart",
-      description: "Item has been removed from your cart",
-    });
-  };
-
-  // Handle checkout
-  const handleCheckout = () => {
-    if (!customerUser) {
-      setShowCartModal(false);
-      setShowLoginModal(true);
-      toast({
-        title: "Login Required",
-        description: "Please login to proceed with checkout",
-        variant: "default",
-      });
-      return;
-    }
-    
-    toast({
-      title: "Checkout",
-      description: "Proceeding to checkout...",
-    });
-    // Implement actual checkout logic here
-  };
-
-  // Calculate cart total
-  const cartTotal = cart.reduce(
-    (total, item) => total + parseFloat(item.product.price) * item.quantity,
-    0
-  );
 
   return (
     <div className="min-h-screen bg-white">
@@ -245,15 +184,17 @@ export default function CustomerPortal() {
                   Login
                 </Button>
               )}
-              <Button className="relative bg-white text-red-600 hover:bg-red-50" onClick={() => setShowCartModal(true)}>
-                <ShoppingCart className="w-5 h-5 mr-2" />
-                Cart
-                {cart.length > 0 && (
-                  <Badge className="absolute -top-2 -right-2 bg-orange-500 text-white">
-                    {cart.reduce((total, item) => total + item.quantity, 0)}
-                  </Badge>
-                )}
-              </Button>
+              <Link href="/cart">
+                <Button className="relative bg-white text-red-600 hover:bg-red-50">
+                  <ShoppingCart className="w-5 h-5 mr-2" />
+                  Cart
+                  {cartCount > 0 && (
+                    <Badge className="absolute -top-2 -right-2 bg-orange-500 text-white">
+                      {cartCount}
+                    </Badge>
+                  )}
+                </Button>
+              </Link>
             </div>
           </div>
         </div>
@@ -433,7 +374,7 @@ export default function CustomerPortal() {
                         </Button>
                         <Button
                           className="flex-1 bg-red-600 hover:bg-red-700"
-                          onClick={() => addToCart(product)}
+                          onClick={() => handleAddToCart(product)}
                           disabled={product.quantity === 0}
                         >
                           <ShoppingCart className="w-4 h-4 mr-2" />
@@ -565,7 +506,7 @@ export default function CustomerPortal() {
                         </Button>
                         <Button
                           className="flex-1 bg-red-600 hover:bg-red-700"
-                          onClick={() => addToCart(product)}
+                          onClick={() => handleAddToCart(product)}
                           disabled={product.quantity === 0}
                           size="sm"
                         >
@@ -638,48 +579,15 @@ export default function CustomerPortal() {
         </div>
       </footer>
 
-      {/* Cart Summary (Fixed Bottom) */}
-      {cart.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t-4 border-red-600 shadow-2xl p-4 z-50">
-          <div className="container mx-auto flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">
-                {cart.reduce((total, item) => total + item.quantity, 0)} item(s) in cart
-              </p>
-              <p className="text-2xl font-bold text-gray-900">
-                Total: ${cartTotal.toFixed(2)}
-              </p>
-            </div>
-            <Button 
-              size="lg" 
-              className="bg-red-600 hover:bg-red-700 text-lg px-8"
-              onClick={() => setShowCartModal(true)}
-            >
-              View Cart & Checkout
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* Product Detail Modal */}
       {selectedProduct && (
         <ProductDetailModal
           isOpen={!!selectedProduct}
           onClose={() => setSelectedProduct(null)}
           product={selectedProduct}
-          onAddToCart={addToCart}
+          onAddToCart={handleAddToCart}
         />
       )}
-
-      {/* Cart Modal */}
-      <CartModal
-        isOpen={showCartModal}
-        onClose={() => setShowCartModal(false)}
-        cart={cart}
-        onUpdateQuantity={updateCartQuantity}
-        onRemoveItem={removeFromCart}
-        onCheckout={handleCheckout}
-      />
 
       {/* Customer Login Modal */}
       <CustomerLoginModal
@@ -689,7 +597,7 @@ export default function CustomerPortal() {
           setCustomerUser(user);
           toast({
             title: "Welcome!",
-            description: `Logged in as ${user.phoneNumber}`,
+            description: `Logged in as ${getDisplayName(user)}`,
           });
         }}
       />

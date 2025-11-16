@@ -26,16 +26,17 @@ import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import CustomerLoginModal from "@/components/customer-login-modal";
+import { useCart } from "@/contexts/CartContext";
 
 export default function ShopPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("newest");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedCategory, setSelectedCategory] = useState("all");
-  const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const { toast } = useToast();
+  const { addToCart, cartCount } = useCart();
 
   // Helper function to get display name
   const getDisplayName = (user: any): string => {
@@ -144,27 +145,14 @@ export default function ShopPage() {
   }
   // Default is newest (already ordered by createdAt desc from API)
 
-  // Add to cart
-  const addToCart = (product: Product) => {
-    const existingItem = cart.find((item) => item.product.id === product.id);
-    if (existingItem) {
-      setCart(
-        cart.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        )
-      );
-    } else {
-      setCart([...cart, { product, quantity: 1 }]);
-    }
+  // Add toast notification when adding to cart
+  const handleAddToCart = (product: Product) => {
+    addToCart(product);
+    toast({
+      title: "Added to cart",
+      description: `${product.name} has been added to your cart`,
+    });
   };
-
-  // Calculate cart total
-  const cartTotal = cart.reduce(
-    (total, item) => total + parseFloat(item.product.price) * item.quantity,
-    0
-  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -222,15 +210,17 @@ export default function ShopPage() {
                   Login
                 </Button>
               )}
-              <Button className="relative bg-white text-red-600 hover:bg-red-50">
-                <ShoppingCart className="w-5 h-5 mr-2" />
-                Cart
-                {cart.length > 0 && (
-                  <Badge className="absolute -top-2 -right-2 bg-orange-500 text-white">
-                    {cart.length}
-                  </Badge>
-                )}
-              </Button>
+              <Link href="/cart">
+                <Button className="relative bg-white text-red-600 hover:bg-red-50">
+                  <ShoppingCart className="w-5 h-5 mr-2" />
+                  Cart
+                  {cartCount > 0 && (
+                    <Badge className="absolute -top-2 -right-2 bg-orange-500 text-white">
+                      {cartCount}
+                    </Badge>
+                  )}
+                </Button>
+              </Link>
             </div>
           </div>
         </div>
@@ -395,7 +385,7 @@ export default function ShopPage() {
                       </div>
                       <Button
                         className="w-full bg-red-600 hover:bg-red-700"
-                        onClick={() => addToCart(product)}
+                        onClick={() => handleAddToCart(product)}
                         disabled={product.quantity === 0}
                         size="sm"
                       >
@@ -466,7 +456,7 @@ export default function ShopPage() {
                         </p>
                         <Button
                           className="bg-red-600 hover:bg-red-700 w-40"
-                          onClick={() => addToCart(product)}
+                          onClick={() => handleAddToCart(product)}
                           disabled={product.quantity === 0}
                         >
                           <ShoppingCart className="w-4 h-4 mr-2" />
@@ -504,25 +494,6 @@ export default function ShopPage() {
           </Card>
         )}
       </section>
-
-      {/* Cart Summary (Fixed Bottom) */}
-      {cart.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t-4 border-red-600 shadow-2xl p-4 z-50">
-          <div className="container mx-auto flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">
-                {cart.length} item(s) in cart
-              </p>
-              <p className="text-2xl font-bold text-gray-900">
-                Total: ${cartTotal.toFixed(2)}
-              </p>
-            </div>
-            <Button size="lg" className="bg-red-600 hover:bg-red-700 text-lg px-8">
-              Proceed to Checkout
-            </Button>
-          </div>
-        </div>
-      )}
 
       {/* Login Modal */}
       <CustomerLoginModal

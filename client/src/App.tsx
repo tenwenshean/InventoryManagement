@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect } from "react";
 import { auth } from "@/lib/firebaseClient";
+import { CartProvider } from "@/contexts/CartContext";
 
 // Pages
 import Landing from "@/pages/landing";
@@ -22,6 +23,7 @@ import ScanPage from "@/pages/scan";
 import CustomerPortal from "@/pages/customer";
 import CustomerProfile from "@/pages/customer-profile";
 import ShopPage from "@/pages/shop";
+import CartPage from "@/pages/cart";
 
 // Optional: you can wrap all authenticated routes with a layout (with sidebar)
 import Sidebar from "@/components/sidebar";
@@ -31,7 +33,7 @@ function AuthenticatedApp() {
   const { logout } = useAuth();
 
   // Check if current route is customer portal
-  const isCustomerPortal = location === "/customer" || location === "/customer-profile" || location === "/shop";
+  const isCustomerPortal = location === "/customer" || location === "/customer-profile" || location === "/shop" || location === "/cart";
   
   // Check if current route is enterprise dashboard
   const isEnterpriseDashboard = [
@@ -107,6 +109,7 @@ function AuthenticatedApp() {
           <Route path="/customer" component={CustomerPortal} />
           <Route path="/customer-profile" component={CustomerProfile} />
           <Route path="/shop" component={ShopPage} />
+          <Route path="/cart" component={CartPage} />
           <Route path="/scan/:code" component={ScanPage} />
           <Route path="/inventory" component={Inventory} />
           <Route path="/products" component={Products} />
@@ -148,6 +151,7 @@ function UnauthenticatedApp() {
       <Route path="/customer" component={CustomerPortal} />
       <Route path="/customer-profile" component={CustomerProfile} />
       <Route path="/shop" component={ShopPage} />
+      <Route path="/cart" component={CartPage} />
       <Route path="/scan/:code" component={ScanPage} />
       <Route component={NotFound} />
     </Switch>
@@ -179,10 +183,12 @@ function AppRouter() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <AppRouter />
-      </TooltipProvider>
+      <CartProvider>
+        <TooltipProvider>
+          <Toaster />
+          <AppRouter />
+        </TooltipProvider>
+      </CartProvider>
     </QueryClientProvider>
   );
 }
