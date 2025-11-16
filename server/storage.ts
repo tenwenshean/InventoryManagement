@@ -318,10 +318,15 @@ export class DatabaseStorage {
     userId?: string,
     options?: { startDate?: Date; endDate?: Date; limit?: number }
   ): Promise<AccountingEntry[]> {
+    console.log('[storage.getAccountingEntries] Called with userId:', userId, 'options:', options);
+    
     let query: FirebaseFirestore.Query = db.collection("accountingEntries");
 
     if (userId) {
+      console.log('[storage.getAccountingEntries] Applying userId filter:', userId);
       query = query.where("userId", "==", userId);
+    } else {
+      console.warn('[storage.getAccountingEntries] WARNING: No userId filter applied!');
     }
 
     // Apply date filters BEFORE ordering to avoid Firestore composite index requirement
@@ -344,11 +349,19 @@ export class DatabaseStorage {
 
     const snapshot = await query.get();
 
-    return snapshot.docs.map((doc) => {
+    console.log('[storage.getAccountingEntries] Retrieved', snapshot.docs.length, 'documents from Firestore');
+    
+    const results = snapshot.docs.map((doc) => {
       const d = doc.data() as AccountingEntry;
       (d as any).id = doc.id;
       return d as AccountingEntry;
     });
+    
+    if (results.length > 0) {
+      console.log('[storage.getAccountingEntries] Sample results:', results.slice(0, 3).map(e => ({ id: e.id, userId: e.userId })));
+    }
+
+    return results;
   }
 
   async addAccountingEntry(data: InsertAccountingEntry, userId?: string): Promise<AccountingEntry> {

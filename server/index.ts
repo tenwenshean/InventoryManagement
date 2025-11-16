@@ -4,8 +4,9 @@ import { setupVite, serveStatic, log } from "./vite";
 //import { seedSampleData } from "./storage";
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+// Increase payload limit to handle base64 encoded images (up to 10MB)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 
 app.use((req, res, next) => {
   const start = Date.now();

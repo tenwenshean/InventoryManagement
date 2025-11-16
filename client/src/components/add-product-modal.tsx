@@ -31,7 +31,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Loader2, Plus, Upload, X, Image as ImageIcon } from "lucide-react";
+import { Loader2, Plus, Upload, X, Image as ImageIcon, Trash2 } from "lucide-react";
 import { useState, useRef } from "react";
 
 interface AddProductModalProps {
@@ -108,6 +108,37 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
   const handleAddCategory = () => {
     if (newCategoryName.trim()) {
       createCategoryMutation.mutate(newCategoryName.trim());
+    }
+  };
+
+  // Delete category mutation
+  const deleteCategoryMutation = useMutation({
+    mutationFn: async (categoryId: string) => {
+      const res = await apiRequest("DELETE", `/api/categories/${categoryId}`);
+      if (!res.ok) throw new Error("Failed to delete category");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.categories.all });
+      toast({
+        title: "Success",
+        description: "Category deleted successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete category",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDeleteCategory = (categoryId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (confirm("Are you sure you want to delete this category?")) {
+      deleteCategoryMutation.mutate(categoryId);
     }
   };
 
@@ -340,7 +371,18 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
                             {categories && categories.length > 0 && (
                               categories.map((category) => (
                                 <SelectItem key={category.id} value={category.id}>
-                                  {category.name}
+                                  <div className="flex items-center justify-between w-full">
+                                    <span>{category.name}</span>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 ml-2 hover:bg-destructive hover:text-destructive-foreground"
+                                      onClick={(e) => handleDeleteCategory(category.id, e)}
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
                                 </SelectItem>
                               ))
                             )}

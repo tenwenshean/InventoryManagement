@@ -777,6 +777,8 @@ async function handleGetAccountingEntries(req, res, user) {
     const month = req.query.month;
     const limitParam = req.query.limit;
 
+    console.log('[handleGetAccountingEntries] Fetching for userId:', userId, 'month:', month);
+
     let query = db.collection('accountingEntries').where('userId', '==', userId);
 
     // Handle month filtering
@@ -817,6 +819,16 @@ async function handleGetAccountingEntries(req, res, user) {
         createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt
       };
     });
+
+    console.log('[handleGetAccountingEntries] Found', entries.length, 'entries for user', userId);
+    // Log first entry for debugging
+    if (entries.length > 0) {
+      console.log('[handleGetAccountingEntries] Sample entry:', {
+        id: entries[0].id,
+        userId: entries[0].userId,
+        accountName: entries[0].accountName
+      });
+    }
 
     return res.json(entries);
   } catch (error) {

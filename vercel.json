@@ -3,6 +3,12 @@
   "outputDirectory": "dist/public",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 10,
+      "memory": 1024
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",

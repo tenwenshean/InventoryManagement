@@ -75,9 +75,26 @@ export default function AccountingNew() {
     queryKey: queryKeys.accounting.entries(selectedMonth),
     queryFn: async () => {
       const month = selectedMonth!;
+      console.log('[accounting-new] Fetching entries for month:', month, 'user:', user?.uid);
       const res = await apiRequest("GET", `/api/accounting/entries?month=${encodeURIComponent(month)}`);
       if (!res.ok) throw new Error("Failed to load accounting entries");
-      return res.json();
+      const data = await res.json();
+      console.log('[accounting-new] Received', data.length, 'entries');
+      if (data.length > 0) {
+        console.log('[accounting-new] Sample entries:');
+        data.slice(0, 3).forEach((e: any) => {
+          console.log('  - Entry ID:', e.id, '| Entry userId:', e.userId, '| My userId:', user?.uid, '| Match:', e.userId === user?.uid, '| Account:', e.accountName);
+        });
+      }
+      
+      // SAFETY FILTER: Only return entries that belong to current user
+      const filteredData = data.filter((e: any) => e.userId === user?.uid);
+      if (filteredData.length !== data.length) {
+        console.warn('[accounting-new] FILTERED OUT', data.length - filteredData.length, 'entries that did not belong to current user!');
+        console.warn('[accounting-new] This indicates a backend filtering issue that needs to be fixed.');
+      }
+      
+      return filteredData;
     },
     enabled: isAuthenticated && hasResolvedMonth && Boolean(selectedMonth),
   });
@@ -85,12 +102,19 @@ export default function AccountingNew() {
   const { data: allEntries, isLoading: allEntriesLoading } = useQuery<AccountingEntry[]>({
     queryKey: queryKeys.accounting.entriesRoot,
     queryFn: async () => {
-      console.log("Fetching all entries...");
+      console.log("[accounting-new] Fetching all entries for user:", user?.uid);
       const res = await apiRequest("GET", "/api/accounting/entries?limit=500");
       if (!res.ok) throw new Error("Failed to load accounting history");
       const data = await res.json();
-      console.log("All entries loaded:", data.length);
-      return data;
+      console.log("[accounting-new] All entries loaded:", data.length);
+      
+      // SAFETY FILTER: Only return entries that belong to current user
+      const filteredData = data.filter((e: any) => e.userId === user?.uid);
+      if (filteredData.length !== data.length) {
+        console.warn('[accounting-new] FILTERED OUT', data.length - filteredData.length, 'entries from allEntries that did not belong to current user!');
+      }
+      
+      return filteredData;
     },
     enabled: isAuthenticated,
     staleTime: 1000 * 60 * 30,

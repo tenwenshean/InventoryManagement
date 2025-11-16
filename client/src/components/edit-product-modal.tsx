@@ -32,7 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Upload, X, Image as ImageIcon } from "lucide-react";
+import { Loader2, Upload, X, Image as ImageIcon, Trash2 } from "lucide-react";
 import { insertProductSchema } from "@/types";
 import type { Product, Category } from "@/types";
 
@@ -74,6 +74,37 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
     },
     enabled: isOpen,
   });
+
+  // Delete category mutation
+  const deleteCategoryMutation = useMutation({
+    mutationFn: async (categoryId: string) => {
+      const res = await apiRequest("DELETE", `/api/categories/${categoryId}`);
+      if (!res.ok) throw new Error("Failed to delete category");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.categories.all });
+      toast({
+        title: "Success",
+        description: "Category deleted successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete category",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDeleteCategory = (categoryId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (confirm("Are you sure you want to delete this category?")) {
+      deleteCategoryMutation.mutate(categoryId);
+    }
+  };
 
   const form = useForm<z.infer<typeof editProductSchema>>({
     resolver: zodResolver(editProductSchema),
@@ -391,7 +422,18 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
                       <SelectContent>
                         {categories?.map((category) => (
                           <SelectItem key={category.id} value={category.id}>
-                            {category.name}
+                            <div className="flex items-center justify-between w-full">
+                              <span>{category.name}</span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 ml-2 hover:bg-destructive hover:text-destructive-foreground"
+                                onClick={(e) => handleDeleteCategory(category.id, e)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
