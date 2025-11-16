@@ -17,7 +17,8 @@ import {
   Star,
   Package,
   User,
-  LogOut
+  LogOut,
+  Eye
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
@@ -26,6 +27,7 @@ import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import CustomerLoginModal from "@/components/customer-login-modal";
+import ProductDetailModal from "@/components/product-detail-modal";
 import { useCart } from "@/contexts/CartContext";
 
 export default function ShopPage() {
@@ -35,6 +37,7 @@ export default function ShopPage() {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const { toast } = useToast();
   const { addToCart, cartCount } = useCart();
 
@@ -383,15 +386,26 @@ export default function ShopPage() {
                           ${parseFloat(product.price).toFixed(2)}
                         </p>
                       </div>
-                      <Button
-                        className="w-full bg-red-600 hover:bg-red-700"
-                        onClick={() => handleAddToCart(product)}
-                        disabled={product.quantity === 0}
-                        size="sm"
-                      >
-                        <ShoppingCart className="w-4 h-4 mr-2" />
-                        Add to Cart
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => setSelectedProduct(product)}
+                          size="sm"
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          Details
+                        </Button>
+                        <Button
+                          className="flex-1 bg-red-600 hover:bg-red-700"
+                          onClick={() => handleAddToCart(product)}
+                          disabled={product.quantity === 0}
+                          size="sm"
+                        >
+                          <ShoppingCart className="w-4 h-4 mr-1" />
+                          Add
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -454,14 +468,23 @@ export default function ShopPage() {
                         <p className="text-3xl font-bold text-red-600">
                           ${parseFloat(product.price).toFixed(2)}
                         </p>
-                        <Button
-                          className="bg-red-600 hover:bg-red-700 w-40"
-                          onClick={() => handleAddToCart(product)}
-                          disabled={product.quantity === 0}
-                        >
-                          <ShoppingCart className="w-4 h-4 mr-2" />
-                          Add to Cart
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => setSelectedProduct(product)}
+                          >
+                            <Eye className="w-4 h-4 mr-2" />
+                            View Details
+                          </Button>
+                          <Button
+                            className="bg-red-600 hover:bg-red-700"
+                            onClick={() => handleAddToCart(product)}
+                            disabled={product.quantity === 0}
+                          >
+                            <ShoppingCart className="w-4 h-4 mr-2" />
+                            Add to Cart
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -494,6 +517,16 @@ export default function ShopPage() {
           </Card>
         )}
       </section>
+
+      {/* Product Detail Modal */}
+      {selectedProduct && (
+        <ProductDetailModal
+          isOpen={!!selectedProduct}
+          onClose={() => setSelectedProduct(null)}
+          product={selectedProduct}
+          onAddToCart={handleAddToCart}
+        />
+      )}
 
       {/* Login Modal */}
       <CustomerLoginModal
