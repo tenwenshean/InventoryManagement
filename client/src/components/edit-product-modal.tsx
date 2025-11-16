@@ -421,20 +421,22 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
                       </FormControl>
                       <SelectContent>
                         {categories?.map((category) => (
-                          <SelectItem key={category.id} value={category.id}>
-                            <div className="flex items-center justify-between w-full">
-                              <span>{category.name}</span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 ml-2 hover:bg-destructive hover:text-destructive-foreground"
-                                onClick={(e) => handleDeleteCategory(category.id, e)}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </SelectItem>
+                          <div key={category.id} className="relative group">
+                            <SelectItem value={category.id} className="pr-10">
+                              {category.name}
+                            </SelectItem>
+                            <button
+                              type="button"
+                              className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 rounded-sm opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground flex items-center justify-center transition-opacity"
+                              onClick={(e) => handleDeleteCategory(category.id, e)}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                              }}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
                         ))}
                       </SelectContent>
                     </Select>
