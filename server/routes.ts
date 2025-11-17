@@ -953,9 +953,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===================== CHECKOUT ENDPOINT =====================
   app.post("/api/checkout", async (req: any, res) => {
     try {
-      const { customerName, customerEmail, customerPhone, shippingAddress, notes, items, totalAmount } = req.body;
+      const { customerName, customerEmail, customerPhone, shippingAddress, notes, items, totalAmount, customerId } = req.body;
 
-      console.log('[CHECKOUT] Processing order:', { customerName, itemCount: items.length, totalAmount });
+      console.log('[CHECKOUT] Processing order:', { customerName, itemCount: items.length, totalAmount, customerId });
 
       if (!items || items.length === 0) {
         return res.status(400).json({ message: 'No items in order' });
@@ -963,6 +963,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Generate order number
       const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+      const orderDate = new Date();
+
+      // Create order document
+      const orderData = {
+        orderNumber,
+        customerId: customerId || 'guest',
+        customerName,
+        customerEmail,
+        customerPhone,
+        shippingAddress,
+        notes: notes || '',
+        items: items.map((item: any) => ({
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          sellerId: item.userId,
+          sellerName: item.sellerName || 'Unknown Seller'
+        })),
+        totalAmount,
+        status: 'pending',
+        createdAt: orderDate,
+        updatedAt: orderDate
+      };
+
+      // Save order to Firestore
+      const orderRef = db.collection('orders').doc();
+      await orderRef.set({
+        ...orderData,
+        id: orderRef.id
+      });
+
+      console.log('[CHECKOUT] Order saved:', orderRef.id);
 
       // Process each item
       for (const item of items) {
@@ -1026,6 +1060,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json({
         success: true,
         orderNumber,
+        orderId: orderRef.id,
         message: 'Order placed successfully',
         totalAmount
       });
@@ -1034,6 +1069,228 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('[CHECKOUT] Error processing order:', error);
       res.status(500).json({ 
         message: 'Failed to process order',
+        error: error.message 
+      });
+    }
+  });
+
+  // Get customer orders
+  app.get("/api/customer/orders", async (req: any, res) => {
+    try {
+      const customerId = req.query.customerId;
+      
+      if (!customerId) {
+        return res.status(400).json({ message: 'Customer ID required' });
+      }
+
+      console.log('[GET ORDERS] Fetching orders for customer:', customerId);
+
+      const ordersSnapshot = await db.collection('orders')
+        .where('customerId', '==', customerId)
+        .orderBy('createdAt', 'desc')
+        .get();
+
+      const orders = ordersSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          ...data,
+          id: doc.id,
+          createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt
+        };
+      });
+
+      console.log('[GET ORDERS] Found', orders.length, 'orders');
+
+      res.json(orders);
+
+    } catch (error: any) {
+      console.error('[GET ORDERS] Error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch orders',
+        error: error.message 
+      });
+    }
+  });
+
+  // Get seller orders
+  app.get("/api/seller/orders", async (req: any, res) => {
+    try {
+      const sellerId = req.query.sellerId;
+      
+      if (!sellerId) {
+        return res.status(400).json({ message: 'Seller ID required' });
+      }
+
+      console.log('[GET SELLER ORDERS] Fetching orders for seller:', sellerId);
+
+      // Get all orders
+      const ordersSnapshot = await db.collection('orders')
+        .orderBy('createdAt', 'desc')
+        .get();
+
+      // Filter orders that contain items from this seller
+      const sellerOrders = ordersSnapshot.docs
+        .map(doc => {
+          const data = doc.data();
+          return {
+            ...data,
+            id: doc.id,
+            createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
+            refundRequestedAt: data.refundRequestedAt?.toDate?.()?.toISOString() || data.refundRequestedAt,
+            updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt
+          };
+        })
+        .filter((order: any) => {
+          // Check if any item in the order belongs to this seller
+          return order.items?.some((item: any) => item.sellerId === sellerId);
+        });
+
+      console.log('[GET SELLER ORDERS] Found', sellerOrders.length, 'orders for seller');
+
+      res.json(sellerOrders);
+
+    } catch (error: any) {
+      console.error('[GET SELLER ORDERS] Error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch orders',
+        error: error.message 
+      });
+    }
+  });
+
+  // Request refund for an order
+  app.post("/api/orders/:orderId/refund", async (req: any, res) => {
+    try {
+      const { orderId } = req.params;
+      const { reason, orderNumber } = req.body;
+
+      if (!reason || !reason.trim()) {
+        return res.status(400).json({ message: 'Refund reason is required' });
+      }
+
+      console.log('[REFUND REQUEST] Processing refund for order:', orderId);
+
+      // Get the order
+      const orderDoc = await db.collection('orders').doc(orderId).get();
+      
+      if (!orderDoc.exists) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+
+      // Update order with refund request
+      await db.collection('orders').doc(orderId).update({
+        refundRequested: true,
+        refundReason: reason,
+        refundRequestedAt: new Date(),
+        updatedAt: new Date()
+      });
+
+      console.log('[REFUND REQUEST] Refund request submitted for order:', orderNumber);
+
+      res.json({
+        success: true,
+        message: 'Refund request submitted successfully'
+      });
+
+    } catch (error: any) {
+      console.error('[REFUND REQUEST] Error:', error);
+      res.status(500).json({ 
+        message: 'Failed to submit refund request',
+        error: error.message 
+      });
+    }
+  });
+
+  // Approve refund request
+  app.post("/api/orders/:orderId/refund/approve", async (req: any, res) => {
+    try {
+      const { orderId } = req.params;
+
+      console.log('[APPROVE REFUND] Processing approval for order:', orderId);
+
+      // Get the order
+      const orderDoc = await db.collection('orders').doc(orderId).get();
+      
+      if (!orderDoc.exists) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+
+      const orderData = orderDoc.data();
+
+      if (!orderData?.refundRequested) {
+        return res.status(400).json({ message: 'No refund request found for this order' });
+      }
+
+      // Update order status
+      await db.collection('orders').doc(orderId).update({
+        refundApproved: true,
+        refundRejected: false,
+        status: 'refunded',
+        refundApprovedAt: new Date(),
+        updatedAt: new Date()
+      });
+
+      console.log('[APPROVE REFUND] Refund approved for order:', orderData.orderNumber);
+
+      res.json({
+        success: true,
+        message: 'Refund approved successfully'
+      });
+
+    } catch (error: any) {
+      console.error('[APPROVE REFUND] Error:', error);
+      res.status(500).json({ 
+        message: 'Failed to approve refund',
+        error: error.message 
+      });
+    }
+  });
+
+  // Reject refund request
+  app.post("/api/orders/:orderId/refund/reject", async (req: any, res) => {
+    try {
+      const { orderId } = req.params;
+      const { reason } = req.body;
+
+      if (!reason || !reason.trim()) {
+        return res.status(400).json({ message: 'Rejection reason is required' });
+      }
+
+      console.log('[REJECT REFUND] Processing rejection for order:', orderId);
+
+      // Get the order
+      const orderDoc = await db.collection('orders').doc(orderId).get();
+      
+      if (!orderDoc.exists) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+
+      const orderData = orderDoc.data();
+
+      if (!orderData?.refundRequested) {
+        return res.status(400).json({ message: 'No refund request found for this order' });
+      }
+
+      // Update order with rejection
+      await db.collection('orders').doc(orderId).update({
+        refundRejected: true,
+        refundApproved: false,
+        rejectionReason: reason,
+        refundRejectedAt: new Date(),
+        updatedAt: new Date()
+      });
+
+      console.log('[REJECT REFUND] Refund rejected for order:', orderData.orderNumber);
+
+      res.json({
+        success: true,
+        message: 'Refund request rejected'
+      });
+
+    } catch (error: any) {
+      console.error('[REJECT REFUND] Error:', error);
+      res.status(500).json({ 
+        message: 'Failed to reject refund request',
         error: error.message 
       });
     }

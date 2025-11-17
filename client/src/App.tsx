@@ -20,6 +20,7 @@ import QRCodes from "@/pages/qr-codes";
 import Reports from "@/pages/reports";
 import Settings from "@/pages/settings";
 import ScanPage from "@/pages/scan";
+import Orders from "@/pages/orders";
 import CustomerPortal from "@/pages/customer";
 import CustomerProfile from "@/pages/customer-profile";
 import ShopPage from "@/pages/shop";
@@ -45,7 +46,8 @@ function AuthenticatedApp() {
     "/qr-codes",
     "/reports",
     "/settings",
-    "/scan"
+    "/scan",
+    "/orders"
   ].some(route => location.startsWith(route));
 
   // Track the context where user logged in (customer vs enterprise)
@@ -116,6 +118,7 @@ function AuthenticatedApp() {
           <Route path="/inventory" component={Inventory} />
           <Route path="/products" component={Products} />
           <Route path="/accounting" component={Accounting} />
+          <Route path="/orders" component={Orders} />
           <Route path="/qr-codes" component={QRCodes} />
           <Route path="/reports" component={Reports} />
           <Route path="/settings" component={Settings} />
@@ -136,6 +139,7 @@ function UnauthenticatedApp() {
       "/inventory",
       "/products",
       "/accounting",
+      "/orders",
       "/qr-codes",
       "/reports",
       "/settings",

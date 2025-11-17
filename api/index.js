@@ -263,6 +263,30 @@ export default async function handler(req, res) {
       return await handleCheckout(req, res);
     }
 
+    // ===== CUSTOMER ORDERS ROUTE (public - no auth required) =====
+    if (pathParts[0] === 'customer' && pathParts[1] === 'orders' && req.method === 'GET') {
+      return await handleGetCustomerOrders(req, res);
+    }
+
+    // ===== SELLER ORDERS ROUTE (public - no auth required) =====
+    if (pathParts[0] === 'seller' && pathParts[1] === 'orders' && req.method === 'GET') {
+      return await handleGetSellerOrders(req, res);
+    }
+
+    // ===== ORDER REFUND REQUEST ROUTE (public - no auth required) =====
+    if (pathParts[0] === 'orders' && pathParts[2] === 'refund' && req.method === 'POST') {
+      const orderId = pathParts[1];
+      
+      // Check if it's approve or reject
+      if (pathParts[3] === 'approve') {
+        return await handleApproveRefund(req, res, orderId);
+      } else if (pathParts[3] === 'reject') {
+        return await handleRejectRefund(req, res, orderId);
+      } else {
+        return await handleRefundRequest(req, res, orderId);
+      }
+    }
+
     // Route not found
     return res.status(404).json({ message: 'Route not found', path: pathParts.join('/') });
 
@@ -1004,9 +1028,9 @@ async function handleCheckout(req, res) {
   const adminModule = await import('firebase-admin');
   
   try {
-    const { customerName, customerEmail, customerPhone, shippingAddress, notes, items, totalAmount } = req.body;
+    const { customerName, customerEmail, customerPhone, shippingAddress, notes, items, totalAmount, customerId } = req.body;
 
-    console.log('[CHECKOUT] Processing order:', { customerName, itemCount: items.length, totalAmount });
+    console.log('[CHECKOUT] Processing order:', { customerName, itemCount: items.length, totalAmount, customerId });
 
     if (!items || items.length === 0) {
       return res.status(400).json({ message: 'No items in order' });
@@ -1014,6 +1038,40 @@ async function handleCheckout(req, res) {
 
     // Generate order number
     const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+    const orderDate = new Date();
+
+    // Create order document
+    const orderData = {
+      orderNumber,
+      customerId: customerId || 'guest',
+      customerName,
+      customerEmail,
+      customerPhone,
+      shippingAddress,
+      notes: notes || '',
+      items: items.map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        sellerId: item.userId,
+        sellerName: item.sellerName || 'Unknown Seller'
+      })),
+      totalAmount,
+      status: 'pending',
+      createdAt: adminModule.default.firestore.FieldValue.serverTimestamp(),
+      updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+    };
+
+    // Save order to Firestore
+    const orderRef = db.collection('orders').doc();
+    await orderRef.set({
+      ...orderData,
+      id: orderRef.id
+    });
+
+    console.log('[CHECKOUT] Order saved:', orderRef.id);
 
     // Process each item
     for (const item of items) {
@@ -1090,6 +1148,7 @@ async function handleCheckout(req, res) {
     return res.status(201).json({
       success: true,
       orderNumber,
+      orderId: orderRef.id,
       message: 'Order placed successfully',
       totalAmount
     });
@@ -1098,6 +1157,237 @@ async function handleCheckout(req, res) {
     console.error('[CHECKOUT] Error processing order:', error);
     return res.status(500).json({ 
       message: 'Failed to process order',
+      error: error.message 
+    });
+  }
+}
+
+// ===== GET CUSTOMER ORDERS HANDLER =====
+async function handleGetCustomerOrders(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const customerId = req.query.customerId;
+    
+    if (!customerId) {
+      return res.status(400).json({ message: 'Customer ID required' });
+    }
+
+    console.log('[GET ORDERS] Fetching orders for customer:', customerId);
+
+    const ordersSnapshot = await db.collection('orders')
+      .where('customerId', '==', customerId)
+      .orderBy('createdAt', 'desc')
+      .get();
+
+    const orders = ordersSnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        ...data,
+        id: doc.id,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt
+      };
+    });
+
+    console.log('[GET ORDERS] Found', orders.length, 'orders');
+
+    return res.json(orders);
+
+  } catch (error) {
+    console.error('[GET ORDERS] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to fetch orders',
+      error: error.message 
+    });
+  }
+}
+
+// ===== GET SELLER ORDERS HANDLER =====
+async function handleGetSellerOrders(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const sellerId = req.query.sellerId;
+    
+    if (!sellerId) {
+      return res.status(400).json({ message: 'Seller ID required' });
+    }
+
+    console.log('[GET SELLER ORDERS] Fetching orders for seller:', sellerId);
+
+    // Get all orders
+    const ordersSnapshot = await db.collection('orders')
+      .orderBy('createdAt', 'desc')
+      .get();
+
+    // Filter orders that contain items from this seller
+    const sellerOrders = ordersSnapshot.docs
+      .map(doc => {
+        const data = doc.data();
+        return {
+          ...data,
+          id: doc.id,
+          createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
+          refundRequestedAt: data.refundRequestedAt?.toDate?.()?.toISOString() || data.refundRequestedAt,
+          updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt
+        };
+      })
+      .filter(order => {
+        // Check if any item in the order belongs to this seller
+        return order.items?.some(item => item.sellerId === sellerId);
+      });
+
+    console.log('[GET SELLER ORDERS] Found', sellerOrders.length, 'orders for seller');
+
+    return res.json(sellerOrders);
+
+  } catch (error) {
+    console.error('[GET SELLER ORDERS] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to fetch orders',
+      error: error.message 
+    });
+  }
+}
+
+// ===== REFUND REQUEST HANDLER =====
+async function handleRefundRequest(req, res, orderId) {
+  const { db } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
+  
+  try {
+    const { reason, orderNumber } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ message: 'Refund reason is required' });
+    }
+
+    console.log('[REFUND REQUEST] Processing refund for order:', orderId);
+
+    // Get the order
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    
+    if (!orderDoc.exists) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    // Update order with refund request
+    await db.collection('orders').doc(orderId).update({
+      refundRequested: true,
+      refundReason: reason,
+      refundRequestedAt: adminModule.default.firestore.FieldValue.serverTimestamp(),
+      updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log('[REFUND REQUEST] Refund request submitted for order:', orderNumber);
+
+    return res.json({
+      success: true,
+      message: 'Refund request submitted successfully'
+    });
+
+  } catch (error) {
+    console.error('[REFUND REQUEST] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to submit refund request',
+      error: error.message 
+    });
+  }
+}
+
+// ===== APPROVE REFUND HANDLER =====
+async function handleApproveRefund(req, res, orderId) {
+  const { db } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
+  
+  try {
+    console.log('[APPROVE REFUND] Processing approval for order:', orderId);
+
+    // Get the order
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    
+    if (!orderDoc.exists) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    const orderData = orderDoc.data();
+
+    if (!orderData?.refundRequested) {
+      return res.status(400).json({ message: 'No refund request found for this order' });
+    }
+
+    // Update order status
+    await db.collection('orders').doc(orderId).update({
+      refundApproved: true,
+      refundRejected: false,
+      status: 'refunded',
+      refundApprovedAt: adminModule.default.firestore.FieldValue.serverTimestamp(),
+      updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log('[APPROVE REFUND] Refund approved for order:', orderData.orderNumber);
+
+    return res.json({
+      success: true,
+      message: 'Refund approved successfully'
+    });
+
+  } catch (error) {
+    console.error('[APPROVE REFUND] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to approve refund',
+      error: error.message 
+    });
+  }
+}
+
+// ===== REJECT REFUND HANDLER =====
+async function handleRejectRefund(req, res, orderId) {
+  const { db } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
+  
+  try {
+    const { reason } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ message: 'Rejection reason is required' });
+    }
+
+    console.log('[REJECT REFUND] Processing rejection for order:', orderId);
+
+    // Get the order
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    
+    if (!orderDoc.exists) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    const orderData = orderDoc.data();
+
+    if (!orderData?.refundRequested) {
+      return res.status(400).json({ message: 'No refund request found for this order' });
+    }
+
+    // Update order with rejection
+    await db.collection('orders').doc(orderId).update({
+      refundRejected: true,
+      refundApproved: false,
+      rejectionReason: reason,
+      refundRejectedAt: adminModule.default.firestore.FieldValue.serverTimestamp(),
+      updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log('[REJECT REFUND] Refund rejected for order:', orderData.orderNumber);
+
+    return res.json({
+      success: true,
+      message: 'Refund request rejected'
+    });
+
+  } catch (error) {
+    console.error('[REJECT REFUND] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to reject refund request',
       error: error.message 
     });
   }

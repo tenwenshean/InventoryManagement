@@ -32,7 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Upload, X, Image as ImageIcon, Trash2 } from "lucide-react";
+import { Loader2, Upload, X, Image as ImageIcon, Trash2, Plus } from "lucide-react";
 import { insertProductSchema } from "@/types";
 import type { Product, Category } from "@/types";
 
@@ -51,6 +51,8 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [removeExistingImage, setRemoveExistingImage] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch product data via API
@@ -103,6 +105,39 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
     e.stopPropagation();
     if (confirm("Are you sure you want to delete this category?")) {
       deleteCategoryMutation.mutate(categoryId);
+    }
+  };
+
+  // Create category mutation
+  const createCategoryMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const response = await apiRequest("POST", "/api/categories", { name });
+      if (!response.ok) throw new Error("Failed to create category");
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.categories.all });
+      toast({
+        title: "Success",
+        description: "Category created successfully",
+      });
+      setNewCategoryName("");
+      setIsAddingCategory(false);
+      // Auto-select the new category
+      form.setValue("categoryId", data.id);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create category",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAddCategory = () => {
+    if (newCategoryName.trim()) {
+      createCategoryMutation.mutate(newCategoryName.trim());
     }
   };
 
@@ -438,6 +473,65 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
                             </button>
                           </div>
                         ))}
+                        <div className="p-2 border-t">
+                          {!isAddingCategory ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="w-full justify-start"
+                              onClick={() => setIsAddingCategory(true)}
+                            >
+                              <Plus className="mr-2 h-4 w-4" />
+                              Add New Category
+                            </Button>
+                          ) : (
+                            <div className="flex gap-2">
+                              <Input
+                                placeholder="Category name"
+                                value={newCategoryName}
+                                onChange={(e) => setNewCategoryName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    handleAddCategory();
+                                  }
+                                  if (e.key === "Escape") {
+                                    setIsAddingCategory(false);
+                                    setNewCategoryName("");
+                                  }
+                                }}
+                                autoFocus
+                                className="h-8"
+                              />
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={handleAddCategory}
+                                disabled={!newCategoryName.trim() || createCategoryMutation.isPending}
+                                className="h-8"
+                              >
+                                {createCategoryMutation.isPending ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  "Add"
+                                )}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setIsAddingCategory(false);
+                                  setNewCategoryName("");
+                                }}
+                                className="h-8"
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          )}
+                        </div>
                       </SelectContent>
                     </Select>
                     <FormMessage />

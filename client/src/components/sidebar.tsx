@@ -8,6 +8,7 @@ import {
   Settings,
   LogOut,
   User,
+  ShoppingCart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
@@ -26,6 +27,7 @@ export default function Sidebar() {
     { name: "Dashboard", href: "/dashboard", icon: Home },
     { name: "Inventory", href: "/inventory", icon: Box },
     { name: "Products", href: "/products", icon: Package },
+    { name: "Orders", href: "/orders", icon: ShoppingCart },
     { name: "Accounting", href: "/accounting", icon: Calculator },
     { name: "Reports", href: "/reports", icon: BarChart3 },
     { name: "QR Codes", href: "/qr-codes", icon: QrCode },

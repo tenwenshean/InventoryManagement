@@ -161,6 +161,7 @@ export default function CheckoutPage() {
 
       // Process checkout
       const orderData = {
+        customerId: currentUser.uid,
         customerName,
         customerEmail,
         customerPhone,
@@ -172,7 +173,8 @@ export default function CheckoutPage() {
           quantity: item.quantity,
           unitPrice: parseFloat(item.product.price),
           totalPrice: parseFloat(item.product.price) * item.quantity,
-          userId: (item.product as any).userId // Owner of the product
+          userId: (item.product as any).userId, // Owner of the product
+          sellerName: (item.product as any).companyName || 'Unknown Seller'
         })),
         totalAmount: cartTotal
       };
