@@ -98,11 +98,17 @@ export default function CartPage() {
       return;
     }
     
-    toast({
-      title: "Checkout",
-      description: "Proceeding to checkout...",
-    });
-    // TODO: Implement actual checkout logic here
+    if (cartCount === 0) {
+      toast({
+        title: "Empty Cart",
+        description: "Your cart is empty",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Navigate to checkout page
+    setLocation("/checkout");
   };
 
   return (

@@ -950,6 +950,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===================== CHECKOUT ENDPOINT =====================
+  app.post("/api/checkout", async (req: any, res) => {
+    try {
+      const { customerName, customerEmail, customerPhone, shippingAddress, notes, items, totalAmount } = req.body;
+
+      console.log('[CHECKOUT] Processing order:', { customerName, itemCount: items.length, totalAmount });
+
+      if (!items || items.length === 0) {
+        return res.status(400).json({ message: 'No items in order' });
+      }
+
+      // Generate order number
+      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
+      // Process each item
+      for (const item of items) {
+        const { productId, quantity, unitPrice, userId } = item;
+
+        // Get current product to check stock
+        const product = await storage.getProduct(productId);
+        
+        if (!product) {
+          return res.status(404).json({ message: `Product ${productId} not found` });
+        }
+
+        const currentStock = product.quantity || 0;
+
+        // Check stock availability
+        if (currentStock < quantity) {
+          return res.status(400).json({ 
+            message: `Insufficient stock for ${product.name}. Available: ${currentStock}, Requested: ${quantity}` 
+          });
+        }
+
+        // Update product quantity (decrease)
+        const newQuantity = currentStock - quantity;
+        await storage.updateProduct(productId, { quantity: newQuantity });
+
+        console.log(`[CHECKOUT] Updated ${product.name}: ${currentStock} -> ${newQuantity}`);
+
+        // Create inventory transaction (out)
+        const transaction = await storage.createInventoryTransaction({
+          productId,
+          type: 'out',
+          quantity,
+          previousQuantity: currentStock,
+          newQuantity,
+          unitPrice: unitPrice.toString(),
+          totalValue: (unitPrice * quantity).toString(),
+          reason: 'Customer purchase',
+          reference: orderNumber,
+          notes: `Order by ${customerName} (${customerPhone})`,
+          createdBy: 'customer'
+        });
+
+        console.log(`[CHECKOUT] Created transaction:`, transaction.id);
+
+        // Create accounting entry for revenue (for the product owner)
+        const revenue = unitPrice * quantity;
+        await storage.addAccountingEntry({
+          accountType: 'revenue',
+          accountName: 'Sales Revenue',
+          debitAmount: '0',
+          creditAmount: revenue.toString(),
+          description: `Sale of ${quantity}x ${product.name} - Order #${orderNumber}`,
+          transactionId: transaction.id
+        }, userId); // Use the product owner's userId
+
+        console.log(`[CHECKOUT] Created accounting entry for user ${userId}: $${revenue}`);
+      }
+
+      console.log(`[CHECKOUT] Order ${orderNumber} completed successfully`);
+
+      res.status(201).json({
+        success: true,
+        orderNumber,
+        message: 'Order placed successfully',
+        totalAmount
+      });
+
+    } catch (error: any) {
+      console.error('[CHECKOUT] Error processing order:', error);
+      res.status(500).json({ 
+        message: 'Failed to process order',
+        error: error.message 
+      });
+    }
+  });
+
   // ML Predictions endpoint
   app.get("/api/ml/predictions", isAuthenticated, async (req: any, res) => {
     try {

@@ -24,6 +24,7 @@ import CustomerPortal from "@/pages/customer";
 import CustomerProfile from "@/pages/customer-profile";
 import ShopPage from "@/pages/shop";
 import CartPage from "@/pages/cart";
+import CheckoutPage from "@/pages/checkout";
 
 // Optional: you can wrap all authenticated routes with a layout (with sidebar)
 import Sidebar from "@/components/sidebar";
@@ -33,7 +34,7 @@ function AuthenticatedApp() {
   const { logout } = useAuth();
 
   // Check if current route is customer portal
-  const isCustomerPortal = location === "/customer" || location === "/customer-profile" || location === "/shop" || location === "/cart";
+  const isCustomerPortal = location === "/customer" || location === "/customer-profile" || location === "/shop" || location === "/cart" || location === "/checkout";
   
   // Check if current route is enterprise dashboard
   const isEnterpriseDashboard = [
@@ -110,6 +111,7 @@ function AuthenticatedApp() {
           <Route path="/customer-profile" component={CustomerProfile} />
           <Route path="/shop" component={ShopPage} />
           <Route path="/cart" component={CartPage} />
+          <Route path="/checkout" component={CheckoutPage} />
           <Route path="/scan/:code" component={ScanPage} />
           <Route path="/inventory" component={Inventory} />
           <Route path="/products" component={Products} />
@@ -152,6 +154,7 @@ function UnauthenticatedApp() {
       <Route path="/customer-profile" component={CustomerProfile} />
       <Route path="/shop" component={ShopPage} />
       <Route path="/cart" component={CartPage} />
+      <Route path="/checkout" component={CheckoutPage} />
       <Route path="/scan/:code" component={ScanPage} />
       <Route component={NotFound} />
     </Switch>

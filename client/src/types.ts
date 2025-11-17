@@ -24,6 +24,7 @@ export type InsertProduct = z.infer<typeof insertProductSchema>;
 
 export interface Product extends InsertProduct {
   id: string;
+  userId?: string; // Owner of the product
   imageUrl?: string;
   location?: string;
   notes?: string;

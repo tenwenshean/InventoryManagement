@@ -258,6 +258,11 @@ export default async function handler(req, res) {
       return await handleGetReportsData(req, res, user);
     }
 
+    // ===== CHECKOUT ROUTE (public - no auth required) =====
+    if (pathParts[0] === 'checkout' && req.method === 'POST') {
+      return await handleCheckout(req, res);
+    }
+
     // Route not found
     return res.status(404).json({ message: 'Route not found', path: pathParts.join('/') });
 
@@ -988,6 +993,111 @@ async function handleGetSalesSummary(req, res, user) {
     console.error('Error fetching sales summary:', error);
     return res.status(500).json({ 
       message: 'Failed to fetch sales summary',
+      error: error.message 
+    });
+  }
+}
+
+// ===== CHECKOUT HANDLER =====
+async function handleCheckout(req, res) {
+  const { db } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
+  
+  try {
+    const { customerName, customerEmail, customerPhone, shippingAddress, notes, items, totalAmount } = req.body;
+
+    console.log('[CHECKOUT] Processing order:', { customerName, itemCount: items.length, totalAmount });
+
+    if (!items || items.length === 0) {
+      return res.status(400).json({ message: 'No items in order' });
+    }
+
+    // Generate order number
+    const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
+    // Process each item
+    for (const item of items) {
+      const { productId, quantity, unitPrice, userId } = item;
+
+      // Get current product to check stock
+      const productDoc = await db.collection('products').doc(productId).get();
+      
+      if (!productDoc.exists) {
+        return res.status(404).json({ message: `Product ${productId} not found` });
+      }
+
+      const product = productDoc.data();
+      const currentStock = product.quantity || 0;
+
+      // Check stock availability
+      if (currentStock < quantity) {
+        return res.status(400).json({ 
+          message: `Insufficient stock for ${product.name}. Available: ${currentStock}, Requested: ${quantity}` 
+        });
+      }
+
+      // Update product quantity (decrease)
+      const newQuantity = currentStock - quantity;
+      await db.collection('products').doc(productId).update({
+        quantity: newQuantity,
+        updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+      });
+
+      console.log(`[CHECKOUT] Updated ${product.name}: ${currentStock} -> ${newQuantity}`);
+
+      // Create inventory transaction (out)
+      const transactionRef = db.collection('inventoryTransactions').doc();
+      const transaction = {
+        id: transactionRef.id,
+        productId,
+        type: 'out',
+        quantity,
+        previousQuantity: currentStock,
+        newQuantity,
+        unitPrice,
+        totalValue: unitPrice * quantity,
+        reason: 'Customer purchase',
+        reference: orderNumber,
+        notes: `Order by ${customerName} (${customerPhone})`,
+        createdBy: 'customer',
+        createdAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+      };
+      
+      await transactionRef.set(transaction);
+      console.log(`[CHECKOUT] Created transaction:`, transactionRef.id);
+
+      // Create accounting entry for revenue (for the product owner)
+      const revenue = unitPrice * quantity;
+      const accountingRef = db.collection('accountingEntries').doc();
+      const accountingEntry = {
+        id: accountingRef.id,
+        userId: userId, // Product owner's userId
+        accountType: 'revenue',
+        accountName: 'Sales Revenue',
+        debitAmount: '0',
+        creditAmount: revenue.toString(),
+        description: `Sale of ${quantity}x ${product.name} - Order #${orderNumber}`,
+        transactionId: transactionRef.id,
+        createdAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+      };
+      
+      await accountingRef.set(accountingEntry);
+      console.log(`[CHECKOUT] Created accounting entry for user ${userId}: $${revenue}`);
+    }
+
+    console.log(`[CHECKOUT] Order ${orderNumber} completed successfully`);
+
+    return res.status(201).json({
+      success: true,
+      orderNumber,
+      message: 'Order placed successfully',
+      totalAmount
+    });
+
+  } catch (error) {
+    console.error('[CHECKOUT] Error processing order:', error);
+    return res.status(500).json({ 
+      message: 'Failed to process order',
       error: error.message 
     });
   }
