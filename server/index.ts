@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import { createServer as createNetServer } from "node:net";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 //import { seedSampleData } from "./storage";
@@ -58,15 +59,39 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  
+  // In development: automatically pick an available port starting from 5000
+  // In production: honor PORT or default to 5000 (platform usually assigns)
+  const basePort = parseInt(process.env.PORT || '5000', 10);
+
+  async function getAvailablePort(start: number): Promise<number> {
+    let port = start;
+    while (true) {
+      // eslint-disable-next-line no-await-in-loop
+      const free = await new Promise<boolean>((resolve) => {
+        const tester = createNetServer()
+          .once('error', (err: any) => {
+            if (err && (err.code === 'EADDRINUSE' || err.code === 'EACCES')) resolve(false);
+            else resolve(false);
+          })
+          .once('listening', () => {
+            tester.close(() => resolve(true));
+          })
+          .listen(port, '0.0.0.0');
+      });
+      if (free) return port;
+      port += 1; // try next port
+    }
+  }
+
+  const effectivePort = app.get('env') === 'development'
+    ? await getAvailablePort(basePort)
+    : basePort;
+
   // Use the standard listen() signature - works cross-platform
-  server.listen(port, '0.0.0.0', async () => {
-    log(`serving on port ${port}`);
+  server.listen(effectivePort, '0.0.0.0', async () => {
+    const url = `http://localhost:${effectivePort}`;
+    log(`serving on port ${effectivePort}`);
+    console.log(`\nDev server ready → ${url}\n`);
     // Seed sample data on startup
     try {
       //await seedSampleData();
