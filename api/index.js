@@ -20,11 +20,26 @@ async function initializeFirebase() {
   // Try to load from individual env vars first (preferred for Vercel)
   if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
     console.log('[Firebase Init] Using individual environment variables');
+    
+    let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+    
+    // Check if the key is base64 encoded (no BEGIN/END markers)
+    if (!privateKey.includes('BEGIN PRIVATE KEY')) {
+      console.log('[Firebase Init] Decoding base64-encoded private key');
+      try {
+        privateKey = Buffer.from(privateKey, 'base64').toString('utf8');
+      } catch (e) {
+        console.error('[Firebase Init] Failed to decode base64 private key:', e.message);
+      }
+    } else {
+      // Replace escaped newlines with actual newlines
+      privateKey = privateKey.replace(/\\n/g, '\n');
+    }
+    
     serviceAccount = {
       project_id: process.env.FIREBASE_PROJECT_ID,
       client_email: process.env.FIREBASE_CLIENT_EMAIL,
-      // Replace escaped newlines with actual newlines
-      private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      private_key: privateKey,
     };
   } 
   // Fallback to FIREBASE_SERVICE_ACCOUNT JSON string
