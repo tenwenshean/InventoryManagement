@@ -697,7 +697,15 @@ async function handleGetPublicProducts(req, res) {
       query = query.where('userId', '==', sellerId);
     }
     
-    const snapshot = await query.orderBy('createdAt', 'desc').get();
+    let snapshot;
+    try {
+      // Try to order by createdAt if index exists
+      snapshot = await query.orderBy('createdAt', 'desc').get();
+    } catch (indexError) {
+      // If index doesn't exist, fetch without ordering
+      console.warn('Firestore index for createdAt not available, fetching without ordering:', indexError.message);
+      snapshot = await query.get();
+    }
     
     let products = snapshot.docs.map(doc => ({ 
       id: doc.id, 
