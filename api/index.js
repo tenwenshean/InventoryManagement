@@ -386,6 +386,11 @@ export default async function handler(req, res) {
       return await handleSearchShops(req, res);
     }
 
+    // ===== HEALTH CHECK ROUTE (for debugging) =====
+    if (pathParts[0] === 'health' && req.method === 'GET') {
+      return await handleHealthCheck(req, res);
+    }
+
     // Route not found
     return res.status(404).json({ message: 'Route not found', path: pathParts.join('/') });
 
@@ -2465,5 +2470,65 @@ async function handleSearchShops(req, res) {
   } catch (error) {
     console.error('Error searching shops:', error);
     return res.status(500).json({ message: 'Failed to search shops' });
+  }
+}
+
+// ===== HEALTH CHECK HANDLER =====
+async function handleHealthCheck(req, res) {
+  const startTime = Date.now();
+  const checks = {
+    timestamp: new Date().toISOString(),
+    environment: {
+      NODE_ENV: process.env.NODE_ENV,
+      hasFirebaseProjectId: !!process.env.FIREBASE_PROJECT_ID,
+      hasFirebaseClientEmail: !!process.env.FIREBASE_CLIENT_EMAIL,
+      hasFirebasePrivateKey: !!process.env.FIREBASE_PRIVATE_KEY,
+      hasFirebaseServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+    },
+    firebase: {
+      initialized: false,
+      error: null
+    },
+    database: {
+      connected: false,
+      error: null
+    }
+  };
+
+  try {
+    // Try to initialize Firebase
+    console.log('[Health Check] Attempting Firebase initialization...');
+    const { db, auth } = await initializeFirebase();
+    checks.firebase.initialized = true;
+    console.log('[Health Check] Firebase initialized successfully');
+
+    // Try a simple database operation
+    console.log('[Health Check] Testing database connection...');
+    const testQuery = await db.collection('users').limit(1).get();
+    checks.database.connected = true;
+    checks.database.documentCount = testQuery.size;
+    console.log('[Health Check] Database connection successful');
+
+    checks.success = true;
+    checks.responseTime = `${Date.now() - startTime}ms`;
+
+    return res.status(200).json(checks);
+  } catch (error) {
+    console.error('[Health Check] Error:', error);
+    
+    if (!checks.firebase.initialized) {
+      checks.firebase.error = error.message;
+    } else if (!checks.database.connected) {
+      checks.database.error = error.message;
+    }
+
+    checks.success = false;
+    checks.responseTime = `${Date.now() - startTime}ms`;
+    checks.errorDetails = {
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    };
+
+    return res.status(500).json(checks);
   }
 }
