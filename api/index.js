@@ -177,7 +177,7 @@ export default async function handler(req, res) {
     // ===== GET USER BY ID ROUTE (public) =====
     if (pathParts[0] === 'users' && pathParts.length === 2 && req.method === 'GET') {
       console.log('GET USER route matched, userId:', pathParts[1]);
-      return await handleGetUser(req, res, pathParts[1]);
+      return await handleGetUserById(req, res, pathParts[1]);
     }
 
     // ===== GET SHOP BY SLUG ROUTE (public) =====
@@ -542,7 +542,7 @@ async function handleUpdateUserSettings(req, res, user, userId) {
   }
 }
 
-async function handleGetUser(req, res, userId) {
+async function handleGetUserById(req, res, userId) {
   const { db } = await initializeFirebase();
   
   try {
@@ -2434,42 +2434,6 @@ async function handleBroadcastMessage(req, res) {
   } catch (error) {
     console.error('Error broadcasting message:', error);
     return res.status(500).json({ message: 'Failed to send message' });
-  }
-}
-
-// ===== SHOP SEARCH HANDLER =====
-async function handleSearchShops(req, res) {
-  const { db } = await initializeFirebase();
-  
-  try {
-    const { query } = req.query;
-    if (!query) {
-      return res.json([]);
-    }
-
-    const searchQuery = query.toLowerCase();
-    
-    // Search users by company name
-    const usersSnapshot = await db.collection('users').get();
-    const shops = usersSnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-      .filter(user => {
-        const companyName = (user.companyName || '').toLowerCase();
-        return companyName.includes(searchQuery);
-      })
-      .map(user => ({
-        id: user.id,
-        companyName: user.companyName,
-        email: user.email
-      }));
-
-    return res.json(shops);
-  } catch (error) {
-    console.error('Error searching shops:', error);
-    return res.status(500).json({ message: 'Failed to search shops' });
   }
 }
 
