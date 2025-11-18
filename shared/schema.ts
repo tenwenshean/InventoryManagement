@@ -59,6 +59,7 @@ export const products = pgTable("products", {
   qrCode: varchar("qr_code"),
   imageUrl: text("image_url"),
   location: varchar("location"), // Storage location
+  supplier: varchar("supplier"), // Supplier name for restocking
   notes: text("notes"), // Remarks/notes for the product
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
@@ -102,6 +103,39 @@ export const chatMessages = pgTable("chat_messages", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const coupons = pgTable("coupons", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: varchar("code").notNull().unique(),
+  sellerId: varchar("seller_id").notNull(), // User ID of the seller who created the coupon
+  discountType: varchar("discount_type").notNull(), // 'percentage' or 'fixed'
+  discountValue: decimal("discount_value", { precision: 10, scale: 2 }).notNull(),
+  minPurchase: decimal("min_purchase", { precision: 10, scale: 2 }), // Minimum spending requirement
+  applicableProducts: text("applicable_products"), // JSON array of product IDs, null means all products
+  maxUses: integer("max_uses"), // Maximum number of times coupon can be used (null = unlimited)
+  usedCount: integer("used_count").default(0),
+  expiresAt: timestamp("expires_at"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const subscriptions = pgTable("subscriptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").notNull(), // Customer user ID
+  sellerId: varchar("seller_id").notNull(), // Seller user ID
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(), // Customer user ID receiving the notification
+  type: varchar("type").notNull(), // 'coupon', 'order', etc.
+  title: varchar("title").notNull(),
+  message: text("message").notNull(),
+  data: text("data"), // JSON data (e.g., coupon code, order ID)
+  isRead: boolean("is_read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Insert schemas
 export const insertCategorySchema = createInsertSchema(categories).omit({
   id: true,
@@ -130,6 +164,22 @@ export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({
   createdAt: true,
 });
 
+export const insertCouponSchema = createInsertSchema(coupons).omit({
+  id: true,
+  createdAt: true,
+  usedCount: true,
+});
+
+export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -145,6 +195,15 @@ export type InsertInventoryTransaction = z.infer<typeof insertInventoryTransacti
 
 export type AccountingEntry = typeof accountingEntries.$inferSelect;
 export type InsertAccountingEntry = z.infer<typeof insertAccountingEntrySchema>;
+
+export type Coupon = typeof coupons.$inferSelect;
+export type InsertCoupon = z.infer<typeof insertCouponSchema>;
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type InsertChatMessage = z.infer<typeof insertChatMessageSchema>;

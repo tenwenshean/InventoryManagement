@@ -14,7 +14,10 @@ import {
   Loader2,
   Package,
   DollarSign,
-  Truck
+  Truck,
+  Ticket,
+  Tag,
+  X
 } from "lucide-react";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged } from "firebase/auth";
@@ -22,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useCart } from "@/contexts/CartContext";
 import { apiRequest } from "@/lib/queryClient";
 import CustomerLoginModal from "@/components/customer-login-modal";
+import type { Coupon } from "@/types";
 
 export default function CheckoutPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -30,6 +34,12 @@ export default function CheckoutPage() {
   const [orderComplete, setOrderComplete] = useState(false);
   const [orderNumber, setOrderNumber] = useState("");
   const [stockErrors, setStockErrors] = useState<Record<string, string>>({});
+  
+  // Coupon state
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
+  const [couponError, setCouponError] = useState("");
   
   // Customer info
   const [customerName, setCustomerName] = useState("");
@@ -41,6 +51,30 @@ export default function CheckoutPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { cart, clearCart, cartTotal, cartCount } = useCart();
+
+  // Calculate discount and final total
+  const calculateDiscount = () => {
+    if (!appliedCoupon) return 0;
+
+    // Check if coupon applies to cart products
+    let applicableTotal = cartTotal;
+    
+    if (appliedCoupon.applicableProducts) {
+      const applicableProductIds = JSON.parse(appliedCoupon.applicableProducts);
+      applicableTotal = cart
+        .filter(item => applicableProductIds.includes(item.product.id))
+        .reduce((sum, item) => sum + parseFloat(item.product.price) * item.quantity, 0);
+    }
+
+    if (appliedCoupon.discountType === 'percentage') {
+      return (applicableTotal * parseFloat(appliedCoupon.discountValue)) / 100;
+    } else {
+      return parseFloat(appliedCoupon.discountValue);
+    }
+  };
+
+  const discount = calculateDiscount();
+  const finalTotal = Math.max(0, cartTotal - discount);
 
   // Auth listener
   useEffect(() => {
@@ -59,6 +93,51 @@ export default function CheckoutPage() {
 
     return () => unsubscribe();
   }, []);
+
+  // Apply coupon
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) {
+      setCouponError("Please enter a coupon code");
+      return;
+    }
+
+    setIsValidatingCoupon(true);
+    setCouponError("");
+
+    try {
+      const response = await apiRequest('POST', '/api/coupons/validate', {
+        code: couponCode.toUpperCase(),
+        cartTotal,
+        productIds: cart.map(item => item.product.id)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        setCouponError(error.message || "Invalid coupon code");
+        setAppliedCoupon(null);
+        return;
+      }
+
+      const coupon = await response.json();
+      setAppliedCoupon(coupon);
+      toast({
+        title: "Coupon Applied!",
+        description: `You saved ${coupon.discountType === 'percentage' ? coupon.discountValue + '%' : '$' + coupon.discountValue}!`,
+      });
+    } catch (error) {
+      setCouponError("Failed to validate coupon");
+      setAppliedCoupon(null);
+    } finally {
+      setIsValidatingCoupon(false);
+    }
+  };
+
+  // Remove coupon
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponCode("");
+    setCouponError("");
+  };
 
   // Check stock availability
   const checkStockAvailability = async () => {
@@ -176,7 +255,10 @@ export default function CheckoutPage() {
           userId: (item.product as any).userId, // Owner of the product
           sellerName: (item.product as any).companyName || 'Unknown Seller'
         })),
-        totalAmount: cartTotal
+        subtotal: cartTotal,
+        discount,
+        couponCode: appliedCoupon?.code,
+        totalAmount: finalTotal
       };
 
       console.log('Submitting order:', orderData);
@@ -189,6 +271,8 @@ export default function CheckoutPage() {
       setOrderNumber(result.orderNumber);
       setOrderComplete(true);
       clearCart();
+      setAppliedCoupon(null);
+      setCouponCode("");
 
       toast({
         title: "Order Placed Successfully!",
@@ -418,11 +502,79 @@ export default function CheckoutPage() {
                 <CardTitle>Order Summary</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Coupon Code Input */}
+                <div className="space-y-2">
+                  <Label htmlFor="coupon">Coupon Code</Label>
+                  {appliedCoupon ? (
+                    <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Ticket className="w-4 h-4 text-green-600" />
+                        <div>
+                          <p className="font-mono font-semibold text-sm text-green-800">
+                            {appliedCoupon.code}
+                          </p>
+                          <p className="text-xs text-green-600">
+                            {appliedCoupon.discountType === 'percentage' 
+                              ? `${appliedCoupon.discountValue}% off` 
+                              : `$${parseFloat(appliedCoupon.discountValue).toFixed(2)} off`}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleRemoveCoupon}
+                        className="h-8 w-8 p-0 text-green-700 hover:text-green-900"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Input
+                        id="coupon"
+                        placeholder="Enter code"
+                        value={couponCode}
+                        onChange={(e) => {
+                          setCouponCode(e.target.value.toUpperCase());
+                          setCouponError("");
+                        }}
+                        className="font-mono uppercase"
+                      />
+                      <Button
+                        onClick={handleApplyCoupon}
+                        disabled={isValidatingCoupon || !couponCode.trim()}
+                        variant="outline"
+                      >
+                        {isValidatingCoupon ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          "Apply"
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                  {couponError && (
+                    <p className="text-sm text-red-600">{couponError}</p>
+                  )}
+                </div>
+
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Subtotal</span>
                     <span className="font-semibold">${cartTotal.toFixed(2)}</span>
                   </div>
+                  {appliedCoupon && discount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-green-600 flex items-center gap-1">
+                        <Tag className="w-3 h-3" />
+                        Discount
+                      </span>
+                      <span className="font-semibold text-green-600">
+                        -${discount.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Shipping</span>
                     <span className="font-semibold text-green-600">FREE</span>
@@ -435,7 +587,7 @@ export default function CheckoutPage() {
                     <div className="flex justify-between">
                       <span className="font-bold text-lg">Total</span>
                       <span className="font-bold text-lg text-red-600">
-                        ${cartTotal.toFixed(2)}
+                        ${finalTotal.toFixed(2)}
                       </span>
                     </div>
                   </div>

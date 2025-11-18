@@ -125,15 +125,6 @@ export default function CustomerLoginModal({
               </>
             )}
           </Button>
-
-          <div className="text-center text-xs text-gray-500 space-y-1">
-            <p>Use the same Google account for both:</p>
-            <div className="flex items-center justify-center gap-2 text-gray-600">
-              <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded">🏢 Seller Dashboard</span>
-              <span>+</span>
-              <span className="px-2 py-1 bg-green-100 text-green-700 rounded">🛒 Customer Shopping</span>
-            </div>
-          </div>
         </div>
 
         <div className="text-center text-sm text-gray-500 space-y-2 border-t pt-4">

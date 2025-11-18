@@ -15,6 +15,7 @@ export const insertProductSchema = z.object({
   maxStockLevel: z.number().min(0).optional(),
   barcode: z.string().optional(),
   location: z.string().optional(),
+  supplier: z.string().optional(),
   notes: z.string().optional(),
   imageUrl: z.string().optional(),
   isActive: z.boolean().default(true),
@@ -27,6 +28,7 @@ export interface Product extends InsertProduct {
   userId?: string; // Owner of the product
   imageUrl?: string;
   location?: string;
+  supplier?: string;
   notes?: string;
   createdAt: Date | Timestamp;
   updatedAt: Date | Timestamp;
@@ -80,5 +82,47 @@ export interface AccountingEntry {
   debitAmount: number;
   creditAmount: number;
   description?: string;
+  createdAt: Date | Timestamp;
+}
+
+// ===== COUPON TYPES =====
+export const insertCouponSchema = z.object({
+  code: z.string().min(1, "Coupon code is required"),
+  sellerId: z.string().min(1, "Seller ID is required"),
+  discountType: z.enum(['percentage', 'fixed']),
+  discountValue: z.string().min(0, "Discount value must be positive"),
+  minPurchase: z.string().optional(),
+  applicableProducts: z.string().optional(), // JSON array of product IDs
+  maxUses: z.number().min(1).optional(),
+  expiresAt: z.string().optional(),
+  isActive: z.boolean().default(true),
+});
+
+export type InsertCoupon = z.infer<typeof insertCouponSchema>;
+
+export interface Coupon extends Omit<InsertCoupon, 'expiresAt'> {
+  id: string;
+  usedCount: number;
+  expiresAt?: Date | Timestamp | null;
+  createdAt: Date | Timestamp;
+}
+
+// ===== SUBSCRIPTION TYPES =====
+export interface Subscription {
+  id: string;
+  customerId: string;
+  sellerId: string;
+  createdAt: Date | Timestamp;
+}
+
+// ===== NOTIFICATION TYPES =====
+export interface Notification {
+  id: string;
+  userId: string;
+  type: 'coupon' | 'order' | 'general';
+  title: string;
+  message: string;
+  data?: string; // JSON data
+  isRead: boolean;
   createdAt: Date | Timestamp;
 }

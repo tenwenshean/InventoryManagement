@@ -28,6 +28,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import CustomerLoginModal from "@/components/customer-login-modal";
 import ProductDetailModal from "@/components/product-detail-modal";
+import NotificationsBell from "@/components/notifications-bell";
 import { useCart } from "@/contexts/CartContext";
 
 export default function ShopPage() {
@@ -38,6 +39,7 @@ export default function ShopPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
   const { toast } = useToast();
   const { addToCart, cartCount } = useCart();
 
@@ -150,11 +152,39 @@ export default function ShopPage() {
 
   // Add toast notification when adding to cart
   const handleAddToCart = (product: Product) => {
+    // Check if user is logged in
+    if (!currentUser) {
+      setPendingProduct(product); // Store product to add after login
+      setShowLoginModal(true);
+      toast({
+        title: "Login Required",
+        description: "Please log in to add items to your cart",
+        variant: "destructive",
+      });
+      return;
+    }
+
     addToCart(product);
     toast({
       title: "Added to cart",
       description: `${product.name} has been added to your cart`,
     });
+  };
+
+  // Handle successful login - add pending product if any
+  const handleLoginSuccess = (user: any) => {
+    setCurrentUser(user);
+    setShowLoginModal(false);
+    
+    // Add pending product to cart after login
+    if (pendingProduct) {
+      addToCart(pendingProduct);
+      toast({
+        title: "Added to cart",
+        description: `${pendingProduct.name} has been added to your cart`,
+      });
+      setPendingProduct(null);
+    }
   };
 
   return (
@@ -181,6 +211,7 @@ export default function ShopPage() {
             <div className="flex items-center space-x-3">
               {currentUser ? (
                 <>
+                  <NotificationsBell />
                   <Link href="/customer-profile">
                     <Button
                       variant="ghost"
@@ -368,6 +399,12 @@ export default function ShopPage() {
                       <p className="text-sm text-gray-600 line-clamp-2">
                         {product.description || "No description"}
                       </p>
+                      {product.companyName && (
+                        <div className="flex items-center gap-1 text-xs text-gray-500">
+                          <Store className="w-3 h-3" />
+                          <span>{product.companyName}</span>
+                        </div>
+                      )}
                     </div>
                   </CardHeader>
                   <CardContent className="p-4 pt-0">
@@ -440,6 +477,12 @@ export default function ShopPage() {
                             <h3 className="text-xl font-bold text-gray-900 mb-1">
                               {product.name}
                             </h3>
+                            {product.companyName && (
+                              <div className="flex items-center gap-1 text-sm text-gray-500 mb-1">
+                                <Store className="w-4 h-4" />
+                                <span>{product.companyName}</span>
+                              </div>
+                            )}
                             <p className="text-sm text-gray-600 line-clamp-2">
                               {product.description || "No description available"}
                             </p>
@@ -525,17 +568,18 @@ export default function ShopPage() {
           onClose={() => setSelectedProduct(null)}
           product={selectedProduct}
           onAddToCart={handleAddToCart}
+          categories={categories}
         />
       )}
 
       {/* Login Modal */}
       <CustomerLoginModal
         isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        onLoginSuccess={(user) => {
-          setCurrentUser(user);
+        onClose={() => {
           setShowLoginModal(false);
+          setPendingProduct(null); // Clear pending product if modal is closed without login
         }}
+        onLoginSuccess={handleLoginSuccess}
       />
     </div>
   );

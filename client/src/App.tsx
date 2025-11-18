@@ -24,6 +24,7 @@ import Orders from "@/pages/orders";
 import CustomerPortal from "@/pages/customer";
 import CustomerProfile from "@/pages/customer-profile";
 import ShopPage from "@/pages/shop";
+import ShopDetailsPage from "@/pages/shop-details";
 import CartPage from "@/pages/cart";
 import CheckoutPage from "@/pages/checkout";
 
@@ -35,7 +36,7 @@ function AuthenticatedApp() {
   const { logout } = useAuth();
 
   // Check if current route is customer portal
-  const isCustomerPortal = location === "/customer" || location === "/customer-profile" || location === "/shop" || location === "/cart" || location === "/checkout";
+  const isCustomerPortal = location === "/customer" || location === "/customer-profile" || location === "/shop" || location.startsWith("/shop/") || location === "/cart" || location === "/checkout";
   
   // Check if current route is enterprise dashboard
   const isEnterpriseDashboard = [
@@ -111,6 +112,7 @@ function AuthenticatedApp() {
           <Route path="/dashboard" component={Dashboard} />
           <Route path="/customer" component={CustomerPortal} />
           <Route path="/customer-profile" component={CustomerProfile} />
+          <Route path="/shop/:shopSlug" component={ShopDetailsPage} />
           <Route path="/shop" component={ShopPage} />
           <Route path="/cart" component={CartPage} />
           <Route path="/checkout" component={CheckoutPage} />
@@ -156,6 +158,7 @@ function UnauthenticatedApp() {
       <Route path="/" component={Landing} />
       <Route path="/customer" component={CustomerPortal} />
       <Route path="/customer-profile" component={CustomerProfile} />
+      <Route path="/shop/:shopSlug" component={ShopDetailsPage} />
       <Route path="/shop" component={ShopPage} />
       <Route path="/cart" component={CartPage} />
       <Route path="/checkout" component={CheckoutPage} />

@@ -155,6 +155,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
       maxStockLevel: 0,
       barcode: "",
       location: "",
+      supplier: "",
       notes: "",
     },
   });
@@ -175,6 +176,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
         maxStockLevel: product.maxStockLevel || 0,
         barcode: product.barcode || "",
         location: product.location || "",
+        supplier: product.supplier || "",
         notes: product.notes || "",
       });
       
@@ -547,6 +549,20 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
                     <FormLabel>Storage Location</FormLabel>
                     <FormControl>
                       <Input placeholder="e.g., Warehouse A, Shelf 3" {...field} data-testid="input-edit-product-location" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="supplier"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Supplier (Optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., ABC Supplies Inc." {...field} data-testid="input-edit-product-supplier" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

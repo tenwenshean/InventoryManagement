@@ -58,8 +58,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email,
           name: name || "Unnamed User",
           picture: picture || null,
+          companyName: '', // Initialize empty company name
+          timezone: 'UTC', // Initialize default timezone
           createdAt: new Date().toISOString(),
         });
+      } else {
+        // Update email if it changed
+        const userData = userDoc.data();
+        if (userData?.email !== email) {
+          await userRef.set({
+            email,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        }
       }
 
       const userData = (await userRef.get()).data();
@@ -114,6 +125,611 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===================== USER SETTINGS ROUTES =====================
+  app.put("/api/users/:userId/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const { 
+        companyName, 
+        timezone,
+        shopSlug,
+        shopDescription,
+        shopBannerUrl,
+        shopLogoUrl,
+        shopEmail,
+        shopPhone,
+        shopAddress,
+        shopWebsite,
+        shopFacebook,
+        shopInstagram,
+        shopTwitter
+      } = req.body;
+      
+      // Ensure user can only update their own settings
+      if (userId !== req.user.uid) {
+        return res.status(403).json({ message: "Unauthorized to update this user's settings" });
+      }
+      
+      // Update user document in Firestore
+      await db.collection('users').doc(userId).set({
+        settings: {
+          companyName: companyName || '',
+          timezone: timezone || 'UTC',
+          shopSlug: shopSlug || '',
+          shopDescription: shopDescription || '',
+          shopBannerUrl: shopBannerUrl || '',
+          shopLogoUrl: shopLogoUrl || '',
+          shopEmail: shopEmail || '',
+          shopPhone: shopPhone || '',
+          shopAddress: shopAddress || '',
+          shopWebsite: shopWebsite || '',
+          shopFacebook: shopFacebook || '',
+          shopInstagram: shopInstagram || '',
+          shopTwitter: shopTwitter || '',
+          updatedAt: new Date()
+        },
+        companyName: companyName || '',
+        shopSlug: shopSlug || '',
+        shopDescription: shopDescription || '',
+        shopBannerUrl: shopBannerUrl || '',
+        shopLogoUrl: shopLogoUrl || '',
+        updatedAt: new Date()
+      }, { merge: true });
+      
+      res.json({ message: "Settings updated successfully" });
+    } catch (error) {
+      console.error("Error updating user settings:", error);
+      res.status(500).json({ message: "Failed to update settings" });
+    }
+  });
+
+  // Get user by ID (public endpoint for shop pages)
+  app.get("/api/users/:userId", async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      
+      console.log('GET /api/users/:userId - Fetching user:', userId);
+      
+      const userDoc = await db.collection('users').doc(userId).get();
+      
+      if (!userDoc.exists) {
+        console.log('User document not found for userId:', userId);
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      const userData = userDoc.data();
+      const settings = userData?.settings || {};
+      
+      console.log('User data retrieved:', {
+        id: userDoc.id,
+        hasCompanyName: !!userData?.companyName,
+        hasSettings: !!userData?.settings
+      });
+      
+      // Return public shop information
+      const response = {
+        id: userDoc.id,
+        companyName: userData?.companyName || 'Shop',
+        email: userData?.email,
+        shopDescription: userData?.shopDescription || settings.shopDescription || '',
+        shopBannerUrl: userData?.shopBannerUrl || settings.shopBannerUrl || '',
+        shopLogoUrl: userData?.shopLogoUrl || settings.shopLogoUrl || '',
+        shopEmail: settings.shopEmail || '',
+        shopPhone: settings.shopPhone || '',
+        shopAddress: settings.shopAddress || '',
+        shopWebsite: settings.shopWebsite || '',
+        shopFacebook: settings.shopFacebook || '',
+        shopInstagram: settings.shopInstagram || '',
+        shopTwitter: settings.shopTwitter || ''
+      };
+      
+      console.log('Returning user data for shop page');
+      res.json(response);
+    } catch (error: any) {
+      console.error('Error fetching user:', error);
+      res.status(500).json({ message: 'Failed to fetch user', error: error.message });
+    }
+  });
+
+  // Get shop by slug (company name) - public endpoint
+  app.get("/api/shops/by-slug/:slug", async (req: any, res) => {
+    try {
+      const { slug } = req.params;
+      
+      console.log('GET /api/shops/by-slug - Fetching shop by slug:', slug);
+      
+      // Query users by shopSlug
+      const usersSnapshot = await db.collection('users')
+        .where('shopSlug', '==', slug)
+        .limit(1)
+        .get();
+      
+      let matchedUser = null;
+      if (!usersSnapshot.empty) {
+        const doc = usersSnapshot.docs[0];
+        matchedUser = { id: doc.id, ...doc.data() };
+      }
+      
+      if (!matchedUser) {
+        console.log('Shop not found for slug:', slug);
+        return res.status(404).json({ message: 'Shop not found' });
+      }
+      
+      const userData = matchedUser as any;
+      const settings = userData?.settings || {};
+      
+      const response = {
+        id: userData.id,
+        companyName: userData.companyName || 'Shop',
+        email: userData.email,
+        shopSlug: userData.shopSlug || settings.shopSlug || '',
+        shopDescription: userData.shopDescription || settings.shopDescription || '',
+        shopBannerUrl: userData.shopBannerUrl || settings.shopBannerUrl || '',
+        shopLogoUrl: userData.shopLogoUrl || settings.shopLogoUrl || '',
+        shopEmail: settings.shopEmail || '',
+        shopPhone: settings.shopPhone || '',
+        shopAddress: settings.shopAddress || '',
+        shopWebsite: settings.shopWebsite || '',
+        shopFacebook: settings.shopFacebook || '',
+        shopInstagram: settings.shopInstagram || '',
+        shopTwitter: settings.shopTwitter || ''
+      };
+      
+      console.log('Shop found:', response.companyName);
+      res.json(response);
+    } catch (error: any) {
+      console.error('Error fetching shop by slug:', error);
+      res.status(500).json({ message: 'Failed to fetch shop', error: error.message });
+    }
+  });
+
+  // Search shops by query - public endpoint
+  app.get("/api/shops/search", async (req: any, res) => {
+    try {
+      const query = (req.query.query as string || '').toLowerCase().trim();
+      
+      if (!query || query.length < 2) {
+        return res.json([]);
+      }
+
+      console.log('GET /api/shops/search - Searching for:', query);
+      
+      // Get all enterprise users
+      const usersSnapshot = await db.collection('users')
+        .where('userType', '==', 'enterprise')
+        .get();
+      
+      const shops = [];
+      for (const doc of usersSnapshot.docs) {
+        const userData = doc.data();
+        const companyName = (userData.companyName || '').toLowerCase();
+        const shopDescription = (userData.shopDescription || userData.settings?.shopDescription || '').toLowerCase();
+        const shopSlug = userData.shopSlug || userData.settings?.shopSlug || '';
+        
+        // Fuzzy search: match if query appears in company name or description
+        if (companyName.includes(query) || shopDescription.includes(query)) {
+          shops.push({
+            id: doc.id,
+            companyName: userData.companyName || 'Shop',
+            email: userData.email || '',
+            shopSlug: shopSlug,
+            shopDescription: userData.shopDescription || userData.settings?.shopDescription || '',
+            shopLogoUrl: userData.shopLogoUrl || userData.settings?.shopLogoUrl || ''
+          });
+        }
+      }
+      
+      // Sort by relevance (company name matches first, then by alphabetical)
+      shops.sort((a, b) => {
+        const aNameMatch = a.companyName.toLowerCase().startsWith(query);
+        const bNameMatch = b.companyName.toLowerCase().startsWith(query);
+        
+        if (aNameMatch && !bNameMatch) return -1;
+        if (!aNameMatch && bNameMatch) return 1;
+        
+        return a.companyName.localeCompare(b.companyName);
+      });
+      
+      console.log(`Found ${shops.length} matching shops`);
+      res.json(shops.slice(0, 10)); // Limit to 10 results
+    } catch (error: any) {
+      console.error('Error searching shops:', error);
+      res.status(500).json({ message: 'Failed to search shops', error: error.message });
+    }
+  });
+
+  // ===================== SUBSCRIPTION ROUTES =====================
+  app.post("/api/subscriptions", async (req: any, res) => {
+    try {
+      const { customerId, sellerId } = req.body;
+
+      // Check if already subscribed
+      const existingSubscription = await db.collection('subscriptions')
+        .where('customerId', '==', customerId)
+        .where('sellerId', '==', sellerId)
+        .limit(1)
+        .get();
+
+      if (!existingSubscription.empty) {
+        return res.status(400).json({ message: 'Already subscribed to this shop' });
+      }
+
+      const subRef = db.collection('subscriptions').doc();
+      await subRef.set({
+        id: subRef.id,
+        customerId,
+        sellerId,
+        createdAt: new Date().toISOString()
+      });
+
+      res.status(201).json({ message: 'Subscribed successfully', id: subRef.id });
+    } catch (error: any) {
+      console.error('Error subscribing:', error);
+      res.status(500).json({ message: 'Failed to subscribe' });
+    }
+  });
+
+  app.delete("/api/subscriptions", async (req: any, res) => {
+    try {
+      const { customerId, sellerId } = req.body;
+
+      const subscriptionSnapshot = await db.collection('subscriptions')
+        .where('customerId', '==', customerId)
+        .where('sellerId', '==', sellerId)
+        .limit(1)
+        .get();
+
+      if (subscriptionSnapshot.empty) {
+        return res.status(404).json({ message: 'Subscription not found' });
+      }
+
+      await db.collection('subscriptions').doc(subscriptionSnapshot.docs[0].id).delete();
+      res.json({ message: 'Unsubscribed successfully' });
+    } catch (error: any) {
+      console.error('Error unsubscribing:', error);
+      res.status(500).json({ message: 'Failed to unsubscribe' });
+    }
+  });
+
+  app.get("/api/subscriptions/check", async (req: any, res) => {
+    try {
+      const { customerId, sellerId } = req.query;
+
+      const subscriptionSnapshot = await db.collection('subscriptions')
+        .where('customerId', '==', customerId as string)
+        .where('sellerId', '==', sellerId as string)
+        .limit(1)
+        .get();
+
+      res.json({ isSubscribed: !subscriptionSnapshot.empty });
+    } catch (error: any) {
+      console.error('Error checking subscription:', error);
+      res.status(500).json({ message: 'Failed to check subscription' });
+    }
+  });
+
+  app.get("/api/subscriptions/count", async (req: any, res) => {
+    try {
+      const { sellerId } = req.query;
+      
+      const subscriptionsSnapshot = await db.collection('subscriptions')
+        .where('sellerId', '==', sellerId as string)
+        .get();
+
+      res.json({ count: subscriptionsSnapshot.size });
+    } catch (error: any) {
+      console.error('Error getting subscriber count:', error);
+      res.status(500).json({ message: 'Failed to get subscriber count' });
+    }
+  });
+
+  app.get("/api/subscriptions/list", async (req: any, res) => {
+    try {
+      const { sellerId } = req.query;
+      
+      const subscriptionsSnapshot = await db.collection('subscriptions')
+        .where('sellerId', '==', sellerId as string)
+        .get();
+
+      const subscriptions = await Promise.all(
+        subscriptionsSnapshot.docs.map(async (doc) => {
+          const subData = doc.data();
+          // Fetch customer details
+          const userDoc = await db.collection('users').doc(subData.customerId).get();
+          const userData = userDoc.data();
+          
+          return {
+            id: doc.id,
+            customerId: subData.customerId,
+            customerName: userData?.displayName || userData?.email || 'Unknown User',
+            customerEmail: userData?.email || '',
+            subscribedAt: subData.createdAt
+          };
+        })
+      );
+
+      res.json(subscriptions);
+    } catch (error: any) {
+      console.error('Error getting subscribers:', error);
+      res.status(500).json({ message: 'Failed to get subscribers' });
+    }
+  });
+
+  // ===================== COUPON ROUTES =====================
+  app.get("/api/coupons", async (req: any, res) => {
+    try {
+      const { sellerId } = req.query;
+      
+      const couponsSnapshot = await db.collection('coupons')
+        .where('sellerId', '==', sellerId as string)
+        .get();
+
+      const coupons = couponsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      res.json(coupons);
+    } catch (error: any) {
+      console.error('Error fetching coupons:', error);
+      res.status(500).json({ message: 'Failed to fetch coupons' });
+    }
+  });
+
+  app.post("/api/coupons", async (req: any, res) => {
+    try {
+      const { code, sellerId, discountType, discountValue, minPurchase, applicableProducts, maxUses, expiresAt, isActive, notifySubscribers } = req.body;
+
+      // Check if code already exists
+      const existingCoupon = await db.collection('coupons')
+        .where('code', '==', code.toUpperCase())
+        .limit(1)
+        .get();
+
+      if (!existingCoupon.empty) {
+        return res.status(400).json({ message: 'Coupon code already exists' });
+      }
+
+      const couponRef = db.collection('coupons').doc();
+      const couponData = {
+        id: couponRef.id,
+        code: code.toUpperCase(),
+        sellerId,
+        discountType,
+        discountValue,
+        minPurchase: minPurchase || null,
+        applicableProducts: applicableProducts || null,
+        maxUses: maxUses || null,
+        usedCount: 0,
+        expiresAt: expiresAt || null,
+        isActive: isActive !== false,
+        createdAt: new Date().toISOString()
+      };
+
+      await couponRef.set(couponData);
+
+      // Notify subscribers if requested
+      if (notifySubscribers) {
+        const subscriptionsSnapshot = await db.collection('subscriptions')
+          .where('sellerId', '==', sellerId)
+          .get();
+
+        const notifications = subscriptionsSnapshot.docs.map(subDoc => {
+          const notifRef = db.collection('notifications').doc();
+          return notifRef.set({
+            id: notifRef.id,
+            userId: subDoc.data().customerId,
+            type: 'coupon',
+            title: 'New Coupon Available!',
+            message: `Use code ${code} to get ${discountType === 'percentage' ? discountValue + '%' : '$' + discountValue} off!`,
+            data: JSON.stringify({ couponCode: code, couponId: couponRef.id }),
+            isRead: false,
+            createdAt: new Date().toISOString()
+          });
+        });
+
+        await Promise.all(notifications);
+      }
+
+      res.status(201).json(couponData);
+    } catch (error: any) {
+      console.error('Error creating coupon:', error);
+      res.status(500).json({ message: 'Failed to create coupon' });
+    }
+  });
+
+  app.delete("/api/coupons/:couponId", async (req: any, res) => {
+    try {
+      const { couponId } = req.params;
+      await db.collection('coupons').doc(couponId).delete();
+      res.status(204).send();
+    } catch (error: any) {
+      console.error('Error deleting coupon:', error);
+      res.status(500).json({ message: 'Failed to delete coupon' });
+    }
+  });
+
+  app.patch("/api/coupons/:couponId", async (req: any, res) => {
+    try {
+      const { couponId } = req.params;
+      const { isActive } = req.body;
+      
+      await db.collection('coupons').doc(couponId).update({ isActive });
+      
+      const updatedDoc = await db.collection('coupons').doc(couponId).get();
+      res.json({ id: couponId, ...updatedDoc.data() });
+    } catch (error: any) {
+      console.error('Error toggling coupon:', error);
+      res.status(500).json({ message: 'Failed to update coupon' });
+    }
+  });
+
+  app.post("/api/coupons/validate", async (req: any, res) => {
+    try {
+      const { code, cartTotal, productIds } = req.body;
+
+      const couponSnapshot = await db.collection('coupons')
+        .where('code', '==', code.toUpperCase())
+        .limit(1)
+        .get();
+
+      if (couponSnapshot.empty) {
+        return res.status(404).json({ message: 'Invalid coupon code' });
+      }
+
+      const couponDoc = couponSnapshot.docs[0];
+      const coupon: any = { id: couponDoc.id, ...couponDoc.data() };
+
+      // Check if coupon is active
+      if (!coupon.isActive) {
+        return res.status(400).json({ message: 'This coupon is no longer active' });
+      }
+
+      // Check expiry
+      if (coupon.expiresAt) {
+        const expiry = coupon.expiresAt.toDate ? coupon.expiresAt.toDate() : new Date(coupon.expiresAt);
+        if (expiry < new Date()) {
+          return res.status(400).json({ message: 'This coupon has expired' });
+        }
+      }
+
+      // Check max uses
+      if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
+        return res.status(400).json({ message: 'This coupon has reached its maximum usage limit' });
+      }
+
+      // Check minimum purchase
+      if (coupon.minPurchase && parseFloat(cartTotal) < parseFloat(coupon.minPurchase)) {
+        return res.status(400).json({ 
+          message: `Minimum purchase of $${parseFloat(coupon.minPurchase).toFixed(2)} required` 
+        });
+      }
+
+      // Check applicable products
+      if (coupon.applicableProducts) {
+        const applicableProductIds = JSON.parse(coupon.applicableProducts);
+        const hasApplicableProduct = productIds.some((id: string) => applicableProductIds.includes(id));
+        
+        if (!hasApplicableProduct) {
+          return res.status(400).json({ message: 'This coupon is not applicable to items in your cart' });
+        }
+      }
+
+      res.json({
+        id: coupon.id,
+        code: coupon.code,
+        discountType: coupon.discountType,
+        discountValue: coupon.discountValue,
+        minPurchase: coupon.minPurchase,
+        applicableProducts: coupon.applicableProducts,
+        expiresAt: coupon.expiresAt
+      });
+    } catch (error: any) {
+      console.error('Error validating coupon:', error);
+      res.status(500).json({ message: 'Failed to validate coupon' });
+    }
+  });
+
+  // ===================== NOTIFICATION ROUTES =====================
+  app.get("/api/notifications", async (req: any, res) => {
+    try {
+      const { userId } = req.query;
+      
+      if (!userId) {
+        return res.status(400).json({ message: 'userId is required' });
+      }
+
+      const notificationsSnapshot = await db.collection('notifications')
+        .where('userId', '==', userId as string)
+        .get();
+
+      // Sort by createdAt desc
+      const notifications = notificationsSnapshot.docs
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+        .sort((a: any, b: any) => {
+          const aDate = new Date(a.createdAt).getTime();
+          const bDate = new Date(b.createdAt).getTime();
+          return bDate - aDate;
+        })
+        .slice(0, 50);
+
+      res.json(notifications);
+    } catch (error: any) {
+      console.error('Error fetching notifications:', error);
+      res.status(500).json({ message: 'Failed to fetch notifications' });
+    }
+  });
+
+  app.post("/api/notifications/mark-read", async (req: any, res) => {
+    try {
+      const { notificationIds } = req.body;
+
+      const updates = notificationIds.map((notificationId: string) => 
+        db.collection('notifications').doc(notificationId).update({ isRead: true })
+      );
+
+      await Promise.all(updates);
+      res.json({ message: 'Notifications marked as read' });
+    } catch (error: any) {
+      console.error('Error marking notifications as read:', error);
+      res.status(500).json({ message: 'Failed to mark notifications as read' });
+    }
+  });
+
+  app.delete("/api/notifications/:notificationId", async (req: any, res) => {
+    try {
+      const { notificationId } = req.params;
+      await db.collection('notifications').doc(notificationId).delete();
+      res.status(204).send();
+    } catch (error: any) {
+      console.error('Error deleting notification:', error);
+      res.status(500).json({ message: 'Failed to delete notification' });
+    }
+  });
+
+  app.post("/api/notifications/broadcast", async (req: any, res) => {
+    try {
+      const { sellerId, title, message } = req.body;
+
+      // Get all subscribers
+      const subscriptionsSnapshot = await db.collection('subscriptions')
+        .where('sellerId', '==', sellerId)
+        .get();
+
+      if (subscriptionsSnapshot.empty) {
+        return res.status(400).json({ message: 'No subscribers found' });
+      }
+
+      // Create notifications for all subscribers
+      const notifications = subscriptionsSnapshot.docs.map(subDoc => {
+        const notifRef = db.collection('notifications').doc();
+        return notifRef.set({
+          id: notifRef.id,
+          userId: subDoc.data().customerId,
+          type: 'broadcast',
+          title,
+          message,
+          data: JSON.stringify({ sellerId }),
+          isRead: false,
+          createdAt: new Date().toISOString()
+        });
+      });
+
+      await Promise.all(notifications);
+
+      res.json({ 
+        message: `Message sent to ${subscriptionsSnapshot.size} subscriber${subscriptionsSnapshot.size !== 1 ? 's' : ''}`,
+        count: subscriptionsSnapshot.size 
+      });
+    } catch (error: any) {
+      console.error('Error broadcasting message:', error);
+      res.status(500).json({ message: 'Failed to send message' });
+    }
+  });
+
   // ===================== PRODUCT ROUTES =====================
   app.get("/api/products", isAuthenticated, async (req: any, res) => {
     try {
@@ -130,7 +746,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/public/products", async (_req, res) => {
     try {
       const products = await storage.getProducts();
-      res.json(products);
+      
+      // Fetch user settings to get company names for each product
+      const productsWithCompanyNames = await Promise.all(
+        products.map(async (product) => {
+          if (product.userId) {
+            try {
+              const userDoc = await db.collection('users').doc(product.userId).get();
+              if (userDoc.exists) {
+                const userData = userDoc.data();
+                // Priority: companyName > name > email > 'Unknown Seller'
+                const companyName = userData?.companyName && userData.companyName.trim() !== '' 
+                  ? userData.companyName 
+                  : userData?.name && userData.name.trim() !== ''
+                  ? userData.name
+                  : userData?.email || 'Unknown Seller';
+                return { 
+                  ...product, 
+                  companyName, 
+                  sellerName: companyName,
+                  shopSlug: userData?.shopSlug || userData?.settings?.shopSlug || ''
+                };
+              }
+            } catch (error) {
+              console.error(`Error fetching user data for userId ${product.userId}:`, error);
+            }
+          }
+          return { ...product, companyName: 'Unknown Seller', sellerName: 'Unknown Seller' };
+        })
+      );
+      
+      res.json(productsWithCompanyNames);
     } catch (error) {
       console.error("[public] Error fetching products:", error);
       res.status(500).json({ error: (error as any)?.message || String(error) });

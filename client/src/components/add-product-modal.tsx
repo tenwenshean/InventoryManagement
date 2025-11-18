@@ -63,6 +63,7 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
       maxStockLevel: 100,
       barcode: "",
       location: "",
+      supplier: "",
       notes: "",
       isActive: true,
     },
@@ -464,6 +465,20 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
                     <FormLabel>Storage Location</FormLabel>
                     <FormControl>
                       <Input placeholder="e.g., Warehouse A, Shelf 3" {...field} data-testid="input-product-location" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="supplier"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Supplier (Optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., ABC Supplies Inc." {...field} data-testid="input-product-supplier" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

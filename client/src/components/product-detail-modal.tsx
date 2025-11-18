@@ -3,17 +3,22 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Package, ShoppingCart, Store, MapPin, FileText, DollarSign, Hash, Layers } from "lucide-react";
-import type { Product } from "@/types";
+import { Link } from "wouter";
+import type { Product, Category } from "@/types";
 
 interface ProductDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
-  product: Product & { companyName?: string; sellerName?: string };
+  product: Product & { companyName?: string; sellerName?: string; userId?: string; shopSlug?: string };
   onAddToCart: (product: Product) => void;
+  categories?: Category[];
 }
 
-export default function ProductDetailModal({ isOpen, onClose, product, onAddToCart }: ProductDetailModalProps) {
+export default function ProductDetailModal({ isOpen, onClose, product, onAddToCart, categories }: ProductDetailModalProps) {
   if (!product) return null;
+
+  // Find the category name
+  const categoryName = categories?.find(cat => cat.id === product.categoryId)?.name;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -41,12 +46,22 @@ export default function ProductDetailModal({ isOpen, onClose, product, onAddToCa
 
           {/* Company Info */}
           {product.companyName && (
-            <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
-              <Store className="w-5 h-5 text-blue-600" />
-              <div>
-                <p className="text-sm text-gray-600">Sold by</p>
-                <p className="font-semibold text-gray-900">{product.companyName}</p>
+            <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+              <div className="flex items-center gap-2">
+                <Store className="w-5 h-5 text-blue-600" />
+                <div>
+                  <p className="text-sm text-gray-600">Sold by</p>
+                  <p className="font-semibold text-gray-900">{product.companyName}</p>
+                </div>
               </div>
+              {product.companyName && (product.shopSlug || product.userId) && (
+                <Link href={`/shop/${product.shopSlug || product.userId}`}>
+                  <Button variant="outline" size="sm">
+                    <Store className="w-4 h-4 mr-2" />
+                    Visit Shop
+                  </Button>
+                </Link>
+              )}
             </div>
           )}
 
@@ -97,38 +112,16 @@ export default function ProductDetailModal({ isOpen, onClose, product, onAddToCa
             </div>
 
             {/* Category */}
-            {product.categoryId && (
+            {categoryName && (
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                 <Layers className="w-5 h-5 text-purple-600" />
                 <div>
                   <p className="text-xs text-gray-500 uppercase">Category</p>
-                  <p className="font-semibold text-gray-900">{product.categoryId}</p>
+                  <p className="font-semibold text-gray-900">{categoryName}</p>
                 </div>
               </div>
             )}
           </div>
-
-          {/* Location */}
-          {product.location && (
-            <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <MapPin className="w-5 h-5 text-blue-600 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-blue-900 uppercase mb-1">Location</p>
-                <p className="text-gray-700">{product.location}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Notes */}
-          {product.notes && (
-            <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <FileText className="w-5 h-5 text-amber-600 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-amber-900 uppercase mb-1">Additional Information</p>
-                <p className="text-gray-700 whitespace-pre-wrap">{product.notes}</p>
-              </div>
-            </div>
-          )}
 
           <Separator />
 

@@ -9,10 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { 
-  Settings,  User, Bell, Shield,  Database,  Mail,  Palette,  Package,  DollarSign,AlertTriangle, Save, RefreshCw, Clock} from "lucide-react";
+  Settings,  User, Bell, Shield,  Database,  Mail,  Palette,  Package,  DollarSign,AlertTriangle, Save, RefreshCw, Clock, Store, Upload, Image as ImageIcon} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { apiRequest } from "@/lib/queryClient";
+import { uploadImage } from "@/lib/imageUpload";
 
 // Timezone options with UTC offsets
 const TIMEZONES = [
@@ -36,6 +38,21 @@ export default function SettingsPage() {
   const [timezone, setTimezone] = useState("UTC");
   const [currentTime, setCurrentTime] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Shop Profile States
+  const [shopSlug, setShopSlug] = useState("");
+  const [shopDescription, setShopDescription] = useState("");
+  const [shopBannerUrl, setShopBannerUrl] = useState("");
+  const [shopLogoUrl, setShopLogoUrl] = useState("");
+  const [shopEmail, setShopEmail] = useState("");
+  const [shopPhone, setShopPhone] = useState("");
+  const [shopAddress, setShopAddress] = useState("");
+  const [shopWebsite, setShopWebsite] = useState("");
+  const [shopFacebook, setShopFacebook] = useState("");
+  const [shopInstagram, setShopInstagram] = useState("");
+  const [shopTwitter, setShopTwitter] = useState("");
+  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   // Load settings from localStorage
   useEffect(() => {
@@ -44,6 +61,17 @@ export default function SettingsPage() {
       const settings = JSON.parse(savedSettings);
       setCompanyName(settings.companyName || "");
       setTimezone(settings.timezone || "UTC");
+      setShopSlug(settings.shopSlug || "");
+      setShopDescription(settings.shopDescription || "");
+      setShopBannerUrl(settings.shopBannerUrl || "");
+      setShopLogoUrl(settings.shopLogoUrl || "");
+      setShopEmail(settings.shopEmail || "");
+      setShopPhone(settings.shopPhone || "");
+      setShopAddress(settings.shopAddress || "");
+      setShopWebsite(settings.shopWebsite || "");
+      setShopFacebook(settings.shopFacebook || "");
+      setShopInstagram(settings.shopInstagram || "");
+      setShopTwitter(settings.shopTwitter || "");
     }
   }, [user]);
 
@@ -73,44 +101,151 @@ export default function SettingsPage() {
     return () => clearInterval(interval);
   }, [timezone]);
 
+  // Validate and format shop slug
+  const handleShopSlugChange = (value: string) => {
+    // Remove spaces, convert to lowercase, keep only alphanumeric and hyphens
+    const formatted = value
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    setShopSlug(formatted);
+  };
+
   // Save settings
   const handleSaveSettings = async () => {
+    // Validate shop slug
+    if (shopSlug && shopSlug.length < 3) {
+      toast({
+        title: "Invalid Shop URL",
+        description: "Shop URL must be at least 3 characters long.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSaving(true);
     const settings = {
       companyName,
       timezone,
+      shopSlug,
+      shopDescription,
+      shopBannerUrl,
+      shopLogoUrl,
+      shopEmail,
+      shopPhone,
+      shopAddress,
+      shopWebsite,
+      shopFacebook,
+      shopInstagram,
+      shopTwitter,
       updatedAt: new Date().toISOString(),
     };
+    
+    console.log('Saving settings for user:', user?.uid);
+    console.log('Settings data:', settings);
     
     // Save to localStorage
     localStorage.setItem(`settings_${user?.uid}`, JSON.stringify(settings));
     
-    // Also save companyName to Firestore user document
+    // Also save to Firestore user document
     try {
       if (user?.uid) {
-        const response = await fetch(`/api/users/${user.uid}/settings`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ companyName, timezone }),
-        });
+        console.log('Making API request to:', `/api/users/${user.uid}/settings`);
+        const response = await apiRequest(
+          'PUT',
+          `/api/users/${user.uid}/settings`,
+          settings
+        );
         
-        if (!response.ok) {
-          console.error('Failed to save settings to server');
-        }
+        console.log('API response status:', response.status);
+        const responseData = await response.json();
+        console.log('API response data:', responseData);
+        
+        toast({
+          title: "Settings Saved",
+          description: "Your settings have been updated successfully.",
+        });
       }
     } catch (error) {
       console.error('Error saving settings to server:', error);
+      toast({
+        title: "Warning",
+        description: "Settings saved locally but failed to sync to server.",
+        variant: "destructive",
+      });
     }
     
-    setTimeout(() => {
-      setIsSaving(false);
+    setIsSaving(false);
+  };
+
+  // Handle banner upload
+  const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
       toast({
-        title: "Settings Saved",
-        description: "Your settings have been updated successfully.",
+        title: "Invalid File",
+        description: "Please upload an image file.",
+        variant: "destructive",
       });
-    }, 500);
+      return;
+    }
+
+    setIsUploadingBanner(true);
+    try {
+      const imageUrl = await uploadImage(file, "shop-banners");
+      setShopBannerUrl(imageUrl);
+      toast({
+        title: "Banner Uploaded",
+        description: "Shop banner uploaded successfully. Don't forget to save settings.",
+      });
+    } catch (error) {
+      console.error("Error uploading banner:", error);
+      toast({
+        title: "Upload Failed",
+        description: "Failed to upload banner image.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingBanner(false);
+    }
+  };
+
+  // Handle logo upload
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: "Invalid File",
+        description: "Please upload an image file.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    try {
+      const imageUrl = await uploadImage(file, "shop-logos");
+      setShopLogoUrl(imageUrl);
+      toast({
+        title: "Logo Uploaded",
+        description: "Shop logo uploaded successfully. Don't forget to save settings.",
+      });
+    } catch (error) {
+      console.error("Error uploading logo:", error);
+      toast({
+        title: "Upload Failed",
+        description: "Failed to upload logo image.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingLogo(false);
+    }
   };
 
   return (
@@ -231,6 +366,227 @@ export default function SettingsPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Shop Profile Settings */}
+            <Card data-testid="settings-shop-profile">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Store className="w-5 h-5 mr-2 text-red-600" />
+                  Shop Profile
+                </CardTitle>
+                <CardDescription>Customize your shop page for customers</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Shop URL */}
+                <div className="space-y-2">
+                  <Label htmlFor="shop-slug">Shop URL</Label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500 whitespace-nowrap">localhost:5000/shop/</span>
+                    <Input
+                      id="shop-slug"
+                      placeholder="my-shop-name"
+                      value={shopSlug}
+                      onChange={(e) => handleShopSlugChange(e.target.value)}
+                      className="flex-1"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Choose a unique URL for your shop. Only lowercase letters, numbers, and hyphens allowed. No spaces.
+                  </p>
+                  {shopSlug && (
+                    <p className="text-xs text-blue-600">
+                      Your shop will be available at: <span className="font-mono font-medium">/shop/{shopSlug}</span>
+                    </p>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Shop Description */}
+                <div className="space-y-2">
+                  <Label htmlFor="shop-description">Shop Description</Label>
+                  <Textarea
+                    id="shop-description"
+                    placeholder="Tell customers about your business, products, and what makes you unique..."
+                    value={shopDescription}
+                    onChange={(e) => setShopDescription(e.target.value)}
+                    rows={4}
+                    className="resize-none"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    This will be displayed on your shop page
+                  </p>
+                </div>
+
+                <Separator />
+
+                {/* Shop Images */}
+                <div className="space-y-4">
+                  <h4 className="font-medium">Shop Images</h4>
+                  
+                  {/* Banner Upload */}
+                  <div className="space-y-2">
+                    <Label htmlFor="shop-banner">Shop Banner</Label>
+                    <div className="flex items-start gap-4">
+                      {shopBannerUrl && (
+                        <div className="relative w-full h-32 rounded-lg overflow-hidden border">
+                          <img
+                            src={shopBannerUrl}
+                            alt="Shop banner preview"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
+                      <div className="flex-shrink-0">
+                        <Label htmlFor="banner-upload" className="cursor-pointer">
+                          <div className="flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-accent">
+                            <Upload className="w-4 h-4" />
+                            <span className="text-sm">
+                              {isUploadingBanner ? "Uploading..." : "Upload Banner"}
+                            </span>
+                          </div>
+                        </Label>
+                        <Input
+                          id="banner-upload"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleBannerUpload}
+                          disabled={isUploadingBanner}
+                          className="hidden"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Recommended size: 1200x300px. This appears at the top of your shop page.
+                    </p>
+                  </div>
+
+                  {/* Logo Upload */}
+                  <div className="space-y-2">
+                    <Label htmlFor="shop-logo">Shop Logo</Label>
+                    <div className="flex items-start gap-4">
+                      {shopLogoUrl && (
+                        <div className="relative w-24 h-24 rounded-lg overflow-hidden border">
+                          <img
+                            src={shopLogoUrl}
+                            alt="Shop logo preview"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
+                      <div className="flex-shrink-0">
+                        <Label htmlFor="logo-upload" className="cursor-pointer">
+                          <div className="flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-accent">
+                            <ImageIcon className="w-4 h-4" />
+                            <span className="text-sm">
+                              {isUploadingLogo ? "Uploading..." : "Upload Logo"}
+                            </span>
+                          </div>
+                        </Label>
+                        <Input
+                          id="logo-upload"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleLogoUpload}
+                          disabled={isUploadingLogo}
+                          className="hidden"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Recommended size: 200x200px. Square images work best.
+                    </p>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Contact Information */}
+                <div className="space-y-4">
+                  <h4 className="font-medium">Contact Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="shop-email">Email</Label>
+                      <Input
+                        id="shop-email"
+                        type="email"
+                        placeholder="contact@yourshop.com"
+                        value={shopEmail}
+                        onChange={(e) => setShopEmail(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="shop-phone">Phone</Label>
+                      <Input
+                        id="shop-phone"
+                        type="tel"
+                        placeholder="+1 (555) 123-4567"
+                        value={shopPhone}
+                        onChange={(e) => setShopPhone(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="shop-address">Address</Label>
+                    <Input
+                      id="shop-address"
+                      placeholder="123 Main St, City, State, ZIP"
+                      value={shopAddress}
+                      onChange={(e) => setShopAddress(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="shop-website">Website</Label>
+                    <Input
+                      id="shop-website"
+                      type="url"
+                      placeholder="https://yourshop.com"
+                      value={shopWebsite}
+                      onChange={(e) => setShopWebsite(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Social Media Links */}
+                <div className="space-y-4">
+                  <h4 className="font-medium">Social Media</h4>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="shop-facebook">Facebook</Label>
+                      <Input
+                        id="shop-facebook"
+                        placeholder="https://facebook.com/yourshop"
+                        value={shopFacebook}
+                        onChange={(e) => setShopFacebook(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="shop-instagram">Instagram</Label>
+                      <Input
+                        id="shop-instagram"
+                        placeholder="https://instagram.com/yourshop"
+                        value={shopInstagram}
+                        onChange={(e) => setShopInstagram(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="shop-twitter">Twitter/X</Label>
+                      <Input
+                        id="shop-twitter"
+                        placeholder="https://twitter.com/yourshop"
+                        value={shopTwitter}
+                        onChange={(e) => setShopTwitter(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Add your social media profiles to help customers connect with you
+                  </p>
                 </div>
               </CardContent>
             </Card>

@@ -29,15 +29,27 @@ import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useCart } from "@/contexts/CartContext";
+import SearchShops from "@/components/search-shops";
 
 export default function CustomerPortal() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<(Product & { companyName?: string }) | null>(null);
   const [customerUser, setCustomerUser] = useState<any>(null);
+  const [pendingProduct, setPendingProduct] = useState<(Product & { companyName?: string }) | null>(null);
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
   const { addToCart, cartCount } = useCart();
+
+  // Debounce search input for better performance
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Helper function to get display name
   const getDisplayName = (user: any): string => {
@@ -118,22 +130,84 @@ export default function CustomerPortal() {
   });
 
   // Filter products based on search
-  const filteredProducts = products?.filter((product) =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.sku.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProducts = products?.filter((product) => {
+    if (!debouncedSearch) return true;
+    
+    const query = debouncedSearch.toLowerCase();
+    const name = (product.name || '').toLowerCase();
+    const description = (product.description || '').toLowerCase();
+    const sku = (product.sku || '').toLowerCase();
+    const companyName = (product.companyName || '').toLowerCase();
+    
+    // Fuzzy search: match if query appears anywhere in the fields
+    return name.includes(query) || 
+           description.includes(query) || 
+           sku.includes(query) ||
+           companyName.includes(query);
+  }).sort((a, b) => {
+    // Sort by relevance when searching
+    if (!debouncedSearch) return 0;
+    
+    const query = debouncedSearch.toLowerCase();
+    const aName = (a.name || '').toLowerCase();
+    const bName = (b.name || '').toLowerCase();
+    
+    // Exact matches at the start of the name come first
+    const aStartsWith = aName.startsWith(query);
+    const bStartsWith = bName.startsWith(query);
+    
+    if (aStartsWith && !bStartsWith) return -1;
+    if (!aStartsWith && bStartsWith) return 1;
+    
+    // Then sort by name contains query
+    const aIncludes = aName.includes(query);
+    const bIncludes = bName.includes(query);
+    
+    if (aIncludes && !bIncludes) return -1;
+    if (!aIncludes && bIncludes) return 1;
+    
+    // Finally alphabetically
+    return aName.localeCompare(bName);
+  });
 
   // Get recently added products (last 6)
   const recentProducts = products?.slice(0, 6) || [];
 
   // Add toast notification when adding to cart
   const handleAddToCart = (product: Product & { companyName?: string }) => {
+    // Check if user is logged in
+    if (!customerUser) {
+      setPendingProduct(product); // Store product to add after login
+      setShowLoginModal(true);
+      toast({
+        title: "Login Required",
+        description: "Please log in to add items to your cart",
+        variant: "destructive",
+      });
+      return;
+    }
+
     addToCart(product);
     toast({
       title: "Added to cart",
       description: `${product.name} has been added to your cart`,
     });
+  };
+
+  // Handle successful login - add pending product if any
+  const handleLoginSuccess = (user: any) => {
+    setCustomerUser(user);
+    setShowLoginModal(false);
+    
+    // Add pending product to cart after login
+    if (pendingProduct) {
+      addToCart(pendingProduct);
+      toast({
+        title: "Added to cart",
+        description: `${pendingProduct.name} has been added to your cart`,
+      });
+      setPendingProduct(null);
+    }
   };
 
   return (
@@ -216,12 +290,17 @@ export default function CustomerPortal() {
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-6 h-6" />
               <Input
                 type="text"
-                placeholder="Search for products..."
+                placeholder="Search for products or shops..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-14 pr-4 py-7 text-lg border-2 border-gray-300 focus:border-red-500 rounded-full shadow-lg"
               />
             </div>
+
+            {/* Search Results - Shops */}
+            {debouncedSearch && (
+              <SearchShops searchQuery={debouncedSearch} />
+            )}
 
             {/* Shop All Products Button */}
             <Link href="/shop">
@@ -236,6 +315,87 @@ export default function CustomerPortal() {
           </div>
         </div>
       </section>
+
+      {/* Search Results Section */}
+      {debouncedSearch && filteredProducts && (
+        <section className="py-8 bg-gray-50 border-b">
+          <div className="container mx-auto px-6">
+            <h3 className="text-2xl font-bold text-gray-900 mb-4">
+              Search Results for "{debouncedSearch}"
+            </h3>
+            <p className="text-gray-600 mb-6">
+              Found {filteredProducts.length} {filteredProducts.length === 1 ? 'product' : 'products'}
+            </p>
+            
+            {filteredProducts.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {filteredProducts.slice(0, 8).map((product) => (
+                  <Card
+                    key={product.id}
+                    className="hover:shadow-xl transition-all duration-300 border-2 hover:border-red-500 cursor-pointer"
+                    onClick={() => setSelectedProduct(product)}
+                  >
+                    <CardHeader className="p-4">
+                      {product.imageUrl && (
+                        <div className="mb-3 w-full h-40 rounded-lg overflow-hidden bg-gray-100">
+                          <img
+                            src={product.imageUrl}
+                            alt={product.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
+                      <CardTitle className="text-lg line-clamp-1">{product.name}</CardTitle>
+                      {product.companyName && (
+                        <div className="flex items-center gap-1 mt-1 text-xs text-gray-600">
+                          <Store className="w-3 h-3" />
+                          <span className="line-clamp-1">{product.companyName}</span>
+                        </div>
+                      )}
+                    </CardHeader>
+                    <CardContent className="p-4 pt-0">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-2xl font-bold text-red-600">
+                          ${parseFloat(product.price).toFixed(2)}
+                        </p>
+                        {product.quantity > 0 ? (
+                          <Badge className="bg-green-500">In Stock</Badge>
+                        ) : (
+                          <Badge variant="destructive">Out</Badge>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        className="w-full bg-red-600 hover:bg-red-700"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAddToCart(product);
+                        }}
+                        disabled={product.quantity === 0}
+                      >
+                        <ShoppingCart className="w-4 h-4 mr-2" />
+                        Add to Cart
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <Package className="w-16 h-16 mx-auto text-gray-400 mb-4" />
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                    No Products Found
+                  </h3>
+                  <p className="text-gray-600">
+                    Try searching with different keywords or browse all products below.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Why Buy From Us Section */}
       <section className="py-16 bg-white">

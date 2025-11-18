@@ -150,6 +150,22 @@ export default async function handler(req, res) {
       return await handleUpdateUserSettings(req, res, user, userId);
     }
 
+    // ===== GET USER BY ID ROUTE (public) =====
+    if (pathParts[0] === 'users' && pathParts.length === 2 && req.method === 'GET') {
+      console.log('GET USER route matched, userId:', pathParts[1]);
+      return await handleGetUser(req, res, pathParts[1]);
+    }
+
+    // ===== GET SHOP BY SLUG ROUTE (public) =====
+    if (pathParts[0] === 'shops' && pathParts[1] === 'by-slug' && pathParts.length === 3 && req.method === 'GET') {
+      return await handleGetShopBySlug(req, res, pathParts[2]);
+    }
+
+    // ===== SEARCH SHOPS ROUTE (public) =====
+    if (pathParts[0] === 'shops' && pathParts[1] === 'search' && req.method === 'GET') {
+      return await handleSearchShops(req, res);
+    }
+
     // ===== DASHBOARD ROUTES (protected) =====
     if (pathParts[0] === 'dashboard' && pathParts[1] === 'stats' && req.method === 'GET') {
       const user = await authenticate(req);
@@ -287,6 +303,65 @@ export default async function handler(req, res) {
       }
     }
 
+    // ===== COUPON ROUTES =====
+    if (pathParts[0] === 'coupons') {
+      if (req.method === 'GET') {
+        return await handleGetCoupons(req, res);
+      }
+      if (req.method === 'POST') {
+        return await handleCreateCoupon(req, res);
+      }
+      if (pathParts.length === 2 && req.method === 'DELETE') {
+        return await handleDeleteCoupon(req, res, pathParts[1]);
+      }
+      if (pathParts.length === 2 && req.method === 'PATCH') {
+        return await handleToggleCoupon(req, res, pathParts[1]);
+      }
+      if (pathParts[1] === 'validate' && req.method === 'POST') {
+        return await handleValidateCoupon(req, res);
+      }
+    }
+
+    // ===== SUBSCRIPTION ROUTES =====
+    if (pathParts[0] === 'subscriptions') {
+      if (req.method === 'POST') {
+        return await handleSubscribe(req, res);
+      }
+      if (req.method === 'DELETE') {
+        return await handleUnsubscribe(req, res);
+      }
+      if (req.method === 'GET' && pathParts[1] === 'check') {
+        return await handleCheckSubscription(req, res);
+      }
+      if (req.method === 'GET' && pathParts[1] === 'count') {
+        return await handleGetSubscriberCount(req, res);
+      }
+      if (req.method === 'GET' && pathParts[1] === 'list') {
+        return await handleGetSubscriberList(req, res);
+      }
+    }
+
+    // ===== NOTIFICATION ROUTES =====
+    if (pathParts[0] === 'notifications') {
+      if (req.method === 'GET') {
+        return await handleGetNotifications(req, res);
+      }
+      if (pathParts.length === 2 && pathParts[1] === 'mark-read' && req.method === 'POST') {
+        return await handleMarkNotificationsRead(req, res);
+      }
+      if (pathParts.length === 2 && pathParts[1] === 'broadcast' && req.method === 'POST') {
+        return await handleBroadcastMessage(req, res);
+      }
+      if (pathParts.length === 2 && req.method === 'DELETE') {
+        return await handleDeleteNotification(req, res, pathParts[1]);
+      }
+    }
+
+    // ===== SHOP SEARCH ROUTE =====
+    if (pathParts[0] === 'shops' && pathParts[1] === 'search' && req.method === 'GET') {
+      return await handleSearchShops(req, res);
+    }
+
     // Route not found
     return res.status(404).json({ message: 'Route not found', path: pathParts.join('/') });
 
@@ -327,8 +402,19 @@ async function handleLogin(req, res) {
         email,
         name: name || 'Unnamed User',
         picture: picture || null,
+        companyName: '', // Initialize empty company name
+        timezone: 'UTC', // Initialize default timezone
         createdAt: new Date().toISOString()
       });
+    } else {
+      // Update email if it changed
+      const userData = userDoc.data();
+      if (userData?.email !== email) {
+        await userRef.set({
+          email,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      }
     }
     
     const userData = (await userRef.get()).data();
@@ -357,17 +443,46 @@ async function handleUpdateUserSettings(req, res, user, userId) {
   const adminModule = await import('firebase-admin');
   
   try {
-    const { companyName, timezone } = req.body;
+    const { 
+      companyName, 
+      timezone,
+      shopSlug,
+      shopDescription,
+      shopBannerUrl,
+      shopLogoUrl,
+      shopEmail,
+      shopPhone,
+      shopAddress,
+      shopWebsite,
+      shopFacebook,
+      shopInstagram,
+      shopTwitter
+    } = req.body;
     
     const userRef = db.collection('users').doc(userId);
     const updateData = {
       settings: {
         companyName: companyName || '',
         timezone: timezone || 'UTC',
+        shopSlug: shopSlug || '',
+        shopDescription: shopDescription || '',
+        shopBannerUrl: shopBannerUrl || '',
+        shopLogoUrl: shopLogoUrl || '',
+        shopEmail: shopEmail || '',
+        shopPhone: shopPhone || '',
+        shopAddress: shopAddress || '',
+        shopWebsite: shopWebsite || '',
+        shopFacebook: shopFacebook || '',
+        shopInstagram: shopInstagram || '',
+        shopTwitter: shopTwitter || '',
         updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
       },
-      // Also store companyName at top level for easier querying
+      // Also store key fields at top level for easier querying
       companyName: companyName || '',
+      shopSlug: shopSlug || '',
+      shopDescription: shopDescription || '',
+      shopBannerUrl: shopBannerUrl || '',
+      shopLogoUrl: shopLogoUrl || '',
       updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
     };
     
@@ -376,11 +491,163 @@ async function handleUpdateUserSettings(req, res, user, userId) {
     return res.json({ 
       success: true, 
       message: 'Settings updated successfully',
-      data: { companyName, timezone }
+      data: updateData.settings
     });
   } catch (error) {
     console.error('Error updating user settings:', error);
     return res.status(500).json({ message: 'Failed to update settings', error: error.message });
+  }
+}
+
+async function handleGetUser(req, res, userId) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    console.log('Fetching user document for userId:', userId);
+    const userDoc = await db.collection('users').doc(userId).get();
+    
+    if (!userDoc.exists) {
+      console.log('User document not found for userId:', userId);
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const userData = userDoc.data();
+    console.log('User data retrieved:', {
+      id: userDoc.id,
+      hasCompanyName: !!userData.companyName,
+      hasSettings: !!userData.settings
+    });
+    
+    const settings = userData.settings || {};
+    
+    // Return public shop information
+    const response = {
+      id: userDoc.id,
+      companyName: userData.companyName || 'Shop',
+      email: userData.email,
+      shopDescription: userData.shopDescription || settings.shopDescription || '',
+      shopBannerUrl: userData.shopBannerUrl || settings.shopBannerUrl || '',
+      shopLogoUrl: userData.shopLogoUrl || settings.shopLogoUrl || '',
+      shopEmail: settings.shopEmail || '',
+      shopPhone: settings.shopPhone || '',
+      shopAddress: settings.shopAddress || '',
+      shopWebsite: settings.shopWebsite || '',
+      shopFacebook: settings.shopFacebook || '',
+      shopInstagram: settings.shopInstagram || '',
+      shopTwitter: settings.shopTwitter || ''
+    };
+    
+    console.log('Returning user data:', response);
+    return res.json(response);
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    return res.status(500).json({ message: 'Failed to fetch user', error: error.message });
+  }
+}
+
+async function handleGetShopBySlug(req, res, slug) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    console.log('Fetching shop by slug:', slug);
+    
+    // Query users by shopSlug field
+    const usersSnapshot = await db.collection('users')
+      .where('shopSlug', '==', slug)
+      .limit(1)
+      .get();
+    
+    let matchedUser = null;
+    if (!usersSnapshot.empty) {
+      const doc = usersSnapshot.docs[0];
+      matchedUser = { id: doc.id, ...doc.data() };
+    }
+    
+    if (!matchedUser) {
+      console.log('Shop not found for slug:', slug);
+      return res.status(404).json({ message: 'Shop not found' });
+    }
+    
+    const userData = matchedUser;
+    const settings = userData.settings || {};
+    
+    const response = {
+      id: userData.id,
+      companyName: userData.companyName || 'Shop',
+      email: userData.email,
+      shopDescription: userData.shopDescription || settings.shopDescription || '',
+      shopBannerUrl: userData.shopBannerUrl || settings.shopBannerUrl || '',
+      shopLogoUrl: userData.shopLogoUrl || settings.shopLogoUrl || '',
+      shopEmail: settings.shopEmail || '',
+      shopPhone: settings.shopPhone || '',
+      shopAddress: settings.shopAddress || '',
+      shopWebsite: settings.shopWebsite || '',
+      shopFacebook: settings.shopFacebook || '',
+      shopInstagram: settings.shopInstagram || '',
+      shopTwitter: settings.shopTwitter || ''
+    };
+    
+    console.log('Shop found:', response.companyName);
+    return res.json(response);
+  } catch (error) {
+    console.error('Error fetching shop by slug:', error);
+    return res.status(500).json({ message: 'Failed to fetch shop', error: error.message });
+  }
+}
+
+async function handleSearchShops(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const query = (req.query.query || '').toLowerCase().trim();
+    
+    if (!query || query.length < 2) {
+      return res.json([]);
+    }
+
+    console.log('Searching shops for:', query);
+    
+    // Get all enterprise users
+    const usersSnapshot = await db.collection('users')
+      .where('userType', '==', 'enterprise')
+      .get();
+    
+    const shops = [];
+    for (const doc of usersSnapshot.docs) {
+      const userData = doc.data();
+      const companyName = (userData.companyName || '').toLowerCase();
+      const shopDescription = (userData.shopDescription || userData.settings?.shopDescription || '').toLowerCase();
+      const shopSlug = userData.shopSlug || userData.settings?.shopSlug || '';
+      
+      // Fuzzy search: match if query appears in company name or description
+      if (companyName.includes(query) || shopDescription.includes(query)) {
+        shops.push({
+          id: doc.id,
+          companyName: userData.companyName || 'Shop',
+          email: userData.email || '',
+          shopSlug: shopSlug,
+          shopDescription: userData.shopDescription || userData.settings?.shopDescription || '',
+          shopLogoUrl: userData.shopLogoUrl || userData.settings?.shopLogoUrl || ''
+        });
+      }
+    }
+    
+    // Sort by relevance (company name matches first, then alphabetical)
+    shops.sort((a, b) => {
+      const aNameMatch = a.companyName.toLowerCase().startsWith(query);
+      const bNameMatch = b.companyName.toLowerCase().startsWith(query);
+      
+      if (aNameMatch && !bNameMatch) return -1;
+      if (!aNameMatch && bNameMatch) return 1;
+      
+      return a.companyName.localeCompare(b.companyName);
+    });
+    
+    console.log(`Found ${shops.length} matching shops`);
+    return res.json(shops.slice(0, 10)); // Limit to 10 results
+  } catch (error) {
+    console.error('Error searching shops:', error);
+    return res.status(500).json({ message: 'Failed to search shops', error: error.message });
   }
 }
 
@@ -420,12 +687,17 @@ async function handleGetPublicProducts(req, res) {
   
   try {
     const search = req.query.search;
+    const sellerId = req.query.sellerId;
     
-    // Match local behavior: Get ALL products without user filtering
-    // No userId filter - return products from all enterprise users
-    const snapshot = await db.collection('products')
-      .orderBy('createdAt', 'desc')
-      .get();
+    // Build query based on filters
+    let query = db.collection('products');
+    
+    // Filter by sellerId if provided
+    if (sellerId) {
+      query = query.where('userId', '==', sellerId);
+    }
+    
+    const snapshot = await query.orderBy('createdAt', 'desc').get();
     
     let products = snapshot.docs.map(doc => ({ 
       id: doc.id, 
@@ -442,7 +714,31 @@ async function handleGetPublicProducts(req, res) {
       );
     }
     
-    return res.json(products);
+    // Fetch user settings to get company names for each product
+    const productsWithCompanyNames = await Promise.all(
+      products.map(async (product) => {
+        if (product.userId) {
+          try {
+            const userDoc = await db.collection('users').doc(product.userId).get();
+            if (userDoc.exists) {
+              const userData = userDoc.data();
+              // Priority: companyName > name > email > 'Unknown Seller'
+              const companyName = userData?.companyName && userData.companyName.trim() !== '' 
+                ? userData.companyName 
+                : userData?.name && userData.name.trim() !== ''
+                ? userData.name
+                : userData?.email || 'Unknown Seller';
+              return { ...product, companyName, sellerName: companyName };
+            }
+          } catch (error) {
+            console.error(`Error fetching user data for userId ${product.userId}:`, error);
+          }
+        }
+        return { ...product, companyName: 'Unknown Seller', sellerName: 'Unknown Seller' };
+      })
+    );
+    
+    return res.json(productsWithCompanyNames);
   } catch (error) {
     console.error('Error fetching public products:', error);
     return res.status(500).json({ message: 'Failed to fetch products', error: error.message });
@@ -1028,12 +1324,29 @@ async function handleCheckout(req, res) {
   const adminModule = await import('firebase-admin');
   
   try {
-    const { customerName, customerEmail, customerPhone, shippingAddress, notes, items, totalAmount, customerId } = req.body;
+    const { customerName, customerEmail, customerPhone, shippingAddress, notes, items, totalAmount, customerId, subtotal, discount, couponCode } = req.body;
 
-    console.log('[CHECKOUT] Processing order:', { customerName, itemCount: items.length, totalAmount, customerId });
+    console.log('[CHECKOUT] Processing order:', { customerName, itemCount: items.length, totalAmount, customerId, couponCode });
 
     if (!items || items.length === 0) {
       return res.status(400).json({ message: 'No items in order' });
+    }
+
+    // If coupon was used, increment usage count
+    if (couponCode) {
+      const couponSnapshot = await db.collection('coupons')
+        .where('code', '==', couponCode.toUpperCase())
+        .limit(1)
+        .get();
+
+      if (!couponSnapshot.empty) {
+        const couponDoc = couponSnapshot.docs[0];
+        const currentCount = couponDoc.data().usedCount || 0;
+        await db.collection('coupons').doc(couponDoc.id).update({
+          usedCount: currentCount + 1
+        });
+        console.log('[CHECKOUT] Incremented coupon usage:', couponCode);
+      }
     }
 
     // Generate order number
@@ -1058,6 +1371,9 @@ async function handleCheckout(req, res) {
         sellerId: item.userId,
         sellerName: item.sellerName || 'Unknown Seller'
       })),
+      subtotal: subtotal || totalAmount,
+      discount: discount || 0,
+      couponCode: couponCode || null,
       totalAmount,
       status: 'pending',
       createdAt: adminModule.default.firestore.FieldValue.serverTimestamp(),
@@ -1614,5 +1930,497 @@ async function handleGetReportsData(req, res, user) {
       error: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
+  }
+}
+
+// ===== COUPON HANDLERS =====
+async function handleGetCoupons(req, res) {
+  const { db } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
+  
+  try {
+    const { sellerId } = req.query;
+    if (!sellerId) {
+      return res.status(400).json({ message: 'sellerId is required' });
+    }
+
+    const couponsSnapshot = await db.collection('coupons')
+      .where('sellerId', '==', sellerId)
+      .orderBy('createdAt', 'desc')
+      .get();
+
+    const coupons = couponsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || doc.data().createdAt,
+      expiresAt: doc.data().expiresAt?.toDate?.()?.toISOString() || doc.data().expiresAt
+    }));
+
+    return res.json(coupons);
+  } catch (error) {
+    console.error('Error fetching coupons:', error);
+    return res.status(500).json({ message: 'Failed to fetch coupons' });
+  }
+}
+
+async function handleCreateCoupon(req, res) {
+  const { db } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
+  
+  try {
+    const { code, sellerId, discountType, discountValue, minPurchase, applicableProducts, maxUses, expiresAt, isActive, notifySubscribers } = req.body;
+
+    // Check if code already exists
+    const existingCoupon = await db.collection('coupons')
+      .where('code', '==', code.toUpperCase())
+      .limit(1)
+      .get();
+
+    if (!existingCoupon.empty) {
+      return res.status(400).json({ message: 'Coupon code already exists' });
+    }
+
+    const couponRef = db.collection('coupons').doc();
+    const couponData = {
+      id: couponRef.id,
+      code: code.toUpperCase(),
+      sellerId,
+      discountType,
+      discountValue,
+      minPurchase: minPurchase || null,
+      applicableProducts: applicableProducts || null,
+      maxUses: maxUses || null,
+      usedCount: 0,
+      expiresAt: expiresAt ? adminModule.default.firestore.Timestamp.fromDate(new Date(expiresAt)) : null,
+      isActive: isActive !== false,
+      createdAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+    };
+
+    await couponRef.set(couponData);
+
+    // Notify subscribers if requested
+    if (notifySubscribers) {
+      const subscriptionsSnapshot = await db.collection('subscriptions')
+        .where('sellerId', '==', sellerId)
+        .get();
+
+      const batch = db.batch();
+      subscriptionsSnapshot.docs.forEach(subDoc => {
+        const notifRef = db.collection('notifications').doc();
+        batch.set(notifRef, {
+          id: notifRef.id,
+          userId: subDoc.data().customerId,
+          type: 'coupon',
+          title: 'New Coupon Available!',
+          message: `Use code ${code} to get ${discountType === 'percentage' ? discountValue + '%' : '$' + discountValue} off!`,
+          data: JSON.stringify({ couponCode: code, couponId: couponRef.id }),
+          isRead: false,
+          createdAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+        });
+      });
+
+      await batch.commit();
+    }
+
+    const createdDoc = await couponRef.get();
+    const responseData = {
+      id: couponRef.id,
+      ...createdDoc.data(),
+      createdAt: createdDoc.data().createdAt?.toDate?.()?.toISOString() || createdDoc.data().createdAt,
+      expiresAt: createdDoc.data().expiresAt?.toDate?.()?.toISOString() || createdDoc.data().expiresAt
+    };
+
+    return res.status(201).json(responseData);
+  } catch (error) {
+    console.error('Error creating coupon:', error);
+    return res.status(500).json({ message: 'Failed to create coupon' });
+  }
+}
+
+async function handleDeleteCoupon(req, res, couponId) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    await db.collection('coupons').doc(couponId).delete();
+    return res.status(204).send();
+  } catch (error) {
+    console.error('Error deleting coupon:', error);
+    return res.status(500).json({ message: 'Failed to delete coupon' });
+  }
+}
+
+async function handleToggleCoupon(req, res, couponId) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const { isActive } = req.body;
+    await db.collection('coupons').doc(couponId).update({ isActive });
+    
+    const updatedDoc = await db.collection('coupons').doc(couponId).get();
+    const responseData = {
+      id: couponId,
+      ...updatedDoc.data(),
+      createdAt: updatedDoc.data().createdAt?.toDate?.()?.toISOString() || updatedDoc.data().createdAt,
+      expiresAt: updatedDoc.data().expiresAt?.toDate?.()?.toISOString() || updatedDoc.data().expiresAt
+    };
+    
+    return res.json(responseData);
+  } catch (error) {
+    console.error('Error toggling coupon:', error);
+    return res.status(500).json({ message: 'Failed to update coupon' });
+  }
+}
+
+async function handleValidateCoupon(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const { code, cartTotal, productIds } = req.body;
+
+    const couponSnapshot = await db.collection('coupons')
+      .where('code', '==', code.toUpperCase())
+      .limit(1)
+      .get();
+
+    if (couponSnapshot.empty) {
+      return res.status(404).json({ message: 'Invalid coupon code' });
+    }
+
+    const couponDoc = couponSnapshot.docs[0];
+    const coupon = { id: couponDoc.id, ...couponDoc.data() };
+
+    // Check if coupon is active
+    if (!coupon.isActive) {
+      return res.status(400).json({ message: 'This coupon is no longer active' });
+    }
+
+    // Check expiry
+    if (coupon.expiresAt) {
+      const expiry = coupon.expiresAt.toDate ? coupon.expiresAt.toDate() : new Date(coupon.expiresAt);
+      if (expiry < new Date()) {
+        return res.status(400).json({ message: 'This coupon has expired' });
+      }
+    }
+
+    // Check max uses
+    if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
+      return res.status(400).json({ message: 'This coupon has reached its maximum usage limit' });
+    }
+
+    // Check minimum purchase
+    if (coupon.minPurchase && parseFloat(cartTotal) < parseFloat(coupon.minPurchase)) {
+      return res.status(400).json({ 
+        message: `Minimum purchase of $${parseFloat(coupon.minPurchase).toFixed(2)} required` 
+      });
+    }
+
+    // Check applicable products
+    if (coupon.applicableProducts) {
+      const applicableProductIds = JSON.parse(coupon.applicableProducts);
+      const hasApplicableProduct = productIds.some(id => applicableProductIds.includes(id));
+      
+      if (!hasApplicableProduct) {
+        return res.status(400).json({ message: 'This coupon is not applicable to items in your cart' });
+      }
+    }
+
+    const responseData = {
+      id: coupon.id,
+      code: coupon.code,
+      discountType: coupon.discountType,
+      discountValue: coupon.discountValue,
+      minPurchase: coupon.minPurchase,
+      applicableProducts: coupon.applicableProducts,
+      expiresAt: coupon.expiresAt?.toDate?.()?.toISOString() || coupon.expiresAt
+    };
+
+    return res.json(responseData);
+  } catch (error) {
+    console.error('Error validating coupon:', error);
+    return res.status(500).json({ message: 'Failed to validate coupon' });
+  }
+}
+
+// ===== SUBSCRIPTION HANDLERS =====
+async function handleSubscribe(req, res) {
+  const { db } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
+  
+  try {
+    const { customerId, sellerId } = req.body;
+
+    // Check if already subscribed
+    const existingSubscription = await db.collection('subscriptions')
+      .where('customerId', '==', customerId)
+      .where('sellerId', '==', sellerId)
+      .limit(1)
+      .get();
+
+    if (!existingSubscription.empty) {
+      return res.status(400).json({ message: 'Already subscribed to this shop' });
+    }
+
+    const subRef = db.collection('subscriptions').doc();
+    await subRef.set({
+      id: subRef.id,
+      customerId,
+      sellerId,
+      createdAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+    });
+
+    return res.status(201).json({ message: 'Subscribed successfully', id: subRef.id });
+  } catch (error) {
+    console.error('Error subscribing:', error);
+    return res.status(500).json({ message: 'Failed to subscribe' });
+  }
+}
+
+async function handleUnsubscribe(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const { customerId, sellerId } = req.body;
+
+    const subscriptionSnapshot = await db.collection('subscriptions')
+      .where('customerId', '==', customerId)
+      .where('sellerId', '==', sellerId)
+      .limit(1)
+      .get();
+
+    if (subscriptionSnapshot.empty) {
+      return res.status(404).json({ message: 'Subscription not found' });
+    }
+
+    await db.collection('subscriptions').doc(subscriptionSnapshot.docs[0].id).delete();
+    return res.json({ message: 'Unsubscribed successfully' });
+  } catch (error) {
+    console.error('Error unsubscribing:', error);
+    return res.status(500).json({ message: 'Failed to unsubscribe' });
+  }
+}
+
+async function handleCheckSubscription(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const { customerId, sellerId } = req.query;
+
+    const subscriptionSnapshot = await db.collection('subscriptions')
+      .where('customerId', '==', customerId)
+      .where('sellerId', '==', sellerId)
+      .limit(1)
+      .get();
+
+    return res.json({ isSubscribed: !subscriptionSnapshot.empty });
+  } catch (error) {
+    console.error('Error checking subscription:', error);
+    return res.status(500).json({ message: 'Failed to check subscription' });
+  }
+}
+
+async function handleGetSubscriberCount(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const { sellerId } = req.query;
+    
+    const subscriptionsSnapshot = await db.collection('subscriptions')
+      .where('sellerId', '==', sellerId)
+      .get();
+
+    return res.json({ count: subscriptionsSnapshot.size });
+  } catch (error) {
+    console.error('Error getting subscriber count:', error);
+    return res.status(500).json({ message: 'Failed to get subscriber count' });
+  }
+}
+
+async function handleGetSubscriberList(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const { sellerId } = req.query;
+    
+    const subscriptionsSnapshot = await db.collection('subscriptions')
+      .where('sellerId', '==', sellerId)
+      .get();
+
+    const subscribers = await Promise.all(
+      subscriptionsSnapshot.docs.map(async (doc) => {
+        const subData = doc.data();
+        // Fetch customer details
+        try {
+          const userDoc = await db.collection('users').doc(subData.customerId).get();
+          const userData = userDoc.exists ? userDoc.data() : null;
+          
+          return {
+            id: doc.id,
+            customerId: subData.customerId,
+            customerName: userData?.displayName || userData?.email || 'Unknown User',
+            customerEmail: userData?.email || '',
+            subscribedAt: subData.createdAt?.toDate?.()?.toISOString() || subData.createdAt
+          };
+        } catch (err) {
+          console.error('Error fetching user data:', err);
+          return {
+            id: doc.id,
+            customerId: subData.customerId,
+            customerName: 'Unknown User',
+            customerEmail: '',
+            subscribedAt: subData.createdAt?.toDate?.()?.toISOString() || subData.createdAt
+          };
+        }
+      })
+    );
+
+    return res.json(subscribers);
+  } catch (error) {
+    console.error('Error getting subscribers list:', error);
+    return res.status(500).json({ message: 'Failed to get subscribers list' });
+  }
+}
+
+// ===== NOTIFICATION HANDLERS =====
+async function handleGetNotifications(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const { userId } = req.query;
+    if (!userId) {
+      return res.status(400).json({ message: 'userId is required' });
+    }
+
+    const notificationsSnapshot = await db.collection('notifications')
+      .where('userId', '==', userId)
+      .orderBy('createdAt', 'desc')
+      .limit(50)
+      .get();
+
+    const notifications = notificationsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || doc.data().createdAt
+    }));
+
+    return res.json(notifications);
+  } catch (error) {
+    console.error('Error fetching notifications:', error);
+    return res.status(500).json({ message: 'Failed to fetch notifications' });
+  }
+}
+
+async function handleMarkNotificationsRead(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const { userId, notificationIds } = req.body;
+
+    const batch = db.batch();
+    notificationIds.forEach(notificationId => {
+      const notifRef = db.collection('notifications').doc(notificationId);
+      batch.update(notifRef, { isRead: true });
+    });
+
+    await batch.commit();
+    return res.json({ message: 'Notifications marked as read' });
+  } catch (error) {
+    console.error('Error marking notifications as read:', error);
+    return res.status(500).json({ message: 'Failed to mark notifications as read' });
+  }
+}
+
+async function handleDeleteNotification(req, res, notificationId) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    await db.collection('notifications').doc(notificationId).delete();
+    return res.status(204).send();
+  } catch (error) {
+    console.error('Error deleting notification:', error);
+    return res.status(500).json({ message: 'Failed to delete notification' });
+  }
+}
+
+async function handleBroadcastMessage(req, res) {
+  const { db } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
+  
+  try {
+    const { sellerId, title, message } = req.body;
+
+    if (!sellerId || !title || !message) {
+      return res.status(400).json({ message: 'sellerId, title, and message are required' });
+    }
+
+    // Get all subscribers
+    const subscriptionsSnapshot = await db.collection('subscriptions')
+      .where('sellerId', '==', sellerId)
+      .get();
+
+    if (subscriptionsSnapshot.empty) {
+      return res.status(400).json({ message: 'No subscribers found' });
+    }
+
+    // Create notifications for all subscribers
+    const batch = db.batch();
+    subscriptionsSnapshot.docs.forEach(subDoc => {
+      const notifRef = db.collection('notifications').doc();
+      batch.set(notifRef, {
+        id: notifRef.id,
+        userId: subDoc.data().customerId,
+        type: 'broadcast',
+        title,
+        message,
+        data: JSON.stringify({ sellerId }),
+        isRead: false,
+        createdAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+      });
+    });
+
+    await batch.commit();
+
+    return res.json({ 
+      message: `Message sent to ${subscriptionsSnapshot.size} subscriber${subscriptionsSnapshot.size !== 1 ? 's' : ''}`,
+      count: subscriptionsSnapshot.size 
+    });
+  } catch (error) {
+    console.error('Error broadcasting message:', error);
+    return res.status(500).json({ message: 'Failed to send message' });
+  }
+}
+
+// ===== SHOP SEARCH HANDLER =====
+async function handleSearchShops(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const { query } = req.query;
+    if (!query) {
+      return res.json([]);
+    }
+
+    const searchQuery = query.toLowerCase();
+    
+    // Search users by company name
+    const usersSnapshot = await db.collection('users').get();
+    const shops = usersSnapshot.docs
+      .map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+      .filter(user => {
+        const companyName = (user.companyName || '').toLowerCase();
+        return companyName.includes(searchQuery);
+      })
+      .map(user => ({
+        id: user.id,
+        companyName: user.companyName,
+        email: user.email
+      }));
+
+    return res.json(shops);
+  } catch (error) {
+    console.error('Error searching shops:', error);
+    return res.status(500).json({ message: 'Failed to search shops' });
   }
 }

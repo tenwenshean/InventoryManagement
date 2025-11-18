@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -36,9 +37,11 @@ import {
   Clock,
   RotateCcw,
   Loader2,
-  Store
+  Store,
+  Ticket
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import CouponManagement from "@/components/coupon-management";
 
 export default function Orders() {
   const { user } = useAuth();
@@ -150,12 +153,27 @@ export default function Orders() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Order Management</h1>
-          <p className="text-gray-600 mt-1">Manage customer orders and refund requests</p>
+          <p className="text-gray-600 mt-1">Manage customer orders, refund requests, and coupons</p>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Tabs */}
+      <Tabs defaultValue="orders" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="orders" className="flex items-center gap-2">
+            <Package className="w-4 h-4" />
+            Orders
+          </TabsTrigger>
+          <TabsTrigger value="coupons" className="flex items-center gap-2">
+            <Ticket className="w-4 h-4" />
+            Coupons
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Orders Tab */}
+        <TabsContent value="orders" className="space-y-6">
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-gray-600">Total Orders</CardTitle>
@@ -490,6 +508,13 @@ export default function Orders() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </TabsContent>
+
+        {/* Coupons Tab */}
+        <TabsContent value="coupons">
+          <CouponManagement />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
