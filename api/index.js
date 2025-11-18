@@ -728,13 +728,18 @@ async function handleGetPublicProducts(req, res) {
                 : userData?.name && userData.name.trim() !== ''
                 ? userData.name
                 : userData?.email || 'Unknown Seller';
-              return { ...product, companyName, sellerName: companyName };
+              return { 
+                ...product, 
+                companyName, 
+                sellerName: companyName,
+                shopSlug: userData?.shopSlug || userData?.settings?.shopSlug || ''
+              };
             }
           } catch (error) {
             console.error(`Error fetching user data for userId ${product.userId}:`, error);
           }
         }
-        return { ...product, companyName: 'Unknown Seller', sellerName: 'Unknown Seller' };
+        return { ...product, companyName: 'Unknown Seller', sellerName: 'Unknown Seller', shopSlug: '' };
       })
     );
     
