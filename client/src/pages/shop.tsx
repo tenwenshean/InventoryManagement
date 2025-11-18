@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,8 +30,13 @@ import CustomerLoginModal from "@/components/customer-login-modal";
 import ProductDetailModal from "@/components/product-detail-modal";
 import NotificationsBell from "@/components/notifications-bell";
 import { useCart } from "@/contexts/CartContext";
+import { useCurrency } from "@/hooks/useCurrency";
 
 export default function ShopPage() {
+  const { formatCurrency } = useCurrency();
+  const defaultUnitLabel = useMemo(() => {
+    try { return localStorage.getItem('app_defaultUnit') || 'units'; } catch { return 'units'; }
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("newest");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -415,12 +420,12 @@ export default function ShopPage() {
                           <span className="text-sm font-medium">4.5</span>
                         </div>
                         <p className="text-xs text-gray-500">
-                          {product.quantity} available
+                          {product.quantity} {defaultUnitLabel} available
                         </p>
                       </div>
                       <div className="flex items-center justify-between">
                         <p className="text-2xl font-bold text-red-600">
-                          ${parseFloat(product.price).toFixed(2)}
+                          {formatCurrency(product.price)}
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -503,13 +508,13 @@ export default function ShopPage() {
                             SKU: {product.sku}
                           </span>
                           <span className="text-sm text-gray-600">
-                            Available: {product.quantity} units
+                            Available: {product.quantity} {defaultUnitLabel}
                           </span>
                         </div>
                       </div>
                       <div className="flex flex-col items-end justify-between shrink-0">
                         <p className="text-3xl font-bold text-red-600">
-                          ${parseFloat(product.price).toFixed(2)}
+                          {formatCurrency(product.price)}
                         </p>
                         <div className="flex gap-2">
                           <Button

@@ -51,8 +51,10 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { useCurrency } from "@/hooks/useCurrency";
 
 export default function CouponManagement() {
+  const { formatCurrency } = useCurrency();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -408,10 +410,10 @@ export default function CouponManagement() {
                         <TableCell className="font-semibold">
                           {coupon.discountType === 'percentage' 
                             ? `${coupon.discountValue}%` 
-                            : `$${parseFloat(coupon.discountValue).toFixed(2)}`}
+                            : formatCurrency(coupon.discountValue)}
                         </TableCell>
                         <TableCell>
-                          {coupon.minPurchase ? `$${parseFloat(coupon.minPurchase).toFixed(2)}` : '-'}
+                          {coupon.minPurchase ? formatCurrency(coupon.minPurchase) : '-'}
                         </TableCell>
                         <TableCell>
                           <div className="text-sm">
@@ -604,7 +606,7 @@ export default function CouponManagement() {
                             htmlFor={`product-${product.id}`}
                             className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                           >
-                            {product.name} - ${parseFloat(product.price).toFixed(2)}
+                            {product.name} - {formatCurrency(product.price)}
                           </label>
                         </div>
                       ))}

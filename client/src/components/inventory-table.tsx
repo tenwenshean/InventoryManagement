@@ -11,6 +11,7 @@ import type { Product, Category } from "@/types";
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import EditProductModal from "@/components/edit-product-modal";
+import { useCurrency } from "@/hooks/useCurrency";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +31,7 @@ interface InventoryTableProps {
 const ITEMS_PER_PAGE = 8;
 
 export default function InventoryTable({ showAll = false }: InventoryTableProps) {
+  const { formatCurrency } = useCurrency();
   const [, setLocation] = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
@@ -202,6 +204,14 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
     }
   };
 
+  const defaultUnitLabel = useMemo(() => {
+    try {
+      return localStorage.getItem('app_defaultUnit') || 'units';
+    } catch {
+      return 'units';
+    }
+  }, []);
+
   return (
     <Card>
       <CardHeader>
@@ -303,10 +313,10 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
                         <span className="text-foreground font-medium" data-testid={`text-product-stock-${product.id}`}>
                           {product.quantity || 0}
                         </span>
-                        <span className="text-muted-foreground"> units</span>
+                        <span className="text-muted-foreground"> {defaultUnitLabel}</span>
                       </td>
                       <td className="p-4 text-foreground font-medium" data-testid={`text-product-value-${product.id}`}>
-                        ${((product.quantity || 0) * parseFloat(product.price)).toFixed(2)}
+                        {formatCurrency((product.quantity || 0) * parseFloat(product.price))}
                       </td>
                       <td className="p-4">
                         <Badge variant={stockStatus.variant} data-testid={`badge-stock-status-${product.id}`}>

@@ -4,8 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { QrCode, MapPin, FileText, Package, DollarSign, Hash, Layers } from "lucide-react";
+import { useCurrency } from "@/hooks/useCurrency";
 
 export default function ScanPage() {
+  const { formatCurrency } = useCurrency();
+  const defaultUnitLabel = useMemo(() => {
+    try { return localStorage.getItem('app_defaultUnit') || 'units'; } catch { return 'units'; }
+  }, []);
   const [, params] = useRoute("/scan/:code");
   const code = params?.code ? decodeURIComponent(params.code) : "";
   const [loading, setLoading] = useState(true);
@@ -128,7 +133,7 @@ export default function ScanPage() {
                     <DollarSign className="w-5 h-5 text-green-600" />
                     <div>
                       <p className="text-xs text-gray-500 uppercase">Price</p>
-                      <p className="font-semibold text-gray-900">${parseFloat(product.price).toFixed(2)}</p>
+                      <p className="font-semibold text-gray-900">{formatCurrency(product.price)}</p>
                     </div>
                   </div>
 
@@ -147,7 +152,7 @@ export default function ScanPage() {
                     <div>
                       <p className="text-xs text-gray-500 uppercase">In Stock</p>
                       <div className="flex items-center gap-2">
-                        <p className="font-semibold text-gray-900">{product.quantity ?? 0} units</p>
+                        <p className="font-semibold text-gray-900">{product.quantity ?? 0} {defaultUnitLabel}</p>
                         {product.quantity > 0 ? (
                           <Badge className="bg-green-500">Available</Badge>
                         ) : (

@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Package, ShoppingCart, Store, MapPin, FileText, DollarSign, Hash, Layers } from "lucide-react";
 import { Link } from "wouter";
+import { useMemo } from "react";
+import { useCurrency } from "@/hooks/useCurrency";
 import type { Product, Category } from "@/types";
 
 interface ProductDetailModalProps {
@@ -15,6 +17,10 @@ interface ProductDetailModalProps {
 }
 
 export default function ProductDetailModal({ isOpen, onClose, product, onAddToCart, categories }: ProductDetailModalProps) {
+  const { formatCurrency } = useCurrency();
+  const defaultUnitLabel = useMemo(() => {
+    try { return localStorage.getItem('app_defaultUnit') || 'units'; } catch { return 'units'; }
+  }, []);
   if (!product) return null;
 
   // Find the category name
@@ -82,7 +88,7 @@ export default function ProductDetailModal({ isOpen, onClose, product, onAddToCa
               <DollarSign className="w-5 h-5 text-green-600" />
               <div>
                 <p className="text-xs text-gray-500 uppercase">Price</p>
-                <p className="text-2xl font-bold text-green-600">${parseFloat(product.price).toFixed(2)}</p>
+                <p className="text-2xl font-bold text-green-600">{formatCurrency(product.price)}</p>
               </div>
             </div>
 
@@ -92,7 +98,7 @@ export default function ProductDetailModal({ isOpen, onClose, product, onAddToCa
               <div>
                 <p className="text-xs text-gray-500 uppercase">In Stock</p>
                 <div className="flex items-center gap-2">
-                  <p className="font-semibold text-gray-900">{product.quantity ?? 0} units</p>
+                  <p className="font-semibold text-gray-900">{product.quantity ?? 0} {defaultUnitLabel}</p>
                   {product.quantity > 0 ? (
                     <Badge className="bg-green-500">Available</Badge>
                   ) : (

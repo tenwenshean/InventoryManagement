@@ -29,8 +29,10 @@ import {
   Twitter
 } from "lucide-react";
 import type { Product } from "@/types";
+import { useCurrency } from "@/hooks/useCurrency";
 
 export default function ShopDetailsPage() {
+  const { formatCurrency } = useCurrency();
   const [, params] = useRoute("/shop/:shopSlug");
   const shopSlug = params?.shopSlug;
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -479,7 +481,7 @@ export default function ShopDetailsPage() {
                 <CardHeader>
                   <CardTitle className="text-lg line-clamp-2">{product.name}</CardTitle>
                   <p className="text-2xl font-bold text-red-600">
-                    ${parseFloat(product.price).toFixed(2)}
+                    {formatCurrency(product.price)}
                   </p>
                 </CardHeader>
 

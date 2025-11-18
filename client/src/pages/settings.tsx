@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Sidebar from "@/components/sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { 
-  Settings,  User, Bell, Shield,  Database,  Mail,  Palette,  Package,  DollarSign,AlertTriangle, Save, RefreshCw, Clock, Store, Upload, Image as ImageIcon} from "lucide-react";
+  Settings,  User, Bell,  Mail,  Package,  DollarSign, Save, Clock, Store, Upload, Image as ImageIcon} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -38,6 +38,14 @@ export default function SettingsPage() {
   const [timezone, setTimezone] = useState("UTC");
   const [currentTime, setCurrentTime] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [activeSection, setActiveSection] = useState<"general" | "shop" | "inventory" | "accounting" | "notifications">("general");
+  const sections = {
+    general: useRef<HTMLDivElement | null>(null),
+    shop: useRef<HTMLDivElement | null>(null),
+    inventory: useRef<HTMLDivElement | null>(null),
+    accounting: useRef<HTMLDivElement | null>(null),
+    notifications: useRef<HTMLDivElement | null>(null),
+  } as const;
   
   // Shop Profile States
   const [shopSlug, setShopSlug] = useState("");
@@ -53,6 +61,11 @@ export default function SettingsPage() {
   const [shopTwitter, setShopTwitter] = useState("");
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+
+  // Inventory & Accounting States
+  const [defaultLowStock, setDefaultLowStock] = useState<number>(10);
+  const [defaultUnit, setDefaultUnit] = useState<string>("pieces");
+  const [currency, setCurrency] = useState<string>("usd");
 
   // Load settings from localStorage
   useEffect(() => {
@@ -72,6 +85,9 @@ export default function SettingsPage() {
       setShopFacebook(settings.shopFacebook || "");
       setShopInstagram(settings.shopInstagram || "");
       setShopTwitter(settings.shopTwitter || "");
+      setDefaultLowStock(typeof settings.defaultLowStock === "number" ? settings.defaultLowStock : 10);
+      setDefaultUnit(settings.defaultUnit || "pieces");
+      setCurrency(settings.currency || "usd");
     }
   }, [user]);
 
@@ -129,6 +145,9 @@ export default function SettingsPage() {
     const settings = {
       companyName,
       timezone,
+      defaultLowStock,
+      defaultUnit,
+      currency,
       shopSlug,
       shopDescription,
       shopBannerUrl,
@@ -148,6 +167,10 @@ export default function SettingsPage() {
     
     // Save to localStorage
     localStorage.setItem(`settings_${user?.uid}`, JSON.stringify(settings));
+    // Also save global app preferences for viewers/non-auth contexts
+    localStorage.setItem('app_currency', currency);
+    localStorage.setItem('app_defaultUnit', defaultUnit);
+    localStorage.setItem('app_defaultLowStock', String(defaultLowStock));
     
     // Also save to Firestore user document
     try {
@@ -248,6 +271,40 @@ export default function SettingsPage() {
     }
   };
 
+  // Sticky menu active section tracking
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => (a.boundingClientRect.top > b.boundingClientRect.top ? 1 : -1));
+        if (visible.length > 0) {
+          const id = visible[0].target.getAttribute("data-section-id") as typeof activeSection | null;
+          if (id && id !== activeSection) setActiveSection(id);
+        }
+      },
+      { root: null, rootMargin: "-100px 0px -60% 0px", threshold: 0.1 }
+    );
+
+    const nodes = [
+      sections.general.current,
+      sections.shop.current,
+      sections.inventory.current,
+      sections.accounting.current,
+      sections.notifications.current,
+    ].filter(Boolean) as HTMLElement[];
+
+    nodes.forEach((n) => observer.observe(n));
+    return () => observer.disconnect();
+  }, [sections.general, sections.shop, sections.inventory, sections.accounting, sections.notifications, activeSection]);
+
+  const scrollTo = (key: keyof typeof sections) => {
+    const el = sections[key].current;
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
@@ -281,7 +338,7 @@ export default function SettingsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Settings Navigation */}
           <div className="lg:col-span-1">
-            <Card data-testid="settings-navigation">
+            <Card data-testid="settings-navigation" className="sticky top-6">
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Settings className="w-5 h-5 mr-2 text-red-600" />
@@ -289,29 +346,41 @@ export default function SettingsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button variant="ghost" className="w-full justify-start" data-testid="nav-general">
+                <Button 
+                  variant={activeSection === 'general' ? 'secondary' : 'ghost'} 
+                  className="w-full justify-start" 
+                  data-testid="nav-general"
+                  onClick={() => scrollTo('general')}
+                >
                   <User className="w-4 h-4 mr-2" />
                   General
                 </Button>
-                <Button variant="ghost" className="w-full justify-start" data-testid="nav-inventory">
+                <Button 
+                  variant={activeSection === 'inventory' ? 'secondary' : 'ghost'} 
+                  className="w-full justify-start" 
+                  data-testid="nav-inventory"
+                  onClick={() => scrollTo('inventory')}
+                >
                   <Package className="w-4 h-4 mr-2" />
                   Inventory
                 </Button>
-                <Button variant="ghost" className="w-full justify-start" data-testid="nav-accounting">
+                <Button 
+                  variant={activeSection === 'accounting' ? 'secondary' : 'ghost'} 
+                  className="w-full justify-start" 
+                  data-testid="nav-accounting"
+                  onClick={() => scrollTo('accounting')}
+                >
                   <DollarSign className="w-4 h-4 mr-2" />
                   Accounting
                 </Button>
-                <Button variant="ghost" className="w-full justify-start" data-testid="nav-notifications">
+                <Button 
+                  variant={activeSection === 'notifications' ? 'secondary' : 'ghost'} 
+                  className="w-full justify-start" 
+                  data-testid="nav-notifications"
+                  onClick={() => scrollTo('notifications')}
+                >
                   <Bell className="w-4 h-4 mr-2" />
                   Notifications
-                </Button>
-                <Button variant="ghost" className="w-full justify-start" data-testid="nav-security">
-                  <Shield className="w-4 h-4 mr-2" />
-                  Security
-                </Button>
-                <Button variant="ghost" className="w-full justify-start" data-testid="nav-database">
-                  <Database className="w-4 h-4 mr-2" />
-                  Database
                 </Button>
               </CardContent>
             </Card>
@@ -320,7 +389,7 @@ export default function SettingsPage() {
           {/* Settings Content */}
           <div className="lg:col-span-2 space-y-6">
             {/* General Settings */}
-            <Card data-testid="settings-general">
+            <Card data-testid="settings-general" ref={sections.general} data-section-id="general">
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <User className="w-5 h-5 mr-2 text-red-600" />
@@ -371,7 +440,7 @@ export default function SettingsPage() {
             </Card>
 
             {/* Shop Profile Settings */}
-            <Card data-testid="settings-shop-profile">
+            <Card data-testid="settings-shop-profile" ref={sections.shop} data-section-id="shop">
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Store className="w-5 h-5 mr-2 text-red-600" />
@@ -592,7 +661,7 @@ export default function SettingsPage() {
             </Card>
 
             {/* Inventory Settings */}
-            <Card data-testid="settings-inventory">
+            <Card data-testid="settings-inventory" ref={sections.inventory} data-section-id="inventory">
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Package className="w-5 h-5 mr-2 text-red-600" />
@@ -607,13 +676,15 @@ export default function SettingsPage() {
                     <Input 
                       id="default-low-stock" 
                       type="number" 
-                      placeholder="10" 
+                      placeholder="10"
+                      value={defaultLowStock}
+                      onChange={(e) => setDefaultLowStock(Number(e.target.value))}
                       data-testid="input-default-low-stock"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="default-unit" data-testid="label-default-unit">Default Unit of Measurement</Label>
-                    <Select defaultValue="pieces">
+                    <Select value={defaultUnit} onValueChange={setDefaultUnit}>
                       <SelectTrigger data-testid="select-default-unit">
                         <SelectValue />
                       </SelectTrigger>
@@ -640,18 +711,14 @@ export default function SettingsPage() {
                       <Switch id="out-of-stock-alerts" defaultChecked data-testid="switch-out-of-stock-alerts" />
                       <Label htmlFor="out-of-stock-alerts">Out of Stock Alerts</Label>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Switch id="auto-reorder" data-testid="switch-auto-reorder" />
-                      <Label htmlFor="auto-reorder">Automatic Reorder Suggestions</Label>
-                      <Badge variant="secondary">Premium</Badge>
-                    </div>
+                    {null}
                   </div>
                 </div>
               </CardContent>
             </Card>
 
             {/* Accounting Settings */}
-            <Card data-testid="settings-accounting">
+            <Card data-testid="settings-accounting" ref={sections.accounting} data-section-id="accounting">
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <DollarSign className="w-5 h-5 mr-2 text-red-600" />
@@ -663,7 +730,7 @@ export default function SettingsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="currency" data-testid="label-currency">Default Currency</Label>
-                    <Select defaultValue="usd">
+                    <Select value={currency} onValueChange={setCurrency}>
                       <SelectTrigger data-testid="select-currency">
                         <SelectValue />
                       </SelectTrigger>
@@ -704,7 +771,7 @@ export default function SettingsPage() {
             </Card>
 
             {/* Notification Settings */}
-            <Card data-testid="settings-notifications">
+            <Card data-testid="settings-notifications" ref={sections.notifications} data-section-id="notifications">
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Bell className="w-5 h-5 mr-2 text-red-600" />
@@ -757,118 +824,7 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
-            {/* Security Settings */}
-            <Card data-testid="settings-security">
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Shield className="w-5 h-5 mr-2 text-red-600" />
-                  Security & Privacy
-                </CardTitle>
-                <CardDescription>Manage security settings and data privacy</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <h4 className="font-medium">Session Management</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="session-timeout" data-testid="label-session-timeout">Session Timeout (minutes)</Label>
-                      <Select defaultValue="60">
-                        <SelectTrigger data-testid="select-session-timeout">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="30">30 minutes</SelectItem>
-                          <SelectItem value="60">1 hour</SelectItem>
-                          <SelectItem value="120">2 hours</SelectItem>
-                          <SelectItem value="480">8 hours</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-center space-x-2 pt-6">
-                      <Switch id="remember-login" data-testid="switch-remember-login" />
-                      <Label htmlFor="remember-login">Remember Login</Label>
-                    </div>
-                  </div>
-                </div>
-                
-                <Separator />
-                
-                <div className="space-y-3">
-                  <h4 className="font-medium">Data Privacy</h4>
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <Switch id="analytics-tracking" defaultChecked data-testid="switch-analytics-tracking" />
-                      <Label htmlFor="analytics-tracking">Analytics Tracking</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Switch id="error-reporting" defaultChecked data-testid="switch-error-reporting" />
-                      <Label htmlFor="error-reporting">Error Reporting</Label>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                  <div className="flex items-start space-x-2">
-                    <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 mt-0.5" />
-                    <div>
-                      <h5 className="font-medium text-yellow-800 dark:text-yellow-200">Data Backup</h5>
-                      <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                        Regular backups are automatically created. You can export your data anytime.
-                      </p>
-                      <Button variant="outline" size="sm" className="mt-2" data-testid="button-export-data">
-                        Export Data
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Database Settings */}
-            <Card data-testid="settings-database">
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Database className="w-5 h-5 mr-2 text-red-600" />
-                  Database Management
-                </CardTitle>
-                <CardDescription>Database maintenance and optimization</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Card className="p-4 border-green-200 dark:border-green-800">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-medium text-green-800 dark:text-green-200">Database Status</h4>
-                        <p className="text-sm text-green-600 dark:text-green-400">Connected & Healthy</p>
-                      </div>
-                      <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                    </div>
-                  </Card>
-                  
-                  <Card className="p-4 border-blue-200 dark:border-blue-800">
-                    <div>
-                      <h4 className="font-medium text-blue-800 dark:text-blue-200">Last Backup</h4>
-                      <p className="text-sm text-blue-600 dark:text-blue-400">2 hours ago</p>
-                      <p className="text-xs text-blue-500 dark:text-blue-500">Next: Tonight at 2:00 AM</p>
-                    </div>
-                  </Card>
-                </div>
-                
-                <div className="space-y-2">
-                  <h4 className="font-medium">Database Actions</h4>
-                  <div className="flex space-x-2">
-                    <Button variant="outline" size="sm" data-testid="button-optimize-db">
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Optimize Database
-                    </Button>
-                    <Button variant="outline" size="sm" data-testid="button-backup-now">
-                      <Database className="w-4 h-4 mr-2" />
-                      Backup Now
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            {null}
           </div>
         </div>
       </div>
