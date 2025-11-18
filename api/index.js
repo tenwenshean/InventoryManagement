@@ -17,34 +17,58 @@ async function initializeFirebase() {
 
   let serviceAccount;
   
-  // Check if environment variable exists and is not empty
-  const firebaseEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
-  
-  if (!firebaseEnv || firebaseEnv === 'undefined' || firebaseEnv.trim() === '') {
-    console.error('FIREBASE_SERVICE_ACCOUNT is not set or empty');
-    throw new Error('FIREBASE_SERVICE_ACCOUNT environment variable not configured. Please add it in Vercel project settings.');
-  }
-  
-  try {
-    serviceAccount = JSON.parse(firebaseEnv);
+  // Try to load from individual env vars first (preferred for Vercel)
+  if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+    console.log('[Firebase Init] Using individual environment variables');
+    serviceAccount = {
+      project_id: process.env.FIREBASE_PROJECT_ID,
+      client_email: process.env.FIREBASE_CLIENT_EMAIL,
+      // Replace escaped newlines with actual newlines
+      private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    };
+  } 
+  // Fallback to FIREBASE_SERVICE_ACCOUNT JSON string
+  else {
+    const firebaseEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
     
-    // Validate required fields
-    if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
-      throw new Error('Firebase service account is missing required fields');
+    if (!firebaseEnv || firebaseEnv === 'undefined' || firebaseEnv.trim() === '') {
+      console.error('[Firebase Init] No Firebase credentials found in environment');
+      console.error('[Firebase Init] Please set either:');
+      console.error('[Firebase Init]   1. FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY (recommended)');
+      console.error('[Firebase Init]   2. FIREBASE_SERVICE_ACCOUNT (JSON string)');
+      throw new Error('Firebase credentials not configured. Please add Firebase environment variables in Vercel project settings.');
     }
-  } catch (e) {
-    console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT:', e.message);
-    throw new Error(`Invalid Firebase credentials: ${e.message}`);
+    
+    try {
+      console.log('[Firebase Init] Parsing FIREBASE_SERVICE_ACCOUNT JSON');
+      serviceAccount = JSON.parse(firebaseEnv);
+      
+      // Validate required fields
+      if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
+        throw new Error('Firebase service account is missing required fields (project_id, private_key, client_email)');
+      }
+    } catch (e) {
+      console.error('[Firebase Init] Failed to parse FIREBASE_SERVICE_ACCOUNT:', e.message);
+      throw new Error(`Invalid Firebase credentials: ${e.message}`);
+    }
   }
 
-  admin.default.initializeApp({
-    credential: admin.default.credential.cert(serviceAccount)
-  });
+  console.log('[Firebase Init] Initializing Firebase Admin with project:', serviceAccount.project_id);
 
-  db = admin.default.firestore();
-  auth = admin.default.auth();
-  
-  return { db, auth };
+  try {
+    admin.default.initializeApp({
+      credential: admin.default.credential.cert(serviceAccount)
+    });
+
+    db = admin.default.firestore();
+    auth = admin.default.auth();
+    
+    console.log('[Firebase Init] ✅ Firebase initialized successfully');
+    return { db, auth };
+  } catch (error) {
+    console.error('[Firebase Init] Failed to initialize Firebase:', error);
+    throw new Error(`Firebase initialization failed: ${error.message}`);
+  }
 }
 
 // CORS headers helper
@@ -366,7 +390,20 @@ export default async function handler(req, res) {
     return res.status(404).json({ message: 'Route not found', path: pathParts.join('/') });
 
   } catch (error) {
-    console.error('Handler error:', error);
+    console.error('[API Error] Handler error:', error);
+    console.error('[API Error] Request URL:', req.url);
+    console.error('[API Error] Request method:', req.method);
+    console.error('[API Error] Stack:', error.stack);
+    
+    // Check if it's a Firebase initialization error
+    if (error.message && error.message.includes('Firebase')) {
+      console.error('[API Error] Firebase initialization failed - check environment variables');
+      return res.status(500).json({ 
+        message: 'Database connection failed',
+        details: 'Firebase credentials not configured properly. Please contact administrator.',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
     
     if (error.status) {
       return res.status(error.status).json({ message: error.message });
@@ -374,6 +411,7 @@ export default async function handler(req, res) {
     
     return res.status(500).json({ 
       message: error.message || 'Internal server error',
+      details: 'An unexpected error occurred. Please try again later.',
       error: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
