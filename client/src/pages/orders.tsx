@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -53,6 +54,10 @@ export default function Orders() {
   const [refundAction, setRefundAction] = useState<'approve' | 'reject' | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  
+  // Accept order state
+  const [acceptDialogOpen, setAcceptDialogOpen] = useState(false);
+  const [shipmentId, setShipmentId] = useState("");
 
   // Fetch orders for this seller
   const { data: orders, isLoading } = useQuery({
@@ -96,6 +101,53 @@ export default function Orders() {
       });
     }
   });
+
+  // Handle accept order
+  const acceptOrderMutation = useMutation({
+    mutationFn: async ({ orderId, shipmentId }: { orderId: string, shipmentId: string }) => {
+      const response = await apiRequest(
+        'POST',
+        `/api/orders/${orderId}/accept`,
+        { shipmentId }
+      );
+      if (!response.ok) throw new Error('Failed to accept order');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['seller-orders'] });
+      toast({
+        title: 'Order Accepted',
+        description: 'The order has been accepted and is now processing.',
+      });
+      setAcceptDialogOpen(false);
+      setSelectedOrder(null);
+      setShipmentId("");
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: 'Failed to accept order. Please try again.',
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handleAcceptOrder = (order: any) => {
+    setSelectedOrder(order);
+    setAcceptDialogOpen(true);
+  };
+
+  const confirmAcceptOrder = () => {
+    if (!shipmentId.trim()) {
+      toast({
+        title: "Missing Information",
+        description: "Please enter a shipment tracking ID.",
+        variant: "destructive",
+      });
+      return;
+    }
+    acceptOrderMutation.mutate({ orderId: selectedOrder.id, shipmentId });
+  };
 
   const handleRefundAction = (order: any, action: 'approve' | 'reject') => {
     setSelectedOrder(order);
@@ -371,6 +423,19 @@ export default function Orders() {
                       )}
 
                       {/* Action Buttons */}
+                      {order.status === 'pending' && !order.refundRequested && (
+                        <div className="flex items-center space-x-3 pt-3 border-t">
+                          <Button
+                            onClick={() => handleAcceptOrder(order)}
+                            className="bg-green-600 hover:bg-green-700"
+                            size="sm"
+                          >
+                            <CheckCircle className="w-4 h-4 mr-1" />
+                            Accept Order
+                          </Button>
+                        </div>
+                      )}
+
                       {order.refundRequested && !order.refundApproved && !order.refundRejected && (
                         <div className="flex items-center space-x-3 pt-3 border-t">
                           <Button
@@ -502,6 +567,90 @@ export default function Orders() {
                       Reject Request
                     </>
                   )}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Accept Order Dialog */}
+      <Dialog open={acceptDialogOpen} onOpenChange={setAcceptDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Accept Order</DialogTitle>
+            <DialogDescription>
+              Accept Order #{selectedOrder?.orderNumber} and add shipment tracking
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {/* Order Summary */}
+            <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">Order Number:</span>
+                <span className="font-semibold">#{selectedOrder?.orderNumber}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">Customer:</span>
+                <span className="font-medium">{selectedOrder?.customerName}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">Total Amount:</span>
+                <span className="font-bold text-red-600">
+                  ${selectedOrder?.totalAmount?.toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            {/* Shipment ID Input */}
+            <div className="space-y-2">
+              <Label htmlFor="shipmentId">Shipment Tracking ID *</Label>
+              <Input
+                id="shipmentId"
+                placeholder="Enter tracking number (e.g., TRACK123456)"
+                value={shipmentId}
+                onChange={(e) => setShipmentId(e.target.value)}
+                className="font-mono"
+              />
+              <p className="text-xs text-gray-500">
+                This tracking ID will be shared with the customer for order tracking.
+              </p>
+            </div>
+
+            {/* Info Message */}
+            <div className="bg-blue-50 border border-blue-200 p-3 rounded">
+              <p className="text-sm text-blue-800">
+                Once you accept this order, the status will be updated to "processing" and the customer will be notified with the tracking information.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAcceptDialogOpen(false);
+                setShipmentId("");
+              }}
+              disabled={acceptOrderMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmAcceptOrder}
+              disabled={acceptOrderMutation.isPending || !shipmentId.trim()}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {acceptOrderMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Accept Order
                 </>
               )}
             </Button>

@@ -74,7 +74,8 @@ export default function CheckoutPage() {
   };
 
   const discount = calculateDiscount();
-  const finalTotal = Math.max(0, cartTotal - discount);
+  const shippingFee = 10;
+  const finalTotal = Math.max(0, cartTotal - discount + shippingFee);
 
   // Auth listener
   useEffect(() => {
@@ -257,6 +258,7 @@ export default function CheckoutPage() {
         })),
         subtotal: cartTotal,
         discount,
+        shippingFee,
         couponCode: appliedCoupon?.code,
         totalAmount: finalTotal
       };
@@ -329,7 +331,7 @@ export default function CheckoutPage() {
                 <DollarSign className="w-5 h-5 text-blue-600 mt-0.5" />
                 <div>
                   <p className="font-semibold">Total Amount</p>
-                  <p className="text-sm text-gray-600">${cartTotal.toFixed(2)}</p>
+                  <p className="text-sm text-gray-600">${finalTotal.toFixed(2)}</p>
                 </div>
               </div>
             </div>
@@ -577,7 +579,7 @@ export default function CheckoutPage() {
                   )}
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Shipping</span>
-                    <span className="font-semibold text-green-600">FREE</span>
+                    <span className="font-semibold">$10.00</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Tax</span>

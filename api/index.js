@@ -342,6 +342,14 @@ export default async function handler(req, res) {
       }
     }
 
+    // ===== ORDER ACCEPT ROUTE (requires auth) =====
+    if (pathParts[0] === 'orders' && pathParts[2] === 'accept' && req.method === 'POST') {
+      const orderId = pathParts[1];
+      const user = await verifyAuth(req, res);
+      if (!user) return;
+      return await handleAcceptOrder(req, res, user, orderId);
+    }
+
     // ===== COUPON ROUTES =====
     if (pathParts[0] === 'coupons') {
       if (req.method === 'GET') {
@@ -1767,6 +1775,70 @@ async function handleRejectRefund(req, res, orderId) {
     console.error('[REJECT REFUND] Error:', error);
     return res.status(500).json({ 
       message: 'Failed to reject refund request',
+      error: error.message 
+    });
+  }
+}
+
+// ===== ACCEPT ORDER HANDLER =====
+async function handleAcceptOrder(req, res, user, orderId) {
+  const { db } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
+  
+  try {
+    const { shipmentId } = req.body;
+
+    // Validate shipment ID
+    if (!shipmentId || !shipmentId.trim()) {
+      return res.status(400).json({ message: 'Shipment tracking ID is required' });
+    }
+
+    console.log('[ACCEPT ORDER] Processing acceptance for order:', orderId);
+
+    // Get the order
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    
+    if (!orderDoc.exists) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    const orderData = orderDoc.data();
+
+    // Verify order belongs to the seller
+    if (orderData?.sellerId !== user.uid) {
+      return res.status(403).json({ message: 'Unauthorized - You can only accept your own orders' });
+    }
+
+    // Check if order is in pending status
+    if (orderData?.status !== 'pending') {
+      return res.status(400).json({ message: 'Only pending orders can be accepted' });
+    }
+
+    // Update order with acceptance and shipment tracking
+    await db.collection('orders').doc(orderId).update({
+      status: 'processing',
+      shipmentId: shipmentId.trim(),
+      acceptedAt: adminModule.default.firestore.FieldValue.serverTimestamp(),
+      updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log('[ACCEPT ORDER] Order accepted:', orderData.orderNumber, 'Tracking:', shipmentId);
+
+    return res.json({
+      success: true,
+      message: 'Order accepted successfully',
+      order: {
+        ...orderData,
+        id: orderId,
+        status: 'processing',
+        shipmentId: shipmentId.trim()
+      }
+    });
+
+  } catch (error) {
+    console.error('[ACCEPT ORDER] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to accept order',
       error: error.message 
     });
   }

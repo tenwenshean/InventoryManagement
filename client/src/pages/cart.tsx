@@ -332,7 +332,7 @@ export default function CartPage() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Shipping</span>
-                      <span className="font-medium text-green-600">FREE</span>
+                      <span className="font-medium">$10.00</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Tax (estimated)</span>
@@ -344,7 +344,7 @@ export default function CartPage() {
                     <div className="flex justify-between items-baseline mb-6">
                       <span className="text-lg font-semibold">Total</span>
                       <span className="text-3xl font-bold text-red-600">
-                        ${(cartTotal * 1.1).toFixed(2)}
+                        ${(cartTotal * 1.1 + 10).toFixed(2)}
                       </span>
                     </div>
 
@@ -367,7 +367,7 @@ export default function CartPage() {
                   <div className="border-t pt-4 space-y-2 text-xs text-gray-600">
                     <div className="flex items-start gap-2">
                       <Package className="w-4 h-4 mt-0.5 shrink-0" />
-                      <span>Free shipping on orders over $50</span>
+                      <span>Standard shipping: $10.00</span>
                     </div>
                     <div className="flex items-start gap-2">
                       <CreditCard className="w-4 h-4 mt-0.5 shrink-0" />
