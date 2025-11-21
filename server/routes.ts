@@ -1964,9 +1964,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const orderData = orderDoc.data();
 
-      // Verify order belongs to the seller
-      if (orderData?.sellerId !== req.user.uid) {
-        return res.status(403).json({ message: 'Unauthorized - You can only accept your own orders' });
+      // Verify order has items belonging to the seller
+      const hasSellerItems = orderData?.items?.some((item: any) => item.sellerId === req.user.uid);
+      
+      if (!hasSellerItems) {
+        return res.status(403).json({ message: 'Unauthorized - This order does not contain your products' });
       }
 
       // Check if order is in pending status

@@ -33,7 +33,7 @@ import Sidebar from "@/components/sidebar";
 
 function AuthenticatedApp() {
   const [location, setLocation] = useLocation();
-  const { logout } = useAuth();
+  const { user, logout, isLoading } = useAuth();
 
   // Check if current route is customer portal
   const isCustomerPortal = location === "/customer" || location === "/customer-profile" || location === "/shop" || location.startsWith("/shop/") || location === "/cart" || location === "/checkout";
@@ -53,55 +53,79 @@ function AuthenticatedApp() {
 
   // Track the context where user logged in (customer vs enterprise)
   useEffect(() => {
-    const handleContextSwitch = async () => {
-      const loginContext = localStorage.getItem('loginContext'); // 'customer' or 'enterprise'
-      const user = auth.currentUser;
+    // Don't run context checks if auth is still loading
+    if (isLoading || !user) return;
 
-      console.log("Context switch check:", {
-        loginContext,
-        hasUser: !!user,
-        location,
-        isCustomerPortal,
-        isEnterpriseDashboard
-      });
+    let loginContext = localStorage.getItem('loginContext');
 
-      if (!user) return;
+    console.log("Context switch check:", {
+      loginContext,
+      hasUser: !!user,
+      location,
+      isCustomerPortal,
+      isEnterpriseDashboard,
+      providerId: user.providerData[0]?.providerId,
+      isLoading
+    });
 
-      // If no login context is set, don't allow access to either side
-      if (!loginContext) {
-        console.log("⚠️ No login context found - logging out");
-        await logout();
+    // If no login context is set but user exists, determine from provider
+    if (!loginContext) {
+      console.log("⚠️ No login context found, detecting from provider...");
+      
+      const providerId = user.providerData[0]?.providerId;
+      
+      if (providerId === 'google.com') {
+        console.log("✅ Google provider detected - setting enterprise context");
+        localStorage.setItem('loginContext', 'enterprise');
+        loginContext = 'enterprise';
+      } else if (providerId === 'phone') {
+        console.log("✅ Phone provider detected - setting customer context");
+        localStorage.setItem('loginContext', 'customer');
+        loginContext = 'customer';
+      } else if (providerId === 'password') {
+        console.log("✅ Email/password provider detected - setting customer context");
+        localStorage.setItem('loginContext', 'customer');
+        loginContext = 'customer';
+      } else {
+        console.log("⚠️ Unknown provider:", providerId, "- allowing access");
+        // Don't set context for unknown providers, allow them to access any area
+        return;
+      }
+    }
+
+    // Only enforce context separation if explicitly trying to access wrong area
+    // Add a delay to prevent logout during initial page load/refresh
+    const timeoutId = setTimeout(() => {
+      // Redirect root path based on login context
+      if (location === "/") {
+        if (loginContext === 'customer') {
+          console.log("✅ Customer user at root - redirecting to /customer");
+          setLocation("/customer");
+        } else if (loginContext === 'enterprise') {
+          console.log("✅ Enterprise user at root - redirecting to /dashboard");
+          setLocation("/dashboard");
+        }
         return;
       }
 
       // If accessing enterprise dashboard but logged in as customer
       if (isEnterpriseDashboard && loginContext === 'customer') {
-        console.log("🚫 Customer session detected on enterprise dashboard - logging out");
-        await logout();
-        localStorage.removeItem('loginContext');
-        setLocation("/");
+        console.log("🚫 Customer trying to access enterprise - redirecting");
+        setLocation("/customer");
         return;
       }
 
       // If accessing customer portal but logged in as enterprise
+      // Don't allow enterprise users to access customer-specific pages
       if (isCustomerPortal && loginContext === 'enterprise') {
-        console.log("🚫 Enterprise session detected on customer portal - logging out");
-        await logout();
-        localStorage.removeItem('loginContext');
-        // Stay on customer page to allow re-login
+        console.log("🚫 Enterprise user trying to access customer portal - redirecting");
+        setLocation("/dashboard");
         return;
       }
-    };
+    }, 100); // Small delay to let auth state stabilize after refresh
 
-    handleContextSwitch();
-  }, [location, isCustomerPortal, isEnterpriseDashboard, logout, setLocation]);
-
-  // Redirect root to dashboard when authenticated (but not on customer pages)
-  useEffect(() => {
-    if (location === "/" && !isCustomerPortal) {
-      setLocation("/dashboard");
-    }
-  }, [location, setLocation, isCustomerPortal]);
+    return () => clearTimeout(timeoutId);
+  }, [user, location, isCustomerPortal, isEnterpriseDashboard, logout, setLocation, isLoading]);
 
   return (
     <div className="flex">

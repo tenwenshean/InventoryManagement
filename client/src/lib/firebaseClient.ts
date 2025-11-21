@@ -31,9 +31,15 @@ const db = getFirestore(app); // ✅ Initialize Firestore
 const storage = getStorage(app); // ✅ Initialize Storage
 
 // ✅ Make sure login persists between sessions (even after refresh)
-setPersistence(auth, browserLocalPersistence).catch((err) => {
-  console.error("❌ Failed to set Firebase auth persistence:", err);
-});
+// This is critical for maintaining auth state across page refreshes
+setPersistence(auth, browserLocalPersistence)
+  .then(() => {
+    console.log("✅ Firebase auth persistence set to LOCAL");
+  })
+  .catch((err) => {
+    console.error("❌ Failed to set Firebase auth persistence:", err);
+    console.error("User may be logged out on refresh");
+  });
 
 // --- Google login provider ---
 const provider = new GoogleAuthProvider();

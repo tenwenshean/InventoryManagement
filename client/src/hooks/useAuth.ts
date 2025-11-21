@@ -10,9 +10,11 @@ export function useAuth() {
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const previousUserIdRef = useRef<string | null>(null);
+  const authStateStableRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
+    let stabilityTimer: NodeJS.Timeout;
 
     const unsubscribe = onAuthStateChanged(
       auth,
@@ -24,17 +26,28 @@ export function useAuth() {
         
         console.log(
           "Auth state changed:",
-          firebaseUser?.email || "Not logged in"
+          firebaseUser?.email || "Not logged in",
+          "UID:", currentUserId,
+          "Stable:", authStateStableRef.current
         );
         
-        // Only clear cache if user actually changed (not on token refresh)
-        if (previousUserId !== null && currentUserId !== previousUserId) {
-          console.log("User changed - clearing cache");
-          queryClient.clear(); // Clear all cached queries
+        // Only clear cache if user actually changed (different user, not just token refresh)
+        // Don't clear on initial load or logout->login
+        if (previousUserId !== null && currentUserId !== null && currentUserId !== previousUserId) {
+          console.log("Different user detected - clearing cache");
+          queryClient.clear();
         }
         
         previousUserIdRef.current = currentUserId;
         setUser(firebaseUser);
+        
+        // Mark auth state as stable after a short delay
+        // This prevents rapid state changes during page refresh
+        clearTimeout(stabilityTimer);
+        stabilityTimer = setTimeout(() => {
+          authStateStableRef.current = true;
+        }, 500);
+        
         setIsLoading(false);
       },
       (err) => {
@@ -48,6 +61,7 @@ export function useAuth() {
 
     return () => {
       isMounted = false;
+      clearTimeout(stabilityTimer);
       unsubscribe();
     };
   }, [queryClient]);

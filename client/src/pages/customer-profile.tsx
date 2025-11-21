@@ -430,9 +430,21 @@ export default function CustomerProfile() {
                               <h3 className="font-semibold text-lg">Order #{order.orderNumber}</h3>
                               <Badge 
                                 variant={order.status === 'pending' ? 'secondary' : 'default'}
-                                className={order.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : ''}
+                                className={
+                                  order.status === 'pending' 
+                                    ? 'bg-yellow-100 text-yellow-800' 
+                                    : order.status === 'processing' && order.shipmentId
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : order.refundApproved
+                                    ? 'bg-green-100 text-green-800'
+                                    : ''
+                                }
                               >
-                                {order.status}
+                                {order.status === 'processing' && order.shipmentId 
+                                  ? 'In Shipment' 
+                                  : order.refundApproved 
+                                  ? 'Refunded' 
+                                  : order.status}
                               </Badge>
                             </div>
                             
@@ -477,6 +489,17 @@ export default function CustomerProfile() {
                                 </div>
                               ))}
                             </div>
+
+                            {/* Shipment Tracking */}
+                            {order.shipmentId && (
+                              <div className="mt-3 bg-blue-50 border border-blue-200 p-3 rounded">
+                                <p className="text-sm font-medium text-blue-900 mb-1">Tracking Information:</p>
+                                <p className="text-sm text-blue-800 font-mono">{order.shipmentId}</p>
+                                <p className="text-xs text-blue-600 mt-1">
+                                  Your order is in shipment and on its way!
+                                </p>
+                              </div>
+                            )}
 
                             {/* Shipping Address */}
                             {order.shippingAddress && (
