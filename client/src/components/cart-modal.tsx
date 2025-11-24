@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ShoppingCart, Plus, Minus, Trash2, Package, ArrowRight } from "lucide-react";
+import { useCustomerCurrency } from "@/hooks/useCustomerCurrency";
 import type { Product } from "@/types";
 
 interface CartItem {
@@ -20,6 +21,8 @@ interface CartModalProps {
 }
 
 export default function CartModal({ isOpen, onClose, cart, onUpdateQuantity, onRemoveItem, onCheckout }: CartModalProps) {
+  const { formatPrice } = useCustomerCurrency();
+  
   const cartTotal = cart.reduce(
     (total, item) => total + parseFloat(item.product.price) * item.quantity,
     0
@@ -77,7 +80,7 @@ export default function CartModal({ isOpen, onClose, cart, onUpdateQuantity, onR
                       <p className="text-sm text-gray-500">by {item.product.companyName}</p>
                     )}
                     <p className="text-lg font-bold text-red-600 mt-1">
-                      ${parseFloat(item.product.price).toFixed(2)}
+                      {formatPrice(parseFloat(item.product.price))}
                     </p>
                     
                     {/* Quantity Controls */}
@@ -116,7 +119,7 @@ export default function CartModal({ isOpen, onClose, cart, onUpdateQuantity, onR
                   <div className="text-right">
                     <p className="text-sm text-gray-500">Subtotal</p>
                     <p className="text-xl font-bold text-gray-900">
-                      ${(parseFloat(item.product.price) * item.quantity).toFixed(2)}
+                      {formatPrice(parseFloat(item.product.price) * item.quantity)}
                     </p>
                   </div>
                 </div>
@@ -129,7 +132,7 @@ export default function CartModal({ isOpen, onClose, cart, onUpdateQuantity, onR
             <div className="space-y-2">
               <div className="flex justify-between text-lg">
                 <span className="text-gray-600">Subtotal ({totalItems} {totalItems === 1 ? 'item' : 'items'})</span>
-                <span className="font-semibold">${cartTotal.toFixed(2)}</span>
+                <span className="font-semibold">{formatPrice(cartTotal)}</span>
               </div>
               <div className="flex justify-between text-lg">
                 <span className="text-gray-600">Shipping</span>
@@ -141,12 +144,12 @@ export default function CartModal({ isOpen, onClose, cart, onUpdateQuantity, onR
               <div className="flex justify-between text-2xl font-bold">
                 <span>Total</span>
                 <span className="text-red-600">
-                  ${(cartTotal + (cartTotal >= 50 ? 0 : 5)).toFixed(2)}
+                  {formatPrice(cartTotal + (cartTotal >= 50 ? 0 : 5))}
                 </span>
               </div>
               {cartTotal < 50 && (
                 <p className="text-sm text-gray-600 text-center">
-                  Add ${(50 - cartTotal).toFixed(2)} more for FREE shipping!
+                  Add {formatPrice(50 - cartTotal)} more for FREE shipping!
                 </p>
               )}
             </div>

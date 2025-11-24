@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
+import { useCurrency } from "@/hooks/useCurrency";
 import Sidebar from "@/components/sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +14,7 @@ import type { AccountingEntry } from "@shared/schema";
 import { isUnauthorizedError } from "@/lib/authUtils";
 
 export default function Accounting() {
+  const { formatCurrency } = useCurrency();
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -280,13 +282,13 @@ export default function Accounting() {
                                 <td className="p-3">{item.name}</td>
                                 <td className="p-3 font-mono text-sm">{item.sku}</td>
                                 <td className="p-3 text-right">{item.quantity}</td>
-                                <td className="p-3 text-right">${(item.costPrice || 0).toFixed(2)}</td>
-                                <td className="p-3 text-right font-medium">${(item.inventoryValue || 0).toFixed(2)}</td>
+                                <td className="p-3 text-right">{formatCurrency(item.costPrice || 0)}</td>
+                                <td className="p-3 text-right font-medium">{formatCurrency(item.inventoryValue || 0)}</td>
                               </tr>
                             ))}
                             <tr className="border-t-2 border-border bg-muted/50">
                               <td colSpan={4} className="p-3 text-right font-semibold">Total Inventory Value</td>
-                              <td className="p-3 text-right font-bold text-lg">${(report.totals.totalInventoryValue || 0).toFixed(2)}</td>
+                              <td className="p-3 text-right font-bold text-lg">{formatCurrency(report.totals.totalInventoryValue || 0)}</td>
                             </tr>
                           </>
                         ) : (
@@ -326,20 +328,20 @@ export default function Accounting() {
                                   <td className="p-3">{s.name}</td>
                                   <td className="p-3 font-mono text-sm">{s.sku}</td>
                                   <td className="p-3 text-right">{s.soldQuantity}</td>
-                                  <td className="p-3 text-right">${(s.revenue || 0).toFixed(2)}</td>
-                                  <td className="p-3 text-right">${(s.cogs || 0).toFixed(2)}</td>
+                                  <td className="p-3 text-right">{formatCurrency(s.revenue || 0)}</td>
+                                  <td className="p-3 text-right">{formatCurrency(s.cogs || 0)}</td>
                                   <td className={`p-3 text-right font-medium ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    ${profit.toFixed(2)}
+                                    {formatCurrency(profit)}
                                   </td>
                                 </tr>
                               );
                             })}
                             <tr className="border-t-2 border-border bg-muted/50">
                               <td colSpan={3} className="p-3 text-right font-semibold">Totals</td>
-                              <td className="p-3 text-right font-semibold">${(report.totals.totalRevenue || 0).toFixed(2)}</td>
-                              <td className="p-3 text-right font-semibold">${(report.totals.totalCOGS || 0).toFixed(2)}</td>
+                              <td className="p-3 text-right font-semibold">{formatCurrency(report.totals.totalRevenue || 0)}</td>
+                              <td className="p-3 text-right font-semibold">{formatCurrency(report.totals.totalCOGS || 0)}</td>
                               <td className="p-3 text-right font-bold text-lg text-green-600">
-                                ${(report.totals.grossProfit || 0).toFixed(2)}
+                                {formatCurrency(report.totals.grossProfit || 0)}
                               </td>
                             </tr>
                           </>
@@ -359,19 +361,19 @@ export default function Accounting() {
                     <div className="p-4 border border-border rounded-lg bg-blue-50">
                       <p className="text-sm text-muted-foreground mb-1">Total Inventory Value</p>
                       <p className="text-xl font-bold text-blue-600">
-                        ${(report.totals.totalInventoryValue || 0).toFixed(2)}
+                        {formatCurrency(report.totals.totalInventoryValue || 0)}
                       </p>
                     </div>
                     <div className="p-4 border border-border rounded-lg bg-green-50">
                       <p className="text-sm text-muted-foreground mb-1">Total Revenue</p>
                       <p className="text-xl font-bold text-green-600">
-                        ${(report.totals.totalRevenue || 0).toFixed(2)}
+                        {formatCurrency(report.totals.totalRevenue || 0)}
                       </p>
                     </div>
                     <div className="p-4 border border-border rounded-lg bg-purple-50">
                       <p className="text-sm text-muted-foreground mb-1">Gross Profit</p>
                       <p className="text-xl font-bold text-purple-600">
-                        ${(report.totals.grossProfit || 0).toFixed(2)}
+                        {formatCurrency(report.totals.grossProfit || 0)}
                       </p>
                     </div>
                   </div>

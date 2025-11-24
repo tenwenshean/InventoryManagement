@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { useCurrency } from "@/hooks/useCurrency";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
@@ -27,6 +28,7 @@ import type { AccountingEntry } from "@shared/schema";
 import { isUnauthorizedError } from "@/lib/authUtils";
 
 export default function AccountingNew() {
+  const { formatCurrency } = useCurrency();
   const { toast } = useToast();
   const { isAuthenticated, isLoading, user } = useAuth();
   const queryClient = useQueryClient();
@@ -609,19 +611,19 @@ export default function AccountingNew() {
                 <div className="rounded-lg border bg-emerald-50 p-4 dark:bg-emerald-500/10">
                   <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Total Assets</p>
                   <p className="text-2xl font-semibold text-emerald-600 dark:text-emerald-300">
-                    ${financials.totalAssets.toFixed(2)}
+                    {formatCurrency(financials.totalAssets)}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-sky-50 p-4 dark:bg-sky-500/10">
                   <p className="text-sm font-medium text-sky-800 dark:text-sky-200">Liabilities &amp; Equity</p>
                   <p className="text-2xl font-semibold text-sky-600 dark:text-sky-300">
-                    ${(financials.totalLiabilities + financials.totalEquity + financials.netIncome).toFixed(2)}
+                    {formatCurrency(financials.totalLiabilities + financials.totalEquity + financials.netIncome)}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-purple-50 p-4 dark:bg-purple-500/10">
                   <p className="text-sm font-medium text-purple-800 dark:text-purple-200">Net Worth</p>
                   <p className="text-2xl font-semibold text-purple-600 dark:text-purple-300">
-                    ${(financials.totalAssets - financials.totalLiabilities).toFixed(2)}
+                    {formatCurrency(financials.totalAssets - financials.totalLiabilities)}
                   </p>
                 </div>
               </div>
@@ -650,7 +652,7 @@ export default function AccountingNew() {
                     )}
                     <tr className="total-row">
                       <td className="py-2">Total Assets</td>
-                      <td className="amount py-2">${financials.totalAssets.toFixed(2)}</td>
+                      <td className="amount py-2">{formatCurrency(financials.totalAssets)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -673,7 +675,7 @@ export default function AccountingNew() {
                     )}
                     <tr className="total-row">
                       <td className="py-2">Total Liabilities</td>
-                      <td className="amount py-2">${financials.totalLiabilities.toFixed(2)}</td>
+                      <td className="amount py-2">{formatCurrency(financials.totalLiabilities)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -684,21 +686,21 @@ export default function AccountingNew() {
                     {financials.equity.map((eq, i) => (
                       <tr key={i} className="border-b border-border/60">
                         <td className="indent py-2">{eq.name}</td>
-                        <td className="amount py-2 font-medium">${eq.balance.toFixed(2)}</td>
+                        <td className="amount py-2 font-medium">{formatCurrency(eq.balance)}</td>
                       </tr>
                     ))}
                     <tr>
                       <td className="indent py-2">Retained Earnings (Net Income)</td>
-                      <td className="amount py-2 font-medium">${financials.netIncome.toFixed(2)}</td>
+                      <td className="amount py-2 font-medium">{formatCurrency(financials.netIncome)}</td>
                     </tr>
                     <tr className="total-row">
                       <td className="py-2">Total Equity</td>
-                      <td className="amount py-2">${(financials.totalEquity + financials.netIncome).toFixed(2)}</td>
+                      <td className="amount py-2">{formatCurrency(financials.totalEquity + financials.netIncome)}</td>
                     </tr>
                     <tr className="total-row" style={{ borderTop: "3px double #000" }}>
                       <td className="py-2">Total Liabilities and Equity</td>
                       <td className="amount py-2">
-                        ${(financials.totalLiabilities + financials.totalEquity + financials.netIncome).toFixed(2)}
+                        {formatCurrency(financials.totalLiabilities + financials.totalEquity + financials.netIncome)}
                       </td>
                     </tr>
                   </tbody>
@@ -719,13 +721,13 @@ export default function AccountingNew() {
                 <div className="rounded-lg border bg-emerald-50 p-4 dark:bg-emerald-500/10">
                   <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Total Revenue</p>
                   <p className="text-2xl font-semibold text-emerald-600 dark:text-emerald-300">
-                    ${financials.totalRevenue.toFixed(2)}
+                    {formatCurrency(financials.totalRevenue)}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-rose-50 p-4 dark:bg-rose-500/10">
                   <p className="text-sm font-medium text-rose-800 dark:text-rose-200">Total Expenses</p>
                   <p className="text-2xl font-semibold text-rose-600 dark:text-rose-300">
-                    ${financials.totalExpenses.toFixed(2)}
+                    {formatCurrency(financials.totalExpenses)}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-purple-50 p-4 dark:bg-purple-500/10">
@@ -737,7 +739,7 @@ export default function AccountingNew() {
                         : "text-rose-600 dark:text-rose-300"
                     }`}
                   >
-                    ${financials.netIncome.toFixed(2)}
+                    {formatCurrency(financials.netIncome)}
                   </p>
                 </div>
               </div>
@@ -755,7 +757,7 @@ export default function AccountingNew() {
                     {financials.revenue.map((rev, i) => (
                       <tr key={i} className="border-b border-border/60">
                         <td className="indent py-2">{rev.name}</td>
-                        <td className="amount py-2 font-medium">${rev.balance.toFixed(2)}</td>
+                        <td className="amount py-2 font-medium">{formatCurrency(rev.balance)}</td>
                       </tr>
                     ))}
                     {financials.revenue.length === 0 && (
@@ -766,7 +768,7 @@ export default function AccountingNew() {
                     )}
                     <tr className="total-row">
                       <td className="py-2">Total Revenue</td>
-                      <td className="amount py-2">${financials.totalRevenue.toFixed(2)}</td>
+                      <td className="amount py-2">{formatCurrency(financials.totalRevenue)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -777,7 +779,7 @@ export default function AccountingNew() {
                     {financials.expenses.map((exp, i) => (
                       <tr key={i} className="border-b border-border/60">
                         <td className="indent py-2">{exp.name}</td>
-                        <td className="amount py-2 font-medium">${exp.balance.toFixed(2)}</td>
+                        <td className="amount py-2 font-medium">{formatCurrency(exp.balance)}</td>
                       </tr>
                     ))}
                     {financials.expenses.length === 0 && (
@@ -788,7 +790,7 @@ export default function AccountingNew() {
                     )}
                     <tr className="total-row">
                       <td className="py-2">Total Expenses</td>
-                      <td className="amount py-2">${financials.totalExpenses.toFixed(2)}</td>
+                      <td className="amount py-2">{formatCurrency(financials.totalExpenses)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -856,12 +858,12 @@ export default function AccountingNew() {
                           </td>
                           <td className="p-3 text-right font-mono">
                             {parseFloat(entry.debitAmount || "0") > 0
-                              ? `$${parseFloat(entry.debitAmount!).toFixed(2)}`
+                              ? formatCurrency(parseFloat(entry.debitAmount!))
                               : "-"}
                           </td>
                           <td className="p-3 text-right font-mono">
                             {parseFloat(entry.creditAmount || "0") > 0
-                              ? `$${parseFloat(entry.creditAmount!).toFixed(2)}`
+                              ? formatCurrency(parseFloat(entry.creditAmount!))
                               : "-"}
                           </td>
                           <td className="p-3 text-muted-foreground">{entry.description || "-"}</td>

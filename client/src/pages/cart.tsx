@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
+import { useCustomerCurrency } from "@/hooks/useCustomerCurrency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,7 @@ import { useCart } from "@/contexts/CartContext";
 import { useQueryClient } from "@tanstack/react-query";
 
 export default function CartPage() {
+  const { formatPrice, convertToUSD } = useCustomerCurrency();
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
@@ -261,7 +263,7 @@ export default function CartPage() {
                       <div className="flex flex-col items-end justify-between shrink-0">
                         <div className="text-right">
                           <p className="text-2xl font-bold text-red-600">
-                            ${parseFloat(item.product.price).toFixed(2)}
+                            {formatPrice(parseFloat(item.product.price))}
                           </p>
                           <p className="text-xs text-gray-500">per item</p>
                         </div>
@@ -310,9 +312,9 @@ export default function CartPage() {
 
                         {/* Subtotal */}
                         <div className="text-right mt-2">
-                          <p className="text-xs text-gray-500">Subtotal:</p>
-                          <p className="text-lg font-bold text-gray-900">
-                            ${(parseFloat(item.product.price) * item.quantity).toFixed(2)}
+                          <p className="text-sm text-gray-500">Subtotal</p>
+                          <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                            {formatPrice(parseFloat(item.product.price) * item.quantity)}
                           </p>
                         </div>
                       </div>
@@ -332,7 +334,7 @@ export default function CartPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Subtotal ({cartCount} items)</span>
-                      <span className="font-medium">${cartTotal.toFixed(2)}</span>
+                      <span className="font-medium">{formatPrice(cartTotal)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Shipping</span>
@@ -340,7 +342,7 @@ export default function CartPage() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Tax (estimated)</span>
-                      <span className="font-medium">${(cartTotal * 0.1).toFixed(2)}</span>
+                      <span className="font-medium">{formatPrice(cartTotal * 0.1)}</span>
                     </div>
                   </div>
 
@@ -348,7 +350,7 @@ export default function CartPage() {
                     <div className="flex justify-between items-baseline mb-6">
                       <span className="text-lg font-semibold">Total</span>
                       <span className="text-3xl font-bold text-red-600">
-                        ${(cartTotal * 1.1 + 10).toFixed(2)}
+                        {formatPrice(cartTotal * 1.1 + 10)}
                       </span>
                     </div>
 

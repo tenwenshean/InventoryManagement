@@ -59,7 +59,7 @@ export const products = pgTable("products", {
   qrCode: varchar("qr_code"),
   imageUrl: text("image_url"),
   location: varchar("location"), // Storage location
-  supplier: varchar("supplier"), // Supplier name for restocking
+  supplier: varchar("supplier").notNull(), // Supplier name for restocking
   notes: text("notes"), // Remarks/notes for the product
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),

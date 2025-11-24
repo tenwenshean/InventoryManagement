@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useCurrency } from "@/hooks/useCurrency";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,6 +46,7 @@ import { useToast } from "@/hooks/use-toast";
 import CouponManagement from "@/components/coupon-management";
 
 export default function Orders() {
+  const { formatCurrency } = useCurrency();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -269,7 +271,7 @@ export default function Orders() {
           <CardContent>
             <div className="flex items-center space-x-2">
               <DollarSign className="w-5 h-5 text-green-600" />
-              <span className="text-2xl font-bold">${stats.totalRevenue.toFixed(2)}</span>
+              <span className="text-2xl font-bold">{formatCurrency(stats.totalRevenue)}</span>
             </div>
           </CardContent>
         </Card>
@@ -383,9 +385,9 @@ export default function Orders() {
                                 <span className="text-gray-500">× {item.quantity}</span>
                               </div>
                               <div className="flex items-center space-x-3">
-                                <span className="text-gray-600">${item.unitPrice} each</span>
+                                <span className="text-gray-600">{formatCurrency(item.unitPrice)} each</span>
                                 <span className="font-semibold text-red-600">
-                                  ${item.totalPrice?.toFixed(2)}
+                                  {formatCurrency(item.totalPrice || 0)}
                                 </span>
                               </div>
                             </div>
@@ -394,7 +396,7 @@ export default function Orders() {
                         <div className="flex justify-between items-center mt-3 pt-3 border-t">
                           <span className="font-semibold">Total Amount:</span>
                           <span className="text-xl font-bold text-red-600">
-                            ${order.totalAmount?.toFixed(2)}
+                            {formatCurrency(order.totalAmount || 0)}
                           </span>
                         </div>
                       </div>
@@ -497,7 +499,7 @@ export default function Orders() {
                 <div className="flex justify-between">
                   <span className="text-gray-600">Total Amount:</span>
                   <span className="font-medium text-red-600">
-                    ${selectedOrder?.totalAmount?.toFixed(2)}
+                    {formatCurrency(selectedOrder?.totalAmount || 0)}
                   </span>
                 </div>
               </div>
@@ -598,7 +600,7 @@ export default function Orders() {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">Total Amount:</span>
                 <span className="font-bold text-red-600">
-                  ${selectedOrder?.totalAmount?.toFixed(2)}
+                  {formatCurrency(selectedOrder?.totalAmount || 0)}
                 </span>
               </div>
             </div>

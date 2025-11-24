@@ -121,7 +121,6 @@ export default function ReportsChatbot({ isOpen, onClose, reportsData }: Reports
               <Brain size={24} className="animate-pulse" />
               <div>
                 <div className="text-lg font-bold">AI Business Analyst</div>
-                <div className="text-xs font-normal opacity-90">Powered by GPT</div>
               </div>
             </CardTitle>
             <Button
@@ -243,10 +242,6 @@ export default function ReportsChatbot({ isOpen, onClose, reportsData }: Reports
                 <AlertCircle size={12} />
                 AI-powered insights
               </span>
-              <Badge variant="outline" className="text-xs bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200">
-                <Brain size={10} className="mr-1" />
-                GPT-4
-              </Badge>
             </div>
           </div>
         </CardContent>

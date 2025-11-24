@@ -476,9 +476,9 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
                 name="supplier"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Supplier (Optional)</FormLabel>
+                    <FormLabel>Supplier <span className="text-red-500">*</span></FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., ABC Supplies Inc." {...field} data-testid="input-product-supplier" />
+                      <Input placeholder="e.g., ABC Supplies Inc." {...field} required data-testid="input-product-supplier" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

@@ -1152,22 +1152,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[REPORTS] Category distribution:`, categoryData.length, 'categories');
 
       // Top products by current quantity sold (approx via transactions)
-      const soldByProduct: Record<string, number> = {};
+      const soldByProduct: Record<string, { sales: number; returns: number }> = {};
       for (const tx of transactions as any[]) {
+        if (!soldByProduct[tx.productId]) {
+          soldByProduct[tx.productId] = { sales: 0, returns: 0 };
+        }
         if (tx.type === "out") {
-          soldByProduct[tx.productId] = (soldByProduct[tx.productId] || 0) + (tx.quantity || 0);
+          soldByProduct[tx.productId].sales += (tx.quantity || 0);
         }
       }
+
+      // Get refunds from transactions or orders (returns)
+      const returnsByProduct: Record<string, number> = {};
+      for (const tx of transactions as any[]) {
+        if (tx.type === "in" && tx.reason?.toLowerCase().includes('return')) {
+          returnsByProduct[tx.productId] = (returnsByProduct[tx.productId] || 0) + (tx.quantity || 0);
+        }
+      }
+
+      // Build top products with full details
       const topProducts = Object.entries(soldByProduct)
-        .map(([productId, sales]) => ({
-          name: (productById.get(productId)?.name as string) || "Unknown",
-          sales,
-          change: Math.floor(Math.random() * 40) - 10, // TODO: Calculate actual change
-        }))
+        .map(([productId, data]) => {
+          const product = productById.get(productId);
+          return {
+            id: productId,
+            name: (product?.name as string) || "Unknown",
+            sku: product?.sku || "N/A",
+            category: categoryIdToName.get(product?.categoryId) || "Uncategorized",
+            supplier: product?.supplier || "N/A",
+            price: product?.price || 0,
+            costPrice: product?.costPrice || 0,
+            quantity: product?.quantity || 0,
+            qrCode: product?.qrCode || null,
+            sales: data.sales,
+            change: Math.floor(Math.random() * 40) - 10, // TODO: Calculate actual change
+          };
+        })
         .sort((a, b) => b.sales - a.sales)
+        .slice(0, 10);
+
+      // Build top refunded products with full details
+      const topRefundedProducts = Object.entries(returnsByProduct)
+        .map(([productId, returns]) => {
+          const product = productById.get(productId);
+          const sales = soldByProduct[productId]?.sales || 0;
+          return {
+            id: productId,
+            name: (product?.name as string) || "Unknown",
+            sku: product?.sku || "N/A",
+            category: categoryIdToName.get(product?.categoryId) || "Uncategorized",
+            supplier: product?.supplier || "N/A",
+            price: product?.price || 0,
+            costPrice: product?.costPrice || 0,
+            quantity: product?.quantity || 0,
+            qrCode: product?.qrCode || null,
+            returns: returns,
+            returnRate: sales > 0 ? ((returns / sales) * 100).toFixed(1) + '%' : '0%',
+          };
+        })
+        .sort((a, b) => b.returns - a.returns)
         .slice(0, 10);
       
       console.log(`[REPORTS] Top products:`, topProducts.length, 'products');
+      console.log(`[REPORTS] Top refunded products:`, topRefundedProducts.length, 'products');
 
       const responseData = { 
         keyMetrics, 
@@ -1175,6 +1222,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         inventoryTrends, 
         categoryData, 
         topProducts,
+        topRefundedProducts,
         accountingData,
         predictions,
         cashFlow,
@@ -2004,6 +2052,37 @@ Remember: You're helping a business owner understand their operations better. Be
 
       if (!orderData?.refundRequested) {
         return res.status(400).json({ message: 'No refund request found for this order' });
+      }
+
+      // Create inventory transactions for returned items
+      const items = orderData.items || [];
+      console.log('[APPROVE REFUND] Creating return transactions for', items.length, 'items');
+      
+      for (const item of items) {
+        // Add stock back to inventory
+        const productRef = db.collection('products').doc(item.productId);
+        const productDoc = await productRef.get();
+        
+        if (productDoc.exists) {
+          const currentQuantity = productDoc.data()?.quantity || 0;
+          await productRef.update({
+            quantity: currentQuantity + item.quantity,
+            updatedAt: new Date()
+          });
+
+          // Create inventory transaction for the return
+          await db.collection('inventoryTransactions').add({
+            productId: item.productId,
+            type: 'in',
+            quantity: item.quantity,
+            reason: `Return from order ${orderData.orderNumber}`,
+            notes: `Refund approved - items returned to stock`,
+            createdAt: new Date(),
+            userId: orderData.userId || orderData.customerId
+          });
+
+          console.log('[APPROVE REFUND] Returned', item.quantity, 'units of product', item.productId);
+        }
       }
 
       // Update order status

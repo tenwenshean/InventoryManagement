@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
+import { useCustomerCurrency } from "@/hooks/useCustomerCurrency";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ import { useCart } from "@/contexts/CartContext";
 import SearchShops from "@/components/search-shops";
 
 export default function CustomerPortal() {
+  const { formatPrice } = useCustomerCurrency();
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -360,10 +362,10 @@ export default function CustomerPortal() {
                         </div>
                       )}
                     </CardHeader>
-                    <CardContent className="p-4 pt-0">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-2xl font-bold text-red-600">
-                          ${parseFloat(product.price).toFixed(2)}
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-2">
+                        <p className="text-lg font-bold text-red-600">
+                        {formatPrice(parseFloat(product.price))}
                         </p>
                         {product.quantity > 0 ? (
                           <Badge className="bg-green-500">In Stock</Badge>
@@ -526,7 +528,7 @@ export default function CustomerPortal() {
                         </div>
                         <div className="text-right">
                           <p className="text-3xl font-bold text-red-600">
-                            ${parseFloat(product.price).toFixed(2)}
+                            {formatPrice(parseFloat(product.price))}
                           </p>
                         </div>
                       </div>
@@ -659,7 +661,7 @@ export default function CustomerPortal() {
                     </CardHeader>
                     <CardContent>
                       <p className="text-2xl font-bold text-red-600 mb-4">
-                        ${parseFloat(product.price).toFixed(2)}
+                        {formatPrice(parseFloat(product.price))}
                       </p>
                       <div className="flex gap-2">
                         <Button

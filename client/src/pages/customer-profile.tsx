@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
+import { useCustomerCurrency } from "@/hooks/useCustomerCurrency";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +37,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
 
 export default function CustomerProfile() {
+  const { formatPrice } = useCustomerCurrency();
   const [customerUser, setCustomerUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -460,7 +462,7 @@ export default function CustomerProfile() {
                               <div className="flex items-center space-x-1">
                                 <DollarSign className="w-4 h-4" />
                                 <span className="font-semibold text-red-600">
-                                  ${order.totalAmount?.toFixed(2)}
+                                  {formatPrice(order.totalAmount || 0)}
                                 </span>
                               </div>
                             </div>
@@ -483,7 +485,7 @@ export default function CustomerProfile() {
                                       </div>
                                     )}
                                     <span className="font-semibold">
-                                      ${item.totalPrice?.toFixed(2)}
+                                      {formatPrice(item.totalPrice || 0)}
                                     </span>
                                   </div>
                                 </div>
@@ -583,7 +585,7 @@ export default function CustomerProfile() {
                 <div className="flex justify-between">
                   <span className="text-gray-600">Total Amount:</span>
                   <span className="font-medium text-red-600">
-                    ${selectedOrder?.totalAmount?.toFixed(2)}
+                    {formatPrice(selectedOrder?.totalAmount || 0)}
                   </span>
                 </div>
                 <div className="flex justify-between">

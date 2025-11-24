@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { queryKeys } from "@/lib/queryKeys";
 import { apiRequest } from "@/lib/queryClient";
+import { useCurrency } from "@/hooks/useCurrency";
 import { Package, AlertTriangle, DollarSign, ShoppingCart } from "lucide-react";
 
 interface DashboardStats {
@@ -12,6 +13,7 @@ interface DashboardStats {
 }
 
 export default function DashboardStats() {
+  const { formatCurrency } = useCurrency();
   const { data: stats, isLoading, error } = useQuery<DashboardStats>({
     queryKey: queryKeys.dashboard.stats,
     queryFn: async () => {
@@ -79,6 +81,11 @@ export default function DashboardStats() {
     );
   }
 
+  // Parse totalValue to remove $ and convert to number
+  const totalValueNumber = stats?.totalValue 
+    ? parseFloat(stats.totalValue.replace(/[^0-9.-]+/g, "")) 
+    : 0;
+
   const statsData = [
     {
       title: "Total Products",
@@ -98,7 +105,7 @@ export default function DashboardStats() {
     },
     {
       title: "Total Value",
-      value: stats?.totalValue || "$0",
+      value: formatCurrency(totalValueNumber),
       icon: DollarSign,
       color: "chart-2",
       change: "+8% from last month",

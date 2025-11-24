@@ -265,6 +265,7 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
                   <th className="text-left p-4 text-sm font-medium text-muted-foreground">Product</th>
                   <th className="text-left p-4 text-sm font-medium text-muted-foreground">SKU</th>
                   <th className="text-left p-4 text-sm font-medium text-muted-foreground">Category</th>
+                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Supplier</th>
                   <th className="text-left p-4 text-sm font-medium text-muted-foreground">Stock</th>
                   <th className="text-left p-4 text-sm font-medium text-muted-foreground">Value</th>
                   <th className="text-left p-4 text-sm font-medium text-muted-foreground">Status</th>
@@ -308,6 +309,9 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
                       </td>
                       <td className="p-4 text-foreground" data-testid={`text-product-category-${product.id}`}>
                         {categoryNameById.get(product.categoryId || "") || "Uncategorized"}
+                      </td>
+                      <td className="p-4 text-foreground" data-testid={`text-product-supplier-${product.id}`}>
+                        {product.supplier || "N/A"}
                       </td>
                       <td className="p-4">
                         <span className="text-foreground font-medium" data-testid={`text-product-stock-${product.id}`}>

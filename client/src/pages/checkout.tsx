@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
+import { useCustomerCurrency } from "@/hooks/useCustomerCurrency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,7 @@ import CustomerLoginModal from "@/components/customer-login-modal";
 import type { Coupon } from "@/types";
 
 export default function CheckoutPage() {
+  const { formatPrice } = useCustomerCurrency();
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -472,7 +474,7 @@ export default function CheckoutPage() {
                         <div className="flex-1">
                           <h3 className="font-semibold">{item.product.name}</h3>
                           <p className="text-sm text-gray-600">
-                            ${parseFloat(item.product.price).toFixed(2)} × {item.quantity}
+                            {formatPrice(parseFloat(item.product.price))} × {item.quantity}
                           </p>
                           {item.product.companyName && (
                             <p className="text-xs text-gray-500">by {item.product.companyName}</p>
@@ -487,7 +489,7 @@ export default function CheckoutPage() {
                       </div>
                       <div className="text-right">
                         <p className="font-bold text-lg">
-                          ${(parseFloat(item.product.price) * item.quantity).toFixed(2)}
+                          {formatPrice(parseFloat(item.product.price) * item.quantity)}
                         </p>
                       </div>
                     </div>
@@ -564,7 +566,7 @@ export default function CheckoutPage() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Subtotal</span>
-                    <span className="font-semibold">${cartTotal.toFixed(2)}</span>
+                    <span className="font-semibold">{formatPrice(cartTotal)}</span>
                   </div>
                   {appliedCoupon && discount > 0 && (
                     <div className="flex justify-between text-sm">
@@ -573,7 +575,7 @@ export default function CheckoutPage() {
                         Discount
                       </span>
                       <span className="font-semibold text-green-600">
-                        -${discount.toFixed(2)}
+                        -{formatPrice(discount)}
                       </span>
                     </div>
                   )}
@@ -589,7 +591,7 @@ export default function CheckoutPage() {
                     <div className="flex justify-between">
                       <span className="font-bold text-lg">Total</span>
                       <span className="font-bold text-lg text-red-600">
-                        ${finalTotal.toFixed(2)}
+                        {formatPrice(finalTotal)}
                       </span>
                     </div>
                   </div>

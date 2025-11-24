@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { useCurrency } from "@/hooks/useCurrency";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
@@ -25,6 +26,7 @@ import { Plus, Search, Edit, QrCode, Trash2, Package } from "lucide-react";
 import type { Product } from "@shared/schema";
 
 export default function Products() {
+  const { formatCurrency } = useCurrency();
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
   const [showAddProduct, setShowAddProduct] = useState(false);
@@ -192,7 +194,7 @@ export default function Products() {
                         <div className="flex justify-between">
                           <span className="text-sm text-muted-foreground">Price:</span>
                           <span className="font-medium text-foreground" data-testid={`text-product-price-${product.id}`}>
-                            ${parseFloat(product.price).toFixed(2)}
+                            {formatCurrency(parseFloat(product.price))}
                           </span>
                         </div>
                         <div className="flex justify-between">

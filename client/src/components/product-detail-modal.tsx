@@ -5,7 +5,7 @@ import { Separator } from "@/components/ui/separator";
 import { Package, ShoppingCart, Store, MapPin, FileText, DollarSign, Hash, Layers } from "lucide-react";
 import { Link } from "wouter";
 import { useMemo } from "react";
-import { useCurrency } from "@/hooks/useCurrency";
+import { useCustomerCurrency } from "@/hooks/useCustomerCurrency";
 import type { Product, Category } from "@/types";
 
 interface ProductDetailModalProps {
@@ -17,7 +17,7 @@ interface ProductDetailModalProps {
 }
 
 export default function ProductDetailModal({ isOpen, onClose, product, onAddToCart, categories }: ProductDetailModalProps) {
-  const { formatCurrency } = useCurrency();
+  const { formatPrice } = useCustomerCurrency();
   const defaultUnitLabel = useMemo(() => {
     try { return localStorage.getItem('app_defaultUnit') || 'units'; } catch { return 'units'; }
   }, []);
@@ -88,7 +88,7 @@ export default function ProductDetailModal({ isOpen, onClose, product, onAddToCa
               <DollarSign className="w-5 h-5 text-green-600" />
               <div>
                 <p className="text-xs text-gray-500 uppercase">Price</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(product.price)}</p>
+                <p className="text-2xl font-bold text-green-600">{formatPrice(product.price)}</p>
               </div>
             </div>
 

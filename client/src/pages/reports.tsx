@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend, Area, AreaChart, ComposedChart } from 'recharts';
+import { useCurrency } from '@/hooks/useCurrency';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Calendar, Download, Filter, TrendingUp, TrendingDown, Package, DollarSign, Loader2, Brain, AlertTriangle, CheckCircle, MessageCircle } from "lucide-react";
@@ -10,6 +11,9 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import ReportsChatbot from "@/components/reports-chatbot";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Printer } from "lucide-react";
 
 // Type definitions
 interface KeyMetrics {
@@ -38,8 +42,18 @@ interface CategoryDataItem {
 }
 
 interface TopProductItem {
+  id?: string;
   name: string;
+  sku?: string;
+  category?: string;
+  supplier?: string;
+  price?: number;
+  costPrice?: number;
+  quantity?: number;
+  qrCode?: string | null;
   sales: number;
+  returns?: number;
+  returnRate?: string;
   change: number;
 }
 
@@ -69,6 +83,7 @@ interface ReportsData {
   inventoryTrends: InventoryTrendItem[];
   categoryData: CategoryDataItem[];
   topProducts: TopProductItem[];
+  topRefundedProducts?: TopProductItem[];
   accountingData?: AccountingDataItem[];
   predictions?: PredictionItem[];
   cashFlow?: CashFlowItem[];
@@ -79,9 +94,26 @@ interface ReportsData {
   };
 }
 
+// Report sections configuration
+const reportSections = [
+  { id: 'products', label: 'Product Inventory', description: 'All products with quantities and details' },
+  { id: 'topProducts', label: 'Top Selling & Refunded Products', description: 'Best and worst performing products with full details (SKU, QR, pricing)' },
+  { id: 'suppliers', label: 'Supplier Analysis', description: 'Refund and sales analysis by supplier' },
+  { id: 'categories', label: 'Category Distribution', description: 'Product breakdown by category' },
+  { id: 'salesTrends', label: 'Sales Trends', description: 'Monthly sales and returns data' },
+  { id: 'inventory', label: 'Inventory Movement', description: 'Stock in/out trends' },
+  { id: 'predictions', label: 'AI Predictions', description: 'Machine learning forecasts' },
+  { id: 'insights', label: 'Business Insights', description: 'Key metrics and recommendations' },
+];
+
 export default function Reports() {
+  const { formatCurrency } = useCurrency();
   const [timeRange, setTimeRange] = useState("30days");
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
+  const [isCustomReportOpen, setIsCustomReportOpen] = useState(false);
+  const [selectedReportSections, setSelectedReportSections] = useState<string[]>([]);
+  
+  console.log('[REPORTS COMPONENT] Rendering...');
   
   // Fetch real data from the API
   const { data: reportsData, isLoading, error } = useQuery<ReportsData>({
@@ -92,6 +124,8 @@ export default function Reports() {
         const response = await apiRequest('GET', `/api/reports/data?range=${timeRange}`);
         const data = await response.json();
         console.log('[REPORTS] Data received:', data);
+        console.log('[REPORTS] Top products:', JSON.stringify(data.topProducts, null, 2));
+        console.log('[REPORTS] Top refunded:', JSON.stringify(data.topRefundedProducts, null, 2));
         return data;
       } catch (err: any) {
         console.error('[REPORTS] Error fetching data:', err);
@@ -99,10 +133,87 @@ export default function Reports() {
         throw err;
       }
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 0, // No cache - always fetch fresh data
+    gcTime: 0, // Don't keep in cache
   });
 
+  console.log('[REPORTS COMPONENT] State:', { isLoading, hasError: !!error, hasData: !!reportsData });
+
+  // Safely destructure with default values (must be before conditional returns for hooks)
+  const keyMetrics: KeyMetrics = reportsData?.keyMetrics || {
+    totalRevenue: '$0',
+    unitsSold: 0,
+    avgOrderValue: '$0',
+    returnRate: '0%'
+  };
+
+  // Parse currency strings from backend and format with current currency
+  const totalRevenueValue = parseFloat(keyMetrics.totalRevenue.replace(/[^0-9.-]/g, '')) || 0;
+  const avgOrderValue = parseFloat(keyMetrics.avgOrderValue.replace(/[^0-9.-]/g, '')) || 0;
+
+  const salesData: SalesDataItem[] = reportsData?.salesData || [];
+  const inventoryTrends: InventoryTrendItem[] = reportsData?.inventoryTrends || [];
+  const categoryData: CategoryDataItem[] = reportsData?.categoryData || [];
+  const topProducts: TopProductItem[] = reportsData?.topProducts || [];
+  const topRefundedProducts: TopProductItem[] = reportsData?.topRefundedProducts || [];
+  const accountingData: AccountingDataItem[] = reportsData?.accountingData || [];
+  const predictions: PredictionItem[] = reportsData?.predictions || [];
+  const cashFlow: CashFlowItem[] = reportsData?.cashFlow || [];
+  const insights = reportsData?.insights;
+
+  // Calculate supplier refund statistics (must be before conditional returns for hooks)
+  const supplierRefundStats = useMemo(() => {
+    const stats = new Map<string, { totalReturns: number, totalSales: number, products: Set<string> }>();
+    
+    // Add refunded products data
+    topRefundedProducts.forEach(product => {
+      const supplier = product.supplier || 'N/A';
+      if (!stats.has(supplier)) {
+        stats.set(supplier, { totalReturns: 0, totalSales: 0, products: new Set() });
+      }
+      const supplierData = stats.get(supplier)!;
+      supplierData.totalReturns += product.returns || 0;
+      supplierData.totalSales += product.sales || 0;
+      supplierData.products.add(product.name);
+    });
+
+    // Add top selling products data for sales count
+    topProducts.forEach(product => {
+      const supplier = product.supplier || 'N/A';
+      if (!stats.has(supplier)) {
+        stats.set(supplier, { totalReturns: 0, totalSales: 0, products: new Set() });
+      }
+      const supplierData = stats.get(supplier)!;
+      // Only add sales if we haven't counted this product already
+      if (!supplierData.products.has(product.name)) {
+        supplierData.totalSales += product.sales || 0;
+        supplierData.products.add(product.name);
+      }
+    });
+
+    // Convert to array and calculate return rate
+    const supplierArray = Array.from(stats.entries())
+      .map(([supplier, data]) => ({
+        supplier,
+        totalReturns: data.totalReturns,
+        totalSales: data.totalSales,
+        returnRate: data.totalSales > 0 ? (data.totalReturns / data.totalSales * 100).toFixed(1) + '%' : '0%',
+        productCount: data.products.size
+      }))
+      .filter(s => s.supplier !== 'N/A');
+
+    // Sort by return rate
+    supplierArray.sort((a, b) => parseFloat(b.returnRate) - parseFloat(a.returnRate));
+
+    return {
+      all: supplierArray,
+      mostRefunded: supplierArray[0] || null,
+      leastRefunded: supplierArray[supplierArray.length - 1] || null
+    };
+  }, [topProducts, topRefundedProducts]);
+
   if (isLoading) {
+    console.log('[REPORTS COMPONENT] Rendering loading state');
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="flex items-center space-x-2">
@@ -126,25 +237,580 @@ export default function Reports() {
     );
   }
 
-  // Safely destructure with default values
-  const keyMetrics: KeyMetrics = reportsData?.keyMetrics || {
-    totalRevenue: '$0',
-    unitsSold: 0,
-    avgOrderValue: '$0',
-    returnRate: '0%'
-  };
-
-  const salesData: SalesDataItem[] = reportsData?.salesData || [];
-  const inventoryTrends: InventoryTrendItem[] = reportsData?.inventoryTrends || [];
-  const categoryData: CategoryDataItem[] = reportsData?.categoryData || [];
-  const topProducts: TopProductItem[] = reportsData?.topProducts || [];
-  const accountingData: AccountingDataItem[] = reportsData?.accountingData || [];
-  const predictions: PredictionItem[] = reportsData?.predictions || [];
-  const cashFlow: CashFlowItem[] = reportsData?.cashFlow || [];
-  const insights = reportsData?.insights;
+  console.log('[REPORTS COMPONENT] Extracting data...');
 
   // Define default colors for pie chart if not provided by API
   const COLORS = ['#dc2626', '#ef4444', '#f87171', '#fca5a5', '#fecaca'];
+
+  // Report generation handlers
+  const handlePrintInventoryReport = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const reportHTML = generateFullInventoryReport();
+    printWindow.document.write(reportHTML);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+  };
+
+  const handlePrintCustomReport = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const reportHTML = generateCustomReport(selectedReportSections);
+    printWindow.document.write(reportHTML);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
+    setIsCustomReportOpen(false);
+    setSelectedReportSections([]);
+  };
+
+  const generateFullInventoryReport = (): string => {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Full Inventory Report</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 40px; }
+          h1 { color: #dc2626; border-bottom: 3px solid #dc2626; padding-bottom: 10px; }
+          h2 { color: #dc2626; margin-top: 30px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+          th { background-color: #dc2626; color: white; }
+          .metric-card { display: inline-block; border: 1px solid #ddd; padding: 15px; margin: 10px; min-width: 200px; }
+          .metric-value { font-size: 24px; font-weight: bold; color: #dc2626; }
+          .metric-label { color: #666; font-size: 14px; }
+          .section { page-break-inside: avoid; margin-bottom: 40px; }
+          .trend-up { color: #22c55e; }
+          .trend-down { color: #ef4444; }
+          @media print { .no-print { display: none; } }
+        </style>
+      </head>
+      <body>
+        <h1>📊 Complete Inventory & Business Report</h1>
+        <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+        <p><strong>Period:</strong> ${timeRange}</p>
+
+        <div class=\"section\">
+          <h2>📈 Key Business Metrics</h2>
+          <div class=\"metric-card\">
+            <div class=\"metric-label\">Total Revenue</div>
+            <div class=\"metric-value\">${formatCurrency(totalRevenueValue)}</div>
+          </div>
+          <div class=\"metric-card\">
+            <div class=\"metric-label\">Units Sold</div>
+            <div class=\"metric-value\">${keyMetrics.unitsSold}</div>
+          </div>
+          <div class=\"metric-card\">
+            <div class=\"metric-label\">Avg Order Value</div>
+            <div class=\"metric-value\">${formatCurrency(avgOrderValue)}</div>
+          </div>
+          <div class=\"metric-card\">
+            <div class=\"metric-label\">Return Rate</div>
+            <div class=\"metric-value\">${keyMetrics.returnRate}</div>
+          </div>
+        </div>
+
+        <div class=\"section\">
+          <h2>🏆 Top Selling Products</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Product Name</th>
+                <th>SKU</th>
+                <th>Category</th>
+                <th>Supplier</th>
+                <th>Price</th>
+                <th>Cost</th>
+                <th>Stock</th>
+                <th>Units Sold</th>
+                <th>QR Code</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${topProducts.map((product, index) => `
+                <tr>
+                  <td>${index + 1}</td>
+                  <td><strong>${product.name}</strong></td>
+                  <td>${product.sku || 'N/A'}</td>
+                  <td>${product.category || 'N/A'}</td>
+                  <td>${product.supplier || 'N/A'}</td>
+                  <td>$${typeof product.price === 'number' ? product.price.toFixed(2) : parseFloat(product.price || '0').toFixed(2)}</td>
+                  <td>$${typeof product.costPrice === 'number' ? product.costPrice.toFixed(2) : parseFloat(product.costPrice || '0').toFixed(2)}</td>
+                  <td>${product.quantity || 0}</td>
+                  <td><strong>${product.sales}</strong></td>
+                  <td>${product.qrCode || 'N/A'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        ${topRefundedProducts && topRefundedProducts.length > 0 ? `
+        <div class=\"section\">
+          <h2>⚠️ Top Refunded Products</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Product Name</th>
+                <th>SKU</th>
+                <th>Category</th>
+                <th>Supplier</th>
+                <th>Price</th>
+                <th>Cost</th>
+                <th>Stock</th>
+                <th>Returns</th>
+                <th>Return Rate</th>
+                <th>QR Code</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${topRefundedProducts.map((product, index) => `
+                <tr>
+                  <td>${index + 1}</td>
+                  <td><strong>${product.name}</strong></td>
+                  <td>${product.sku || 'N/A'}</td>
+                  <td>${product.category || 'N/A'}</td>
+                  <td>${product.supplier || 'N/A'}</td>
+                  <td>$${typeof product.price === 'number' ? product.price.toFixed(2) : parseFloat(product.price || '0').toFixed(2)}</td>
+                  <td>$${typeof product.costPrice === 'number' ? product.costPrice.toFixed(2) : parseFloat(product.costPrice || '0').toFixed(2)}</td>
+                  <td>${product.quantity || 0}</td>
+                  <td><strong>${product.returns}</strong></td>
+                  <td class=\"trend-down\">${product.returnRate}</td>
+                  <td>${product.qrCode || 'N/A'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        ` : ''}
+
+        ${supplierRefundStats.all.length > 0 ? `
+        <div class=\"section\">
+          <h2>🏢 Supplier Analysis</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Supplier</th>
+                <th>Products</th>
+                <th>Total Sales</th>
+                <th>Total Returns</th>
+                <th>Return Rate</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${supplierRefundStats.all.map((supplier, index) => {
+                const isWorst = index === 0;
+                const isBest = index === supplierRefundStats.all.length - 1;
+                return `
+                <tr>
+                  <td><strong>${supplier.supplier}</strong></td>
+                  <td>${supplier.productCount}</td>
+                  <td>${supplier.totalSales}</td>
+                  <td>${supplier.totalReturns}</td>
+                  <td class="${isWorst ? 'trend-down' : isBest ? 'trend-up' : ''}">${supplier.returnRate}</td>
+                  <td>${isWorst ? '⚠️ Most Refunded' : isBest ? '✅ Least Refunded' : '-'}</td>
+                </tr>
+              `;
+              }).join('')}
+            </tbody>
+          </table>
+          <div style=\"margin-top: 20px; padding: 15px; border-left: 4px solid #dc2626; background-color: #fef2f2;\">
+            <strong>📊 Key Insights:</strong><br>
+            <strong style=\"color: #dc2626;\">Most Refunded:</strong> ${supplierRefundStats.mostRefunded?.supplier} (${supplierRefundStats.mostRefunded?.returnRate} return rate)<br>
+            <strong style=\"color: #22c55e;\">Least Refunded:</strong> ${supplierRefundStats.leastRefunded?.supplier} (${supplierRefundStats.leastRefunded?.returnRate} return rate)
+          </div>
+        </div>
+        ` : ''}
+
+        <div class=\"section\">
+          <h2>📦 Category Distribution</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Quantity</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${categoryData.map(cat => `
+                <tr>
+                  <td>${cat.name}</td>
+                  <td>${cat.value}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class=\"section\">
+          <h2>📊 Monthly Sales Trends</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Sales</th>
+                <th>Returns</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${salesData.map(data => `
+                <tr>
+                  <td>${data.month}</td>
+                  <td>${data.sales}</td>
+                  <td>${data.returns}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class=\"section\">
+          <h2>📦 Inventory Movement</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Stock In</th>
+                <th>Stock Out</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${inventoryTrends.map(trend => `
+                <tr>
+                  <td>${trend.month}</td>
+                  <td>${trend.inStock}</td>
+                  <td>${trend.outStock}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        ${predictions.length > 0 ? `
+        <div class=\"section\">
+          <h2>🤖 AI-Powered Predictions</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Period</th>
+                <th>Predicted Sales</th>
+                <th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${predictions.map(pred => `
+                <tr>
+                  <td>${pred.period}</td>
+                  <td>${formatCurrency(pred.predicted)}</td>
+                  <td>${pred.confidence}%</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        ` : ''}
+
+        ${insights ? `
+        <div class=\"section\">
+          <h2>💡 Business Insights</h2>
+          <p><strong>Trend:</strong> ${insights.trend.toUpperCase()}</p>
+          <p><strong>Recommendation:</strong> ${insights.recommendation}</p>
+          ${insights.anomalies ? `<p><strong>Anomalies Detected:</strong> ${insights.anomalies}</p>` : ''}
+        </div>
+        ` : ''}
+
+        <div style=\"margin-top: 50px; text-align: center; color: #666; font-size: 12px;\">
+          <p>Generated by Inventory Management System</p>
+          <p>© ${new Date().getFullYear()} All Rights Reserved</p>
+        </div>
+      </body>
+      </html>
+    `;
+  };
+
+  const generateCustomReport = (sections: string[]): string => {
+    let sectionsHTML = '';
+
+    if (sections.includes('products') || sections.includes('topProducts')) {
+      sectionsHTML += `
+        <div class=\"section\">
+          <h2>🏆 Top Selling Products</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Product Name</th>
+                <th>SKU</th>
+                <th>Category</th>
+                <th>Supplier</th>
+                <th>Price</th>
+                <th>Cost</th>
+                <th>Stock</th>
+                <th>Units Sold</th>
+                <th>QR Code</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${topProducts.map((product, index) => `
+                <tr>
+                  <td>${index + 1}</td>
+                  <td><strong>${product.name}</strong></td>
+                  <td>${product.sku || 'N/A'}</td>
+                  <td>${product.category || 'N/A'}</td>
+                  <td>${product.supplier || 'N/A'}</td>
+                  <td>$${typeof product.price === 'number' ? product.price.toFixed(2) : parseFloat(product.price || '0').toFixed(2)}</td>
+                  <td>$${typeof product.costPrice === 'number' ? product.costPrice.toFixed(2) : parseFloat(product.costPrice || '0').toFixed(2)}</td>
+                  <td>${product.quantity || 0}</td>
+                  <td><strong>${product.sales}</strong></td>
+                  <td>${product.qrCode || 'N/A'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        ${topRefundedProducts && topRefundedProducts.length > 0 ? `
+        <div class=\"section\">
+          <h2>⚠️ Top Refunded Products</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Product Name</th>
+                <th>SKU</th>
+                <th>Category</th>
+                <th>Supplier</th>
+                <th>Price</th>
+                <th>Cost</th>
+                <th>Stock</th>
+                <th>Returns</th>
+                <th>Return Rate</th>
+                <th>QR Code</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${topRefundedProducts.map((product, index) => `
+                <tr>
+                  <td>${index + 1}</td>
+                  <td><strong>${product.name}</strong></td>
+                  <td>${product.sku || 'N/A'}</td>
+                  <td>${product.category || 'N/A'}</td>
+                  <td>${product.supplier || 'N/A'}</td>
+                  <td>$${typeof product.price === 'number' ? product.price.toFixed(2) : parseFloat(product.price || '0').toFixed(2)}</td>
+                  <td>$${typeof product.costPrice === 'number' ? product.costPrice.toFixed(2) : parseFloat(product.costPrice || '0').toFixed(2)}</td>
+                  <td>${product.quantity || 0}</td>
+                  <td><strong>${product.returns}</strong></td>
+                  <td class=\"trend-down\">${product.returnRate}</td>
+                  <td>${product.qrCode || 'N/A'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        ` : ''}
+      `;
+    }
+
+    if (sections.includes('categories')) {
+      sectionsHTML += `
+        <div class=\"section\">
+          <h2>📦 Category Distribution</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Quantity</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${categoryData.map(cat => `
+                <tr>
+                  <td>${cat.name}</td>
+                  <td>${cat.value}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    if (sections.includes('suppliers')) {
+      sectionsHTML += `
+        <div class=\"section\">
+          <h2>🏢 Supplier Analysis</h2>
+          ${supplierRefundStats.all.length > 0 ? `
+            <table>
+              <thead>
+                <tr>
+                  <th>Supplier</th>
+                  <th>Products</th>
+                  <th>Total Sales</th>
+                  <th>Total Returns</th>
+                  <th>Return Rate</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${supplierRefundStats.all.map((supplier, index) => {
+                  const isWorst = index === 0;
+                  const isBest = index === supplierRefundStats.all.length - 1;
+                  return `
+                  <tr>
+                    <td><strong>${supplier.supplier}</strong></td>
+                    <td>${supplier.productCount}</td>
+                    <td>${supplier.totalSales}</td>
+                    <td>${supplier.totalReturns}</td>
+                    <td class="${isWorst ? 'trend-down' : isBest ? 'trend-up' : ''}">${supplier.returnRate}</td>
+                    <td>${isWorst ? '⚠️ Most Refunded' : isBest ? '✅ Least Refunded' : '-'}</td>
+                  </tr>
+                `;
+                }).join('')}
+              </tbody>
+            </table>
+            <div style=\"margin-top: 20px; padding: 15px; border-left: 4px solid #dc2626; background-color: #fef2f2;\">
+              <strong>📊 Key Insights:</strong><br>
+              <strong style=\"color: #dc2626;\">Most Refunded:</strong> ${supplierRefundStats.mostRefunded?.supplier} (${supplierRefundStats.mostRefunded?.returnRate} return rate)<br>
+              <strong style=\"color: #22c55e;\">Least Refunded:</strong> ${supplierRefundStats.leastRefunded?.supplier} (${supplierRefundStats.leastRefunded?.returnRate} return rate)
+            </div>
+          ` : '<p>No supplier data available</p>'}
+        </div>
+      `;
+    }
+
+    if (sections.includes('salesTrends')) {
+      sectionsHTML += `
+        <div class=\"section\">
+          <h2>📊 Monthly Sales Trends</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Sales</th>
+                <th>Returns</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${salesData.map(data => `
+                <tr>
+                  <td>${data.month}</td>
+                  <td>${data.sales}</td>
+                  <td>${data.returns}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    if (sections.includes('inventory')) {
+      sectionsHTML += `
+        <div class=\"section\">
+          <h2>📦 Inventory Movement</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Stock In</th>
+                <th>Stock Out</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${inventoryTrends.map(trend => `
+                <tr>
+                  <td>${trend.month}</td>
+                  <td>${trend.inStock}</td>
+                  <td>${trend.outStock}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    if (sections.includes('predictions') && predictions.length > 0) {
+      sectionsHTML += `
+        <div class=\"section\">
+          <h2>🤖 AI-Powered Predictions</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Period</th>
+                <th>Predicted Sales</th>
+                <th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${predictions.map(pred => `
+                <tr>
+                  <td>${pred.period}</td>
+                  <td>${formatCurrency(pred.predicted)}</td>
+                  <td>${pred.confidence}%</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    if (sections.includes('insights') && insights) {
+      sectionsHTML += `
+        <div class=\"section\">
+          <h2>💡 Business Insights</h2>
+          <p><strong>Trend:</strong> ${insights.trend.toUpperCase()}</p>
+          <p><strong>Recommendation:</strong> ${insights.recommendation}</p>
+          ${insights.anomalies ? `<p><strong>Anomalies Detected:</strong> ${insights.anomalies}</p>` : ''}
+        </div>
+      `;
+    }
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Custom Report</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 40px; }
+          h1 { color: #dc2626; border-bottom: 3px solid #dc2626; padding-bottom: 10px; }
+          h2 { color: #dc2626; margin-top: 30px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+          th { background-color: #dc2626; color: white; }
+          .section { page-break-inside: avoid; margin-bottom: 40px; }
+          .trend-up { color: #22c55e; }
+          .trend-down { color: #ef4444; }
+          @media print { .no-print { display: none; } }
+        </style>
+      </head>
+      <body>
+        <h1>📊 Custom Business Report</h1>
+        <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+        <p><strong>Period:</strong> ${timeRange}</p>
+        
+        ${sectionsHTML}
+
+        <div style=\"margin-top: 50px; text-align: center; color: #666; font-size: 12px;\">
+          <p>Generated by Inventory Management System</p>
+          <p>© ${new Date().getFullYear()} All Rights Reserved</p>
+        </div>
+      </body>
+      </html>
+    `;
+  };
 
   return (
     <div className="container mx-auto p-6 space-y-6 relative" data-testid="reports-page">
@@ -229,7 +895,7 @@ export default function Reports() {
               <DollarSign className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{keyMetrics.totalRevenue}</div>
+              <div className="text-2xl font-bold text-red-600">{formatCurrency(totalRevenueValue)}</div>
               <div className="flex items-center text-xs text-green-600">
                 <TrendingUp className="w-3 h-3 mr-1" />
                 +20.1% from last month
@@ -257,7 +923,7 @@ export default function Reports() {
               <TrendingUp className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{keyMetrics.avgOrderValue}</div>
+              <div className="text-2xl font-bold text-red-600">{formatCurrency(avgOrderValue)}</div>
               <div className="flex items-center text-xs text-red-600">
                 <TrendingDown className="w-3 h-3 mr-1" />
                 -2.3% from last month
@@ -368,35 +1034,172 @@ export default function Reports() {
               <Card data-testid="table-top-products">
                 <CardHeader>
                   <CardTitle>Top Selling Products</CardTitle>
-                  <CardDescription>Best performing products this month</CardDescription>
+                  <CardDescription>Best performing products with full details</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {topProducts.map((product: TopProductItem, index: number) => (
-                      <div key={index} className="flex items-center justify-between" data-testid={`product-${index}`}>
-                        <div className="flex items-center space-x-2">
-                          <Badge variant="outline" className="w-6 h-6 p-0 text-xs">
-                            {index + 1}
+                    {topProducts && topProducts.length > 0 ? topProducts.map((product: TopProductItem, index: number) => (
+                      <div key={index} className="border-b pb-3 last:border-b-0" data-testid={`product-${index}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center space-x-2">
+                            <Badge variant="outline" className="w-6 h-6 p-0 text-xs">
+                              {index + 1}
+                            </Badge>
+                            <span className="font-medium">{product.name}</span>
+                          </div>
+                          <Badge className="bg-green-100 text-green-800">
+                            {product.sales} sold
                           </Badge>
-                          <span className="font-medium">{product.name}</span>
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm text-gray-600 dark:text-gray-400">
-                            {product.sales} units
-                          </span>
-                          <Badge 
-                            variant={product.change > 0 ? "default" : "destructive"}
-                            className={product.change > 0 ? "bg-green-100 text-green-800" : ""}
-                          >
-                            {product.change > 0 ? '+' : ''}{product.change}%
-                          </Badge>
+                        <div className="ml-8 text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                          <div>• SKU: <span className="font-mono">{product.sku || 'N/A'}</span></div>
+                          <div>• Price: <span className="font-semibold">{formatCurrency(typeof product.price === 'number' ? product.price : parseFloat(product.price || '0'))}</span> | Cost: {formatCurrency(typeof product.costPrice === 'number' ? product.costPrice : parseFloat(product.costPrice || '0'))}</div>
+                          <div>• Category: {product.category || 'N/A'} | Stock: {product.quantity || 0} units</div>
+                          <div>• Supplier: <span className="font-semibold text-blue-600">{product.supplier || 'N/A'}</span></div>
+                          {product.qrCode && <div>• QR Code: <span className="font-mono text-xs">{product.qrCode}</span></div>}
                         </div>
                       </div>
-                    ))}
+                    )) : (
+                      <p className="text-sm text-gray-500">No sales data available</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Top Refunded Products */}
+              <Card data-testid="table-top-refunded">
+                <CardHeader>
+                  <CardTitle className="text-red-600">Top Refunded Products</CardTitle>
+                  <CardDescription>Products with highest return rates</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {topRefundedProducts && topRefundedProducts.length > 0 ? topRefundedProducts.map((product: TopProductItem, index: number) => (
+                      <div key={index} className="border-b pb-3 last:border-b-0" data-testid={`refunded-${index}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center space-x-2">
+                            <Badge variant="outline" className="w-6 h-6 p-0 text-xs">
+                              {index + 1}
+                            </Badge>
+                            <span className="font-medium">{product.name}</span>
+                          </div>
+                          <Badge variant="destructive">
+                            {product.returns} returns ({product.returnRate})
+                          </Badge>
+                        </div>
+                        <div className="ml-8 text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                          <div>SKU: <span className="font-mono">{product.sku || 'N/A'}</span></div>
+                          <div>Price: <span className="font-semibold">{formatCurrency(typeof product.price === 'number' ? product.price : parseFloat(product.price || '0'))}</span> | Cost: {formatCurrency(typeof product.costPrice === 'number' ? product.costPrice : parseFloat(product.costPrice || '0'))}</div>
+                          <div>Category: {product.category || 'N/A'} | Stock: {product.quantity || 0} units</div>
+                          <div>Supplier: <span className="font-semibold text-blue-600">{product.supplier || 'N/A'}</span></div>
+                          {product.qrCode && <div>QR Code: <span className="font-mono text-xs">{product.qrCode}</span></div>}
+                        </div>
+                      </div>
+                    )) : (
+                      <div className="text-center py-8">
+                        <p className="text-sm text-gray-500">No product returns recorded</p>
+                        <p className="text-xs text-gray-400 mt-1">Return data will appear here when customers return products</p>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
             </div>
+
+            {/* Supplier Analysis Section */}
+            {supplierRefundStats.all.length > 0 && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                {/* Most Refunded Supplier */}
+                {supplierRefundStats.mostRefunded && (
+                  <Card className="border-red-200 dark:border-red-900">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-red-600">
+                        <AlertTriangle className="h-5 w-5" />
+                        Most Refunded Supplier
+                      </CardTitle>
+                      <CardDescription>Supplier with highest return rate</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div>
+                          <div className="text-2xl font-bold text-red-600">
+                            {supplierRefundStats.mostRefunded.supplier}
+                          </div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                            {supplierRefundStats.mostRefunded.productCount} {supplierRefundStats.mostRefunded.productCount === 1 ? 'product' : 'products'}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-4">
+                          <div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">Total Returns</div>
+                            <div className="text-xl font-semibold text-red-600">
+                              {supplierRefundStats.mostRefunded.totalReturns}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">Total Sales</div>
+                            <div className="text-xl font-semibold">
+                              {supplierRefundStats.mostRefunded.totalSales}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">Return Rate</div>
+                            <div className="text-xl font-semibold text-red-600">
+                              {supplierRefundStats.mostRefunded.returnRate}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Least Refunded Supplier */}
+                {supplierRefundStats.leastRefunded && (
+                  <Card className="border-green-200 dark:border-green-900">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-green-600">
+                        <CheckCircle className="h-5 w-5" />
+                        Least Refunded Supplier
+                      </CardTitle>
+                      <CardDescription>Supplier with lowest return rate</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div>
+                          <div className="text-2xl font-bold text-green-600">
+                            {supplierRefundStats.leastRefunded.supplier}
+                          </div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                            {supplierRefundStats.leastRefunded.productCount} {supplierRefundStats.leastRefunded.productCount === 1 ? 'product' : 'products'}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-4">
+                          <div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">Total Returns</div>
+                            <div className="text-xl font-semibold text-green-600">
+                              {supplierRefundStats.leastRefunded.totalReturns}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">Total Sales</div>
+                            <div className="text-xl font-semibold">
+                              {supplierRefundStats.leastRefunded.totalSales}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">Return Rate</div>
+                            <div className="text-xl font-semibold text-green-600">
+                              {supplierRefundStats.leastRefunded.returnRate}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
           </TabsContent>
 
           {/* Accounting & Finance Tab */}
@@ -496,16 +1299,16 @@ export default function Reports() {
                         <div className="space-y-1 text-sm">
                           <div className="flex justify-between">
                             <span className="text-gray-600">Revenue:</span>
-                            <span className="font-medium text-green-600">${data.revenue.toLocaleString()}</span>
+                            <span className="font-medium text-green-600">{formatCurrency(data.revenue)}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">Expenses:</span>
-                            <span className="font-medium text-red-600">${data.expenses.toLocaleString()}</span>
+                            <span className="font-medium text-red-600">{formatCurrency(data.expenses)}</span>
                           </div>
                           <div className="flex justify-between border-t pt-1">
                             <span className="font-semibold">Net Profit:</span>
                             <span className={`font-bold ${data.profit > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              ${data.profit.toLocaleString()}
+                              {formatCurrency(data.profit)}
                             </span>
                           </div>
                           <div className="flex justify-between">
@@ -576,7 +1379,7 @@ export default function Reports() {
                         </div>
                         <div className="flex justify-between text-sm">
                           <span className="text-gray-600">Predicted Value:</span>
-                          <span className="font-bold text-purple-600">${pred.predicted.toLocaleString()}</span>
+                          <span className="font-bold text-purple-600">{formatCurrency(pred.predicted)}</span>
                         </div>
                         <div className="mt-2 flex items-center gap-2">
                           {pred.confidence > 70 ? (
@@ -667,7 +1470,7 @@ export default function Reports() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-3xl font-bold text-purple-600 mb-2">
-                    {keyMetrics.avgOrderValue}
+                    {formatCurrency(avgOrderValue)}
                   </div>
                   <p className="text-sm text-gray-600">Average Order Value</p>
                   <div className="mt-4 flex items-center gap-2 text-sm">
@@ -810,26 +1613,91 @@ export default function Reports() {
         {/* Additional Reports Section */}
         <Card data-testid="section-additional-reports">
           <CardHeader>
-            <CardTitle>Additional Reports</CardTitle>
-            <CardDescription>Generate detailed reports for specific business needs</CardDescription>
+            <CardTitle>Generate Reports</CardTitle>
+            <CardDescription>Print comprehensive or customized reports</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Button variant="outline" className="h-20 flex flex-col space-y-2" data-testid="button-inventory-report">
-                <Package className="w-6 h-6 text-red-600" />
-                <span>Inventory Report</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Button 
+                variant="outline" 
+                className="h-24 flex flex-col space-y-2 hover:bg-red-50" 
+                onClick={() => handlePrintInventoryReport()}
+                data-testid="button-inventory-report"
+              >
+                <Package className="w-8 h-8 text-red-600" />
+                <div className="text-center">
+                  <div className="font-semibold">Full Inventory Report</div>
+                  <div className="text-xs text-gray-500">Print all data & insights</div>
+                </div>
               </Button>
-              <Button variant="outline" className="h-20 flex flex-col space-y-2" data-testid="button-financial-report">
-                <DollarSign className="w-6 h-6 text-red-600" />
-                <span>Financial Report</span>
-              </Button>
-              <Button variant="outline" className="h-20 flex flex-col space-y-2" data-testid="button-custom-report">
-                <TrendingUp className="w-6 h-6 text-red-600" />
-                <span>Custom Report</span>
+              <Button 
+                variant="outline" 
+                className="h-24 flex flex-col space-y-2 hover:bg-red-50" 
+                onClick={() => setIsCustomReportOpen(true)}
+                data-testid="button-custom-report"
+              >
+                <Filter className="w-8 h-8 text-red-600" />
+                <div className="text-center">
+                  <div className="font-semibold">Custom Report</div>
+                  <div className="text-xs text-gray-500">Select sections to print</div>
+                </div>
               </Button>
             </div>
           </CardContent>
         </Card>
+
+        {/* Custom Report Dialog */}
+        <Dialog open={isCustomReportOpen} onOpenChange={setIsCustomReportOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Custom Report</DialogTitle>
+              <DialogDescription>
+                Select which sections to include in your custom report
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              {reportSections.map((section) => (
+                <div key={section.id} className="flex items-start space-x-3">
+                  <Checkbox
+                    id={section.id}
+                    checked={selectedReportSections.includes(section.id)}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedReportSections([...selectedReportSections, section.id]);
+                      } else {
+                        setSelectedReportSections(selectedReportSections.filter(id => id !== section.id));
+                      }
+                    }}
+                  />
+                  <div className="grid gap-1.5 leading-none">
+                    <label
+                      htmlFor={section.id}
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                    >
+                      {section.label}
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      {section.description}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsCustomReportOpen(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={() => handlePrintCustomReport()}
+                disabled={selectedReportSections.length === 0}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                <Printer className="w-4 h-4 mr-2" />
+                Print Selected
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
     </div>
   );
 }
