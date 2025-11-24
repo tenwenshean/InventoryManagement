@@ -21,6 +21,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import CustomerLoginModal from "@/components/customer-login-modal";
 import { useCart } from "@/contexts/CartContext";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function CartPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -29,6 +30,7 @@ export default function CartPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { cart, updateCartQuantity, removeFromCart, clearCart, cartTotal, cartCount } = useCart();
+  const queryClient = useQueryClient();
 
   // Helper function to get display name
   const getDisplayName = (user: any): string => {
@@ -75,6 +77,8 @@ export default function CartPage() {
     try {
       await signOut(auth);
       localStorage.removeItem('loginContext');
+      // Clear cache to ensure fresh data after logout
+      queryClient.clear();
       setCurrentUser(null);
       toast({
         title: "Logged Out",

@@ -69,9 +69,11 @@ export function useAuth() {
   const logout = async () => {
     try {
       await signOut(auth);
-      console.log("User signed out");
+      console.log("User signed out - clearing all cache");
       // Clear login context when logging out
       localStorage.removeItem('loginContext');
+      // Clear all cached queries to ensure fresh data on next login
+      queryClient.clear();
       setUser(null);
     } catch (err: any) {
       console.error("Error during logout:", err);

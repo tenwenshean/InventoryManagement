@@ -6,11 +6,14 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { LogIn, Package, Store } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queryKeys";
 
 export default function Landing() {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  const queryClient = useQueryClient();
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
@@ -38,6 +41,13 @@ export default function Landing() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleCustomerPortalClick = () => {
+    // Invalidate products cache to ensure fresh data when entering customer portal
+    console.log("Navigating to customer portal - invalidating products cache");
+    queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+    navigate("/customer");
   };
 
   return (
@@ -84,7 +94,7 @@ export default function Landing() {
               </div>
 
               <Button
-                onClick={() => navigate("/customer")}
+                onClick={handleCustomerPortalClick}
                 variant="outline"
                 className="w-full"
                 data-testid="button-customer-portal"

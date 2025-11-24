@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ import { useCurrency } from "@/hooks/useCurrency";
 
 export default function ShopPage() {
   const { formatCurrency } = useCurrency();
+  const queryClient = useQueryClient();
   const defaultUnitLabel = useMemo(() => {
     try { return localStorage.getItem('app_defaultUnit') || 'units'; } catch { return 'units'; }
   }, []);
@@ -103,6 +104,8 @@ export default function ShopPage() {
     try {
       await signOut(auth);
       localStorage.removeItem('loginContext');
+      // Clear cache to ensure fresh data after logout
+      queryClient.clear();
       setCurrentUser(null);
       toast({
         title: "Logged Out",

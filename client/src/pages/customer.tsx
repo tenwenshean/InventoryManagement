@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,7 @@ export default function CustomerPortal() {
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
   const { addToCart, cartCount } = useCart();
+  const queryClient = useQueryClient();
 
   // Debounce search input for better performance
   useEffect(() => {
@@ -50,6 +51,12 @@ export default function CustomerPortal() {
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Invalidate and refetch products when customer page loads to ensure fresh data
+  useEffect(() => {
+    console.log("Customer portal mounted - invalidating products cache");
+    queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+  }, [queryClient]);
 
   // Helper function to get display name
   const getDisplayName = (user: any): string => {
