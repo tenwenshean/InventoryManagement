@@ -5,6 +5,8 @@ const currencyMap: Record<string, string> = {
   eur: "EUR",
   gbp: "GBP",
   cad: "CAD",
+  sgd: "SGD",
+  myr: "MYR",
 };
 
 function detectCurrency(): string {
@@ -28,7 +30,7 @@ export function useCurrency() {
       return new Intl.NumberFormat(undefined, { style: "currency", currency: intlCode, maximumFractionDigits: 2 }).format(Number.isFinite(n as number) ? (n as number) : 0);
     } catch {
       // Fallback simple format
-      const symbol = intlCode === "EUR" ? "€" : intlCode === "GBP" ? "£" : intlCode === "CAD" ? "CA$" : "$";
+      const symbol = intlCode === "EUR" ? "€" : intlCode === "GBP" ? "£" : intlCode === "CAD" ? "CA$" : intlCode === "SGD" ? "S$" : intlCode === "MYR" ? "RM" : "$";
       const num = Number.isFinite(n as number) ? (n as number) : 0;
       return `${symbol}${num.toFixed(2)}`;
     }

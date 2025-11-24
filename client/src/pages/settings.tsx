@@ -739,6 +739,8 @@ export default function SettingsPage() {
                         <SelectItem value="eur">EUR - Euro</SelectItem>
                         <SelectItem value="gbp">GBP - British Pound</SelectItem>
                         <SelectItem value="cad">CAD - Canadian Dollar</SelectItem>
+                        <SelectItem value="sgd">SGD - Singapore Dollar</SelectItem>
+                        <SelectItem value="myr">MYR - Malaysian Ringgit</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
