@@ -161,22 +161,6 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-        <div className="flex items-center space-x-4">
-          <Button variant="outline" size="sm" className="relative" data-testid="button-notifications">
-            <Bell size={18} />
-            <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center">
-              3
-            </span>
-          </Button>
-          <Button
-            onClick={() => setShowChatbot(!showChatbot)}
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
-            data-testid="button-chatbot-toggle"
-          >
-            <Bot className="mr-2" size={18} />
-            AI Assistant
-          </Button>
-        </div>
       </header>
 
       <DashboardStats />
