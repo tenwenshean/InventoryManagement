@@ -313,6 +313,12 @@ export default async function handler(req, res) {
       return await handleGetReportsData(req, res, user);
     }
 
+    // ===== REPORTS CHAT ROUTE (protected) =====
+    if (pathParts[0] === 'reports' && pathParts[1] === 'chat' && req.method === 'POST') {
+      const user = await authenticate(req);
+      return await handleReportsChat(req, res, user);
+    }
+
     // ===== CHECKOUT ROUTE (public - no auth required) =====
     if (pathParts[0] === 'checkout' && req.method === 'POST') {
       return await handleCheckout(req, res);
@@ -2064,6 +2070,144 @@ async function handleGetReportsData(req, res, user) {
       message: 'Failed to fetch reports', 
       error: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+}
+
+// ===== REPORTS CHAT HANDLER (GPT INTEGRATION) =====
+async function handleReportsChat(req, res, user) {
+  try {
+    const { message, reportsData, conversationHistory } = req.body;
+    
+    if (!message || !message.trim()) {
+      return res.status(400).json({ message: 'Message is required' });
+    }
+
+    console.log('[REPORTS CHAT] Processing message for user:', user.uid);
+
+    // Check for API key
+    if (!process.env.GEMINI_API_KEY) {
+      console.error('[REPORTS CHAT] Gemini API key not configured');
+      return res.status(500).json({ 
+        message: 'AI service not configured. Please add GEMINI_API_KEY to environment variables.' 
+      });
+    }
+
+    // Prepare context from reports data
+    const context = `
+You are an expert business and financial analyst AI assistant. You have access to the following business data for the user:
+
+KEY METRICS:
+- Total Revenue: ${reportsData?.keyMetrics?.totalRevenue || 'N/A'}
+- Units Sold: ${reportsData?.keyMetrics?.unitsSold || 0}
+- Average Order Value: ${reportsData?.keyMetrics?.avgOrderValue || 'N/A'}
+- Return Rate: ${reportsData?.keyMetrics?.returnRate || 'N/A'}
+
+SALES DATA (Monthly):
+${JSON.stringify(reportsData?.salesData || [], null, 2)}
+
+INVENTORY TRENDS:
+${JSON.stringify(reportsData?.inventoryTrends || [], null, 2)}
+
+ACCOUNTING DATA (Monthly):
+${JSON.stringify(reportsData?.accountingData || [], null, 2)}
+
+CASH FLOW:
+${JSON.stringify(reportsData?.cashFlow || [], null, 2)}
+
+AI PREDICTIONS:
+${JSON.stringify(reportsData?.predictions || [], null, 2)}
+
+TOP PRODUCTS:
+${JSON.stringify(reportsData?.topProducts || [], null, 2)}
+
+CATEGORY DISTRIBUTION:
+${JSON.stringify(reportsData?.categoryData || [], null, 2)}
+
+${reportsData?.insights ? `CURRENT INSIGHTS:
+- Trend: ${reportsData.insights.trend}
+- Recommendation: ${reportsData.insights.recommendation}
+${reportsData.insights.anomalies ? `- Anomalies Detected: ${reportsData.insights.anomalies}` : ''}
+` : ''}
+
+INSTRUCTIONS:
+1. Analyze the provided data to answer the user's questions
+2. Provide specific, actionable insights based on the actual numbers
+3. Highlight trends, patterns, and potential issues
+4. Give recommendations for improvement when relevant
+5. Be concise but comprehensive
+6. Use markdown formatting for better readability
+7. Reference specific data points when making observations
+8. If asked about inventory management, focus on stock levels, turnover, and optimization
+9. If asked about finances, focus on profitability, cash flow, and financial health
+10. If the user asks about something not in the data, politely explain what data is available
+
+Remember: You're helping a business owner understand their operations better. Be helpful, professional, and insightful.
+`;
+
+    // Build prompt for Gemini
+    let fullPrompt = context + '\n\n';
+    if (conversationHistory && conversationHistory.length > 0) {
+      fullPrompt += conversationHistory.map(msg => 
+        `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`
+      ).join('\n\n') + '\n\n';
+    }
+    fullPrompt += `User: ${message}`;
+
+    console.log('[REPORTS CHAT] Calling Gemini API via REST...');
+
+    // Call Gemini REST API directly
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{ text: fullPrompt }]
+          }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 1000,
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[REPORTS CHAT] Gemini API error:', errorText);
+      throw new Error(`Gemini API error: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+    const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response.';
+
+    console.log('[REPORTS CHAT] Response generated successfully');
+
+    return res.json({
+      response: aiResponse
+    });
+
+  } catch (error) {
+    console.error('[REPORTS CHAT] Error:', error);
+    
+    // Handle specific Gemini errors
+    if (error.message?.includes('API key')) {
+      return res.status(500).json({ 
+        message: 'AI service configuration error. Please check your API key.' 
+      });
+    }
+    
+    if (error.message?.includes('quota') || error.message?.includes('rate limit')) {
+      return res.status(503).json({ 
+        message: 'AI service quota exceeded. Please try again later.' 
+      });
+    }
+
+    return res.status(500).json({ 
+      message: 'Failed to process AI request',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 }

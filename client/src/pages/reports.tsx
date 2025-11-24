@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend, Area, AreaChart, ComposedChart } from 'recharts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar, Download, Filter, TrendingUp, TrendingDown, Package, DollarSign, Loader2, Brain, AlertTriangle, CheckCircle } from "lucide-react";
+import { Calendar, Download, Filter, TrendingUp, TrendingDown, Package, DollarSign, Loader2, Brain, AlertTriangle, CheckCircle, MessageCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import ReportsChatbot from "@/components/reports-chatbot";
 
 // Type definitions
 interface KeyMetrics {
@@ -80,6 +81,7 @@ interface ReportsData {
 
 export default function Reports() {
   const [timeRange, setTimeRange] = useState("30days");
+  const [isChatbotOpen, setIsChatbotOpen] = useState(false);
   
   // Fetch real data from the API
   const { data: reportsData, isLoading, error } = useQuery<ReportsData>({
@@ -145,7 +147,28 @@ export default function Reports() {
   const COLORS = ['#dc2626', '#ef4444', '#f87171', '#fca5a5', '#fecaca'];
 
   return (
-    <div className="container mx-auto p-6 space-y-6" data-testid="reports-page">
+    <div className="container mx-auto p-6 space-y-6 relative" data-testid="reports-page">
+        {/* AI Chatbot */}
+        <ReportsChatbot 
+          isOpen={isChatbotOpen} 
+          onClose={() => setIsChatbotOpen(false)}
+          reportsData={reportsData}
+        />
+
+        {/* Floating AI Assistant Button */}
+        {!isChatbotOpen && (
+          <Button
+            onClick={() => setIsChatbotOpen(true)}
+            className="fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full shadow-lg bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 p-0"
+            data-testid="button-open-ai-chat"
+          >
+            <div className="relative">
+              <Brain size={24} className="text-white" />
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full border-2 border-white"></span>
+            </div>
+          </Button>
+        )}
+
         {/* Header */}
         <div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <div>

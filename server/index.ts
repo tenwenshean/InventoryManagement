@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
 import { createServer as createNetServer } from "node:net";
 import { registerRoutes } from "./routes";
