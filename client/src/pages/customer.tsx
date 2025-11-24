@@ -19,7 +19,9 @@ import {
   CheckCircle2,
   User,
   LogOut,
-  Eye
+  Eye,
+  Menu,
+  X
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
@@ -40,6 +42,7 @@ export default function CustomerPortal() {
   const [selectedProduct, setSelectedProduct] = useState<(Product & { companyName?: string }) | null>(null);
   const [customerUser, setCustomerUser] = useState<any>(null);
   const [pendingProduct, setPendingProduct] = useState<(Product & { companyName?: string }) | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
   const { addToCart, cartCount } = useCart();
@@ -221,18 +224,103 @@ export default function CustomerPortal() {
 
   return (
     <div className="min-h-screen bg-white">
+      {/* Mobile Menu Button */}
+      <button
+        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        className="md:hidden fixed top-4 left-4 z-50 bg-white text-red-600 p-2 rounded-lg shadow-lg hover:bg-red-50"
+      >
+        {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+      </button>
+
+      {/* Mobile Menu Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="md:hidden fixed inset-0 bg-black/50 z-30"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Mobile Menu Sidebar */}
+      <div
+        className={`md:hidden fixed top-0 left-0 h-full w-64 bg-white shadow-xl z-40 transform transition-transform duration-300 ${
+          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="p-6 pt-16">
+          <div className="space-y-4">
+            {customerUser && (
+              <>
+                <div className="pb-4 border-b">
+                  <div className="flex items-center gap-2 mb-2">
+                    <User className="w-5 h-5 text-red-600" />
+                    <span className="text-sm text-gray-600">Logged in as</span>
+                  </div>
+                  <p className="font-medium text-gray-900 truncate">
+                    {getDisplayName(customerUser)}
+                  </p>
+                </div>
+                <Link href="/customer-profile">
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    <User className="w-4 h-4 mr-2" />
+                    My Profile
+                  </Button>
+                </Link>
+              </>
+            )}
+            <Link href="/shop">
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <Store className="w-4 h-4 mr-2" />
+                Shop All Products
+              </Button>
+            </Link>
+            {customerUser ? (
+              <Button
+                variant="outline"
+                className="w-full justify-start text-red-600 border-red-600 hover:bg-red-50"
+                onClick={() => {
+                  handleLogout();
+                  setIsMobileMenuOpen(false);
+                }}
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Logout
+              </Button>
+            ) : (
+              <Button
+                className="w-full bg-red-600 hover:bg-red-700 text-white"
+                onClick={() => {
+                  setShowLoginModal(true);
+                  setIsMobileMenuOpen(false);
+                }}
+              >
+                <User className="w-4 h-4 mr-2" />
+                Login
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Header/Navigation */}
-      <header className="bg-gradient-to-r from-red-600 to-orange-500 text-white sticky top-0 z-50 shadow-lg">
+      <header className="bg-gradient-to-r from-red-600 to-orange-500 text-white sticky top-0 z-20 shadow-lg">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Store className="w-10 h-10" />
+            <div className="flex items-center space-x-3 ml-12 md:ml-0">
+              <Store className="w-8 h-8 md:w-10 md:h-10" />
               <div>
-                <h1 className="text-2xl font-bold">InventoryPro Store</h1>
-                <p className="text-sm text-red-100">Quality Products, Delivered Fast</p>
+                <h1 className="text-xl md:text-2xl font-bold">InventoryPro Store</h1>
+                <p className="text-xs md:text-sm text-red-100 hidden sm:block">Quality Products, Delivered Fast</p>
               </div>
             </div>
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2 md:space-x-3">
               {customerUser ? (
                 <>
                   <Link href="/customer-profile">
@@ -251,7 +339,7 @@ export default function CustomerPortal() {
                   </Link>
                   <Button
                     variant="outline"
-                    className="bg-white/10 border-white/20 hover:bg-white/20 text-white"
+                    className="hidden md:flex bg-white/10 border-white/20 hover:bg-white/20 text-white"
                     onClick={handleLogout}
                   >
                     <LogOut className="w-4 h-4 mr-2" />
@@ -260,7 +348,7 @@ export default function CustomerPortal() {
                 </>
               ) : (
                 <Button
-                  className="bg-white text-red-600 hover:bg-red-50"
+                  className="hidden md:flex bg-white text-red-600 hover:bg-red-50"
                   onClick={() => setShowLoginModal(true)}
                 >
                   <User className="w-4 h-4 mr-2" />
@@ -268,9 +356,9 @@ export default function CustomerPortal() {
                 </Button>
               )}
               <Link href="/cart">
-                <Button className="relative bg-white text-red-600 hover:bg-red-50">
-                  <ShoppingCart className="w-5 h-5 mr-2" />
-                  Cart
+                <Button className="relative bg-white text-red-600 hover:bg-red-50 px-3 md:px-4">
+                  <ShoppingCart className="w-5 h-5 md:mr-2" />
+                  <span className="hidden md:inline">Cart</span>
                   {cartCount > 0 && (
                     <Badge className="absolute -top-2 -right-2 bg-orange-500 text-white">
                       {cartCount}

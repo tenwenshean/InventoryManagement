@@ -128,9 +128,9 @@ function AuthenticatedApp() {
   }, [user, location, isCustomerPortal, isEnterpriseDashboard, logout, setLocation, isLoading]);
 
   return (
-    <div className="flex">
+    <div className="flex min-h-screen">
       {!isCustomerPortal && <Sidebar />}
-      <main className={isCustomerPortal ? "flex-1" : "flex-1 ml-64 p-6"}>
+      <main className={isCustomerPortal ? "flex-1 w-full" : "flex-1 w-full lg:ml-64 p-4 sm:p-6"}>
         <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/dashboard" component={Dashboard} />

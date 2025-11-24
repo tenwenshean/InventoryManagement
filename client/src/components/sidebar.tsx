@@ -9,15 +9,20 @@ import {
   LogOut,
   User,
   ShoppingCart,
+  Menu,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
+import { useState } from "react";
 import type { User as UserType } from "@shared/schema";
 
 export default function Sidebar() {
   const [location, setLocation] = useLocation();
   const { user, logout } = useAuth();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  
   const handleLogout = async () => {
     await logout();
     setLocation("/"); // safely route back to landing/login page
@@ -34,8 +39,39 @@ export default function Sidebar() {
     { name: "Settings", href: "/settings", icon: Settings },
   ];
 
+  const handleNavClick = (href: string) => {
+    setLocation(href);
+    setIsMobileMenuOpen(false);
+  };
+
   return (
-    <aside className="w-64 bg-card border-r border-border min-h-screen fixed left-0 top-0 z-10">
+    <>
+      {/* Mobile Menu Button */}
+      <button
+        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        className="lg:hidden fixed top-4 left-4 z-50 bg-card border border-border rounded-lg p-2 shadow-lg"
+        aria-label="Toggle menu"
+      >
+        {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+      </button>
+
+      {/* Mobile Overlay */}
+      {isMobileMenuOpen && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/50 z-30"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`
+          w-64 bg-card border-r border-border min-h-screen fixed left-0 top-0 z-40
+          transition-transform duration-300 ease-in-out
+          lg:translate-x-0
+          ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+        `}
+      >
       <div className="p-6 border-b border-border">
         <div className="flex items-center space-x-3">
           <div className="bg-primary rounded-lg p-2">
@@ -62,7 +98,7 @@ export default function Sidebar() {
             return (
               <li key={item.name}>
                 <button
-                  onClick={() => setLocation(item.href)}
+                  onClick={() => handleNavClick(item.href)}
                   className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors text-left ${
                     isActive
                       ? "bg-primary text-primary-foreground"
@@ -108,5 +144,6 @@ export default function Sidebar() {
         </div>
       </div>
     </aside>
+    </>
   );
 }

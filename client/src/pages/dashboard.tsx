@@ -146,16 +146,16 @@ export default function Dashboard() {
 
   return (
     <>
-      <header className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground" data-testid="text-page-title">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8 gap-4 mt-12 lg:mt-0">
+        <div className="flex-1">
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground" data-testid="text-page-title">
             Dashboard
           </h1>
-          <p className="text-muted-foreground" data-testid="text-page-subtitle">
+          <p className="text-sm text-muted-foreground" data-testid="text-page-subtitle">
             Welcome back, overview of your inventory system
           </p>
           {currentTime && (
-            <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 mt-1 text-xs sm:text-sm text-muted-foreground">
               <Clock size={14} />
               <span>{currentTime}</span>
             </div>
@@ -165,14 +165,14 @@ export default function Dashboard() {
 
       <DashboardStats />
 
-      <Card className="mb-8">
+      <Card className="mb-6 sm:mb-8">
         <CardHeader>
-          <CardTitle className="text-lg font-semibold text-foreground">
+          <CardTitle className="text-base sm:text-lg font-semibold text-foreground">
             Quick Actions
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             <Button
               variant="outline"
               className="flex items-center space-x-3 p-4 h-auto justify-start"
