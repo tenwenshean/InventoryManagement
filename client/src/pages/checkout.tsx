@@ -27,6 +27,82 @@ import { useCart } from "@/contexts/CartContext";
 import { apiRequest } from "@/lib/queryClient";
 import CustomerLoginModal from "@/components/customer-login-modal";
 import type { Coupon } from "@/types";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+
+// Initialize Stripe
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
+
+// Stripe Payment Form Component
+function StripePaymentForm({ 
+  onSuccess, 
+  onError, 
+  isProcessing, 
+  setIsProcessing 
+}: { 
+  onSuccess: (paymentIntentId: string) => void; 
+  onError: (error: string) => void; 
+  isProcessing: boolean;
+  setIsProcessing: (val: boolean) => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const { toast } = useToast();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!stripe || !elements) {
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/checkout`,
+        },
+        redirect: 'if_required'
+      });
+
+      if (error) {
+        onError(error.message || 'Payment failed');
+        setIsProcessing(false);
+      } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+        onSuccess(paymentIntent.id);
+      }
+    } catch (err: any) {
+      onError(err.message || 'Payment processing failed');
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement />
+      <Button
+        type="submit"
+        disabled={isProcessing || !stripe || !elements}
+        className="w-full bg-red-600 hover:bg-red-700 text-white"
+        size="lg"
+      >
+        {isProcessing ? (
+          <>
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            Processing Payment...
+          </>
+        ) : (
+          <>
+            <CreditCard className="w-4 h-4 mr-2" />
+            Pay Now
+          </>
+        )}
+      </Button>
+    </form>
+  );
+}
 
 export default function CheckoutPage() {
   const { formatPrice } = useCustomerCurrency();
@@ -36,6 +112,8 @@ export default function CheckoutPage() {
   const [orderComplete, setOrderComplete] = useState(false);
   const [orderNumber, setOrderNumber] = useState("");
   const [stockErrors, setStockErrors] = useState<Record<string, string>>({});
+  const [clientSecret, setClientSecret] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'cod'>('card');
   
   // Coupon state
   const [couponCode, setCouponCode] = useState("");
@@ -78,6 +156,22 @@ export default function CheckoutPage() {
   const discount = calculateDiscount();
   const shippingFee = 10;
   const finalTotal = Math.max(0, cartTotal - discount + shippingFee);
+
+  // Create payment intent when payment method is card
+  useEffect(() => {
+    if (paymentMethod === 'card' && finalTotal > 0 && currentUser) {
+      createPaymentIntent(finalTotal)
+        .then(secret => setClientSecret(secret))
+        .catch(err => {
+          console.error('Failed to create payment intent:', err);
+          toast({
+            title: "Payment Setup Failed",
+            description: "Unable to initialize payment. Please try again.",
+            variant: "destructive"
+          });
+        });
+    }
+  }, [paymentMethod, finalTotal, currentUser]);
 
   // Auth listener
   useEffect(() => {
@@ -168,6 +262,31 @@ export default function CheckoutPage() {
     return Object.keys(errors).length === 0;
   };
 
+  // Create payment intent
+  // Create payment intent
+  const createPaymentIntent = async (amount: number) => {
+    try {
+      console.log('[CHECKOUT] Creating payment intent for amount:', amount);
+      const response = await apiRequest('POST', '/api/payment/create-intent', {
+        amount: Math.round(amount * 100), // Convert to cents
+        currency: 'usd'
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('[CHECKOUT] Payment intent failed:', errorData);
+        throw new Error(errorData.message || 'Failed to create payment intent');
+      }
+      
+      const data = await response.json();
+      console.log('[CHECKOUT] Payment intent created:', data.paymentIntentId);
+      return data.clientSecret;
+    } catch (error) {
+      console.error('[CHECKOUT] Payment intent error:', error);
+      throw error;
+    }
+  };
+
   // Validate form
   const validateForm = () => {
     if (!customerName.trim()) {
@@ -201,7 +320,7 @@ export default function CheckoutPage() {
   };
 
   // Handle checkout
-  const handlePlaceOrder = async () => {
+  const handlePlaceOrder = async (paymentIntentId?: string) => {
     if (!currentUser) {
       setShowLoginModal(true);
       toast({
@@ -249,6 +368,8 @@ export default function CheckoutPage() {
         customerPhone,
         shippingAddress,
         notes,
+        paymentMethod,
+        paymentIntentId,
         items: cart.map(item => ({
           productId: item.product.id,
           productName: item.product.name,
@@ -447,6 +568,75 @@ export default function CheckoutPage() {
               </CardContent>
             </Card>
 
+            {/* Payment Method */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Payment Method</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('card')}
+                    className={`p-4 border-2 rounded-lg text-center transition-all ${
+                      paymentMethod === 'card'
+                        ? 'border-red-600 bg-red-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <CreditCard className={`w-8 h-8 mx-auto mb-2 ${
+                      paymentMethod === 'card' ? 'text-red-600' : 'text-gray-400'
+                    }`} />
+                    <p className="font-semibold">Credit/Debit Card</p>
+                    <p className="text-xs text-gray-500 mt-1">Secure payment via Stripe</p>
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('cod')}
+                    className={`p-4 border-2 rounded-lg text-center transition-all ${
+                      paymentMethod === 'cod'
+                        ? 'border-red-600 bg-red-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <DollarSign className={`w-8 h-8 mx-auto mb-2 ${
+                      paymentMethod === 'cod' ? 'text-red-600' : 'text-gray-400'
+                    }`} />
+                    <p className="font-semibold">Cash on Delivery</p>
+                    <p className="text-xs text-gray-500 mt-1">Pay when you receive</p>
+                  </button>
+                </div>
+
+                {paymentMethod === 'card' && clientSecret && (
+                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <Elements stripe={stripePromise} options={{ clientSecret }}>
+                      <StripePaymentForm
+                        onSuccess={(paymentIntentId) => handlePlaceOrder(paymentIntentId)}
+                        onError={(error) => {
+                          toast({
+                            title: "Payment Failed",
+                            description: error,
+                            variant: "destructive"
+                          });
+                        }}
+                        isProcessing={isProcessing}
+                        setIsProcessing={setIsProcessing}
+                      />
+                    </Elements>
+                  </div>
+                )}
+
+                {paymentMethod === 'cod' && (
+                  <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p className="text-sm text-yellow-800">
+                      <strong>Cash on Delivery:</strong> You will pay when your order is delivered.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Order Items */}
             <Card>
               <CardHeader>
@@ -597,24 +787,33 @@ export default function CheckoutPage() {
                   </div>
                 </div>
 
-                <Button
-                  onClick={handlePlaceOrder}
-                  disabled={isProcessing || cart.length === 0 || Object.keys(stockErrors).length > 0}
-                  className="w-full bg-red-600 hover:bg-red-700 text-white"
-                  size="lg"
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <CreditCard className="w-4 h-4 mr-2" />
-                      Place Order
-                    </>
-                  )}
-                </Button>
+                {paymentMethod === 'cod' && (
+                  <Button
+                    onClick={() => handlePlaceOrder()}
+                    disabled={isProcessing || cart.length === 0 || Object.keys(stockErrors).length > 0}
+                    className="w-full bg-red-600 hover:bg-red-700 text-white"
+                    size="lg"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <DollarSign className="w-4 h-4 mr-2" />
+                        Place Order (Cash on Delivery)
+                      </>
+                    )}
+                  </Button>
+                )}
+
+                {paymentMethod === 'card' && !clientSecret && (
+                  <div className="text-center py-4">
+                    <Loader2 className="w-6 h-6 animate-spin mx-auto text-red-600" />
+                    <p className="text-sm text-gray-500 mt-2">Initializing payment...</p>
+                  </div>
+                )}
 
                 <p className="text-xs text-gray-500 text-center">
                   By placing your order, you agree to our terms and conditions

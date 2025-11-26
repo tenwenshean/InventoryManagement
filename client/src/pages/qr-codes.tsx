@@ -84,17 +84,152 @@ export default function QRCodes() {
   const handlePrint = (product: Product) => {
     const imgUrl = qrUrls[product.id];
     if (!imgUrl) return;
-    const w = window.open("", "_blank", "noopener,noreferrer");
-    if (!w) return;
-    w.document.write(`<!doctype html><html><head><title>Print QR - ${product.name}</title></head><body style="margin:0;display:flex;align-items:center;justify-content:center;">`);
-    w.document.write(`<div style="text-align:center;font-family:sans-serif;padding:24px;">`);
-    w.document.write(`<h3 style="margin:0 0 12px;">${product.name}</h3>`);
-    w.document.write(`<img src="${imgUrl}" style="width:300px;height:300px;" />`);
-    w.document.write(`<p style="margin-top:8px;font-size:12px;color:#555;">Scan to continue</p>`);
-    w.document.write(`</div></body></html>`);
-    w.document.close();
-    w.focus();
-    w.print();
+
+    // Create a print window with proper styling
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast({
+        title: "Error",
+        description: "Please allow popups to print QR codes",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Build the HTML content
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Print QR Code - ${product.name}</title>
+          <style>
+            @page {
+              size: A4;
+              margin: 20mm;
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+            }
+            body {
+              font-family: 'Arial', sans-serif;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              min-height: 100vh;
+              background: white;
+            }
+            .container {
+              text-align: center;
+              max-width: 600px;
+              padding: 40px;
+              border: 2px solid #e5e7eb;
+              border-radius: 12px;
+              box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            }
+            .product-info {
+              margin-bottom: 30px;
+            }
+            h1 {
+              font-size: 28px;
+              color: #1f2937;
+              margin-bottom: 8px;
+              font-weight: 700;
+            }
+            .sku {
+              font-size: 16px;
+              color: #6b7280;
+              margin-bottom: 4px;
+            }
+            .category {
+              font-size: 14px;
+              color: #9ca3af;
+            }
+            .qr-container {
+              background: white;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            .qr-code {
+              width: 300px;
+              height: 300px;
+              margin: 0 auto;
+              display: block;
+            }
+            .qr-text {
+              font-family: 'Courier New', monospace;
+              font-size: 14px;
+              color: #4b5563;
+              margin-top: 16px;
+              letter-spacing: 1px;
+              word-break: break-all;
+            }
+            .scan-instruction {
+              margin-top: 24px;
+              font-size: 14px;
+              color: #6b7280;
+            }
+            @media print {
+              body {
+                background: white;
+              }
+              .container {
+                border: none;
+                box-shadow: none;
+                padding: 20px;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="product-info">
+              <h1>${product.name}</h1>
+              <p class="sku">SKU: ${product.sku}</p>
+              ${product.category ? `<p class="category">Category: ${product.category}</p>` : ''}
+              ${product.location ? `<p class="category">Location: ${product.location}</p>` : ''}
+            </div>
+            <div class="qr-container">
+              <img src="${imgUrl}" alt="QR Code" class="qr-code" id="qrImage" />
+              <p class="qr-text">${product.qrCode}</p>
+            </div>
+            <p class="scan-instruction">Scan this QR code to view product details</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+
+    // Wait for image to load before printing
+    const img = printWindow.document.getElementById('qrImage') as HTMLImageElement;
+    if (img) {
+      img.onload = () => {
+        printWindow.focus();
+        setTimeout(() => {
+          printWindow.print();
+          printWindow.close();
+        }, 250);
+      };
+      // If image is already loaded (cached)
+      if (img.complete) {
+        printWindow.focus();
+        setTimeout(() => {
+          printWindow.print();
+          printWindow.close();
+        }, 250);
+      }
+    } else {
+      // Fallback if image element not found
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 500);
+    }
   };
 
   // QR code generation mutation

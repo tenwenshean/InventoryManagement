@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { cache } from "./cache";
 import { auth, db } from "./db"; // ✅ fixed import
 import { mlService } from "./ml-service";
+import Stripe from "stripe";
 import {
   insertProductSchema,
   insertCategorySchema,
@@ -1780,6 +1781,102 @@ Remember: You're helping a business owner understand their operations better. Be
     } catch (error) {
       console.error("Error sending chat message:", error);
       res.status(500).json({ message: "Failed to send message" });
+    }
+  });
+
+  // ===================== STRIPE PAYMENT ENDPOINTS =====================
+  app.post("/api/payment/create-intent", async (req: any, res) => {
+    try {
+      const { amount, currency = 'usd' } = req.body;
+
+      if (!amount || amount <= 0) {
+        return res.status(400).json({ message: 'Invalid amount' });
+      }
+
+      // Initialize Stripe
+      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+      
+      if (!stripeSecretKey) {
+        console.log('[PAYMENT] Stripe not configured, returning mock payment intent');
+        // Return a mock response for development
+        return res.json({
+          clientSecret: `pi_mock_${Date.now()}_secret_${Math.random().toString(36).substr(2, 9)}`,
+          paymentIntentId: `pi_mock_${Date.now()}`
+        });
+      }
+
+      const stripe = new Stripe(stripeSecretKey, {
+        apiVersion: '2024-11-20.acacia'
+      });
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amount), // Amount in cents
+        currency: currency.toLowerCase(),
+        automatic_payment_methods: {
+          enabled: true,
+        },
+      });
+
+      res.json({
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id
+      });
+    } catch (error: any) {
+      console.error('[PAYMENT] Error creating payment intent:', error);
+      res.status(500).json({ 
+        message: 'Failed to create payment intent',
+        error: error.message 
+      });
+    }
+  });
+
+  app.post("/api/payment/webhook", async (req: any, res) => {
+    try {
+      const sig = req.headers['stripe-signature'];
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+      if (!webhookSecret) {
+        console.log('[PAYMENT] Webhook secret not configured');
+        return res.status(400).json({ message: 'Webhook not configured' });
+      }
+
+      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+      if (!stripeSecretKey) {
+        return res.status(400).json({ message: 'Stripe not configured' });
+      }
+
+      const stripe = new Stripe(stripeSecretKey, {
+        apiVersion: '2024-11-20.acacia'
+      });
+      
+      let event;
+      try {
+        event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      } catch (err: any) {
+        console.error('[PAYMENT] Webhook signature verification failed:', err.message);
+        return res.status(400).json({ message: `Webhook Error: ${err.message}` });
+      }
+
+      // Handle the event
+      switch (event.type) {
+        case 'payment_intent.succeeded':
+          const paymentIntent = event.data.object;
+          console.log('[PAYMENT] Payment succeeded:', paymentIntent.id);
+          // TODO: Update order status in database
+          break;
+        case 'payment_intent.payment_failed':
+          const failedPayment = event.data.object;
+          console.log('[PAYMENT] Payment failed:', failedPayment.id);
+          // TODO: Update order status in database
+          break;
+        default:
+          console.log('[PAYMENT] Unhandled event type:', event.type);
+      }
+
+      res.json({ received: true });
+    } catch (error) {
+      console.error("Webhook error:", error);
+      res.status(400).json({ message: "Webhook error" });
     }
   });
 
