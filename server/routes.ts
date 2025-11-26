@@ -1789,6 +1789,8 @@ Remember: You're helping a business owner understand their operations better. Be
     try {
       const { amount, currency = 'usd' } = req.body;
 
+      console.log('[PAYMENT] Create intent request:', { amount, currency });
+
       if (!amount || amount <= 0) {
         return res.status(400).json({ message: 'Invalid amount' });
       }
@@ -1797,7 +1799,7 @@ Remember: You're helping a business owner understand their operations better. Be
       const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
       
       if (!stripeSecretKey) {
-        console.log('[PAYMENT] Stripe not configured, returning mock payment intent');
+        console.log('[PAYMENT] Stripe not configured (no secret key), returning mock payment intent');
         // Return a mock response for development
         return res.json({
           clientSecret: `pi_mock_${Date.now()}_secret_${Math.random().toString(36).substr(2, 9)}`,
@@ -1805,9 +1807,13 @@ Remember: You're helping a business owner understand their operations better. Be
         });
       }
 
+      console.log('[PAYMENT] Stripe secret key found, initializing Stripe...');
+
       const stripe = new Stripe(stripeSecretKey, {
         apiVersion: '2024-11-20.acacia'
       });
+
+      console.log('[PAYMENT] Creating payment intent...');
 
       const paymentIntent = await stripe.paymentIntents.create({
         amount: Math.round(amount), // Amount in cents
@@ -1817,12 +1823,15 @@ Remember: You're helping a business owner understand their operations better. Be
         },
       });
 
+      console.log('[PAYMENT] Payment intent created:', paymentIntent.id);
+
       res.json({
         clientSecret: paymentIntent.client_secret,
         paymentIntentId: paymentIntent.id
       });
     } catch (error: any) {
       console.error('[PAYMENT] Error creating payment intent:', error);
+      console.error('[PAYMENT] Error details:', error.message, error.stack);
       res.status(500).json({ 
         message: 'Failed to create payment intent',
         error: error.message 
