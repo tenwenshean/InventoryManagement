@@ -2042,18 +2042,71 @@ async function handleGetReportsData(req, res, user) {
       });
     }
 
-    // Simple predictions (without ML service in serverless)
-    const predictions = sortedAccountingMonths.slice(-3).map((m, index) => {
-      const [year, month] = m.split('-');
-      const nextDate = new Date(parseInt(year), parseInt(month) + index, 1);
-      const predicted = accountingByMonth[m]?.revenue || 0;
+    // Linear Regression Predictions
+    const predictions = [];
+    if (sortedAccountingMonths.length >= 3) {
+      // Prepare data points for regression
+      const dataPoints = sortedAccountingMonths.map((month, index) => ({
+        x: index, // Time index
+        y: accountingByMonth[month]?.revenue || 0
+      }));
+
+      // Calculate linear regression: y = mx + b
+      const n = dataPoints.length;
+      let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+
+      dataPoints.forEach(point => {
+        sumX += point.x;
+        sumY += point.y;
+        sumXY += point.x * point.y;
+        sumX2 += point.x * point.x;
+      });
+
+      // Calculate slope (m) and intercept (b)
+      const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+      const intercept = (sumY - slope * sumX) / n;
+
+      // Calculate R² (coefficient of determination) for confidence
+      const meanY = sumY / n;
+      let ssTotal = 0, ssResidual = 0;
       
-      return {
-        period: `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`,
-        predicted: Math.round(predicted * 1.1 * 100) / 100, // Simple 10% growth prediction
-        confidence: 0.75
-      };
-    });
+      dataPoints.forEach(point => {
+        const predicted = slope * point.x + intercept;
+        ssTotal += Math.pow(point.y - meanY, 2);
+        ssResidual += Math.pow(point.y - predicted, 2);
+      });
+
+      const rSquared = ssTotal !== 0 ? 1 - (ssResidual / ssTotal) : 0;
+      const confidence = Math.max(0, Math.min(100, Math.round(rSquared * 100)));
+
+      // Generate predictions for next 3 periods
+      for (let i = 1; i <= 3; i++) {
+        const nextIndex = n + i - 1;
+        const predictedValue = Math.max(0, slope * nextIndex + intercept);
+
+        // Calculate next period date
+        const lastMonth = sortedAccountingMonths[sortedAccountingMonths.length - 1];
+        const [year, month] = lastMonth.split('-');
+        const nextDate = new Date(parseInt(year), parseInt(month) - 1 + i, 1);
+        const period = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
+
+        predictions.push({
+          period,
+          predicted: Math.round(predictedValue * 100) / 100,
+          confidence: Math.round(confidence * Math.pow(0.95, i - 1)), // Slightly decrease confidence for future periods
+          calculation: {
+            formula: `y = ${slope.toFixed(4)}x + ${intercept.toFixed(2)}`,
+            slope: Math.round(slope * 100) / 100,
+            intercept: Math.round(intercept * 100) / 100,
+            rSquared: Math.round(rSquared * 1000) / 1000,
+            dataPoints: n,
+            method: 'Linear Regression',
+            xValue: nextIndex,
+            calculation: `${slope.toFixed(4)} × ${nextIndex} + ${intercept.toFixed(2)} = ${predictedValue.toFixed(2)}`
+          }
+        });
+      }
+    }
 
     // Insights
     const recentRevenues = sortedAccountingMonths.slice(-3).map(m => accountingByMonth[m]?.revenue || 0);

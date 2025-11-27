@@ -68,6 +68,16 @@ interface PredictionItem {
   period: string;
   predicted: number;
   confidence: number;
+  calculation?: {
+    formula: string;
+    slope: number;
+    intercept: number;
+    rSquared: number;
+    dataPoints: number;
+    method: string;
+    xValue: number;
+    calculation: string;
+  };
 }
 
 interface CashFlowItem {
@@ -1358,10 +1368,42 @@ export default function Reports() {
               <Card>
                 <CardHeader>
                   <CardTitle>Prediction Insights</CardTitle>
-                  <CardDescription>Detailed forecast analysis</CardDescription>
+                  <CardDescription>Linear regression forecast with calculation details</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
+                    {predictions.length > 0 && predictions[0].calculation && (
+                      <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                        <h4 className="font-semibold text-sm text-purple-900 mb-2">📊 Regression Model</h4>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Method:</span>
+                            <span className="font-mono font-semibold text-purple-800">{predictions[0].calculation.method}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Formula:</span>
+                            <span className="font-mono font-semibold text-purple-800">{predictions[0].calculation.formula}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Slope (m):</span>
+                            <span className="font-mono text-purple-700">{predictions[0].calculation.slope}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Intercept (b):</span>
+                            <span className="font-mono text-purple-700">{predictions[0].calculation.intercept}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">R² (accuracy):</span>
+                            <span className="font-mono text-purple-700">{predictions[0].calculation.rSquared}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Data points:</span>
+                            <span className="font-mono text-purple-700">{predictions[0].calculation.dataPoints} months</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
                     {predictions.map((pred, index) => (
                       <div key={index} className="border-b pb-3 last:border-0">
                         <div className="flex justify-between items-center mb-2">
@@ -1377,10 +1419,23 @@ export default function Reports() {
                             {pred.confidence}% Confidence
                           </Badge>
                         </div>
-                        <div className="flex justify-between text-sm">
+                        <div className="flex justify-between text-sm mb-2">
                           <span className="text-gray-600">Predicted Value:</span>
                           <span className="font-bold text-purple-600">{formatCurrency(pred.predicted)}</span>
                         </div>
+                        
+                        {pred.calculation && (
+                          <div className="mt-2 p-2 bg-gray-50 rounded text-xs">
+                            <div className="font-semibold text-gray-700 mb-1">Calculation:</div>
+                            <div className="font-mono text-gray-600">
+                              y = {pred.calculation.slope} × {pred.calculation.xValue} + {pred.calculation.intercept}
+                            </div>
+                            <div className="font-mono text-gray-600">
+                              = {pred.calculation.calculation.split('=')[1]?.trim()}
+                            </div>
+                          </div>
+                        )}
+                        
                         <div className="mt-2 flex items-center gap-2">
                           {pred.confidence > 70 ? (
                             <CheckCircle className="h-4 w-4 text-green-600" />
@@ -1407,21 +1462,28 @@ export default function Reports() {
               {/* Reorder Recommendations */}
               <Card className="lg:col-span-2">
                 <CardHeader>
-                  <CardTitle>Smart Reorder Recommendations</CardTitle>
-                  <CardDescription>AI-powered inventory optimization</CardDescription>
+                  <CardTitle>Linear Regression Analysis</CardTitle>
+                  <CardDescription>Understanding the prediction model</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Alert>
                     <Brain className="h-4 w-4" />
-                    <AlertTitle>Machine Learning Analysis</AlertTitle>
+                    <AlertTitle>How Linear Regression Works</AlertTitle>
                     <AlertDescription>
-                      Based on historical sales patterns, demand forecasting, and seasonal trends, our AI recommends:
-                      <ul className="list-disc list-inside mt-2 space-y-1">
-                        <li>Review low-stock items before they reach reorder point</li>
-                        <li>Increase safety stock for high-demand products by 15%</li>
-                        <li>Consider promotional strategies for slow-moving inventory</li>
-                        <li>Optimize ordering frequency to reduce holding costs</li>
-                      </ul>
+                      Our prediction system uses <strong>Linear Regression</strong>, a statistical method that finds the best-fit line through your historical data points.
+                      <div className="mt-3 space-y-2">
+                        <div className="font-semibold">The Formula: y = mx + b</div>
+                        <ul className="list-disc list-inside space-y-1 text-sm">
+                          <li><strong>m (slope)</strong>: The rate of change in revenue over time. Positive = growing, Negative = declining</li>
+                          <li><strong>b (intercept)</strong>: The baseline revenue at the starting point</li>
+                          <li><strong>R²</strong>: Measures how well the line fits your data (0-1, higher is better)</li>
+                          <li><strong>Confidence</strong>: Based on R², adjusted for future distance from known data</li>
+                        </ul>
+                        <div className="mt-3 p-2 bg-purple-50 rounded text-sm">
+                          <strong>Example:</strong> If slope = 100 and intercept = 5000, then for month 12:<br/>
+                          <span className="font-mono">y = 100 × 12 + 5000 = $6,200 predicted revenue</span>
+                        </div>
+                      </div>
                     </AlertDescription>
                   </Alert>
                 </CardContent>
