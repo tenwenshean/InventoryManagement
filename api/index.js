@@ -3698,9 +3698,64 @@ async function handleCreateShipment(req, res, user) {
  * Track shipment status
  */
 async function handleTrackShipment(req, res, trackingNo) {
+  const { db } = await initializeFirebase();
+  
   try {
     console.log('[SHIPPING] Tracking shipment:', trackingNo);
 
+    // Check if this is a local tracking number (starts with TRK-)
+    if (trackingNo.startsWith('TRK-')) {
+      console.log('[SHIPPING] Local tracking number detected');
+      
+      // Find order with this shipmentId in Firestore
+      const snapshot = await db
+        .collection('orders')
+        .where('shipmentId', '==', trackingNo)
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        return res.status(404).json({ message: 'Shipment not found' });
+      }
+
+      const doc = snapshot.docs[0];
+      const order = doc.data();
+
+      const createdAt = order.createdAt?.toDate?.() || new Date();
+      const estimatedDelivery =
+        order.estimatedDelivery ||
+        new Date(createdAt.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString();
+
+      const events = [
+        {
+          timestamp: createdAt.toISOString(),
+          status: 'Order received',
+          location: 'Origin Warehouse',
+          description: 'Seller has received the order and is preparing the shipment.',
+        },
+        {
+          timestamp: new Date(createdAt.getTime() + 6 * 60 * 60 * 1000).toISOString(),
+          status: 'In transit',
+          location: 'On the way',
+          description: 'Your package is on the way with DemoCourier.',
+        },
+        {
+          timestamp: estimatedDelivery,
+          status: 'Out for delivery',
+          location: 'Destination City',
+          description: 'Courier is delivering the package to the customer address.',
+        },
+      ];
+
+      return res.json({
+        status: order.status || 'processing',
+        tracking_no: trackingNo,
+        courier: order.courier || 'DemoCourier',
+        events,
+      });
+    }
+
+    // For non-local tracking numbers, try EasyParcel API
     if (!process.env.EASYPARCEL_API_KEY) {
       return res.status(500).json({ 
         message: 'Shipping service not configured' 
