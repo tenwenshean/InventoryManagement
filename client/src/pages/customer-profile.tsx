@@ -28,13 +28,16 @@ import {
   Calendar,
   DollarSign,
   Store,
-  RotateCcw
+  RotateCcw,
+  Truck,
+  XCircle
 } from "lucide-react";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, updateProfile } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
+import { TrackingDialog } from "@/components/tracking-dialog";
 
 export default function CustomerProfile() {
   const { formatPrice } = useCustomerCurrency();
@@ -48,6 +51,11 @@ export default function CustomerProfile() {
   const [refundDialogOpen, setRefundDialogOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [refundReason, setRefundReason] = useState("");
+
+  // Tracking dialog state
+  const [trackingDialogOpen, setTrackingDialogOpen] = useState(false);
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [trackingOrderNumber, setTrackingOrderNumber] = useState("");
   const [isSubmittingRefund, setIsSubmittingRefund] = useState(false);
 
   // Profile form state
@@ -57,6 +65,7 @@ export default function CustomerProfile() {
     phoneNumber: "",
     address: "",
     city: "",
+    state: "",
     postalCode: "",
     country: ""
   });
@@ -67,16 +76,6 @@ export default function CustomerProfile() {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setCustomerUser(user);
-        // Load user data into form
-        setFormData({
-          displayName: user.displayName || "",
-          email: user.email || "",
-          phoneNumber: user.phoneNumber || "",
-          address: localStorage.getItem("customer_address") || "",
-          city: localStorage.getItem("customer_city") || "",
-          postalCode: localStorage.getItem("customer_postalCode") || "",
-          country: localStorage.getItem("customer_country") || ""
-        });
       } else {
         // Redirect to customer portal if not logged in
         setLocation("/customer");
@@ -99,6 +98,34 @@ export default function CustomerProfile() {
     enabled: !!customerUser?.uid
   });
 
+  // Fetch customer profile
+  const { data: customerProfile, isLoading: profileLoading } = useQuery({
+    queryKey: ['customer-profile', customerUser?.uid],
+    queryFn: async () => {
+      if (!customerUser?.uid) return null;
+      const response = await apiRequest('GET', `/api/customer/profile/${customerUser.uid}`);
+      if (!response.ok) throw new Error('Failed to fetch profile');
+      return response.json();
+    },
+    enabled: !!customerUser?.uid
+  });
+
+  // Load profile data into form when fetched
+  useEffect(() => {
+    if (customerProfile && customerUser) {
+      setFormData({
+        displayName: customerProfile.displayName || customerUser.displayName || "",
+        email: customerUser.email || "",
+        phoneNumber: customerProfile.phoneNumber || customerUser.phoneNumber || "",
+        address: customerProfile.address || "",
+        city: customerProfile.city || "",
+        state: customerProfile.state || "",
+        postalCode: customerProfile.postalCode || "",
+        country: customerProfile.country || ""
+      });
+    }
+  }, [customerProfile, customerUser]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
@@ -119,15 +146,25 @@ export default function CustomerProfile() {
         });
       }
 
-      // Save other fields to localStorage (you can also save to Firestore)
-      localStorage.setItem("customer_address", formData.address);
-      localStorage.setItem("customer_city", formData.city);
-      localStorage.setItem("customer_postalCode", formData.postalCode);
-      localStorage.setItem("customer_country", formData.country);
+      // Save profile to database
+      const response = await apiRequest('POST', '/api/customer/profile', {
+        customerId: customerUser.uid,
+        displayName: formData.displayName,
+        phoneNumber: formData.phoneNumber,
+        address: formData.address,
+        city: formData.city,
+        state: formData.state,
+        postalCode: formData.postalCode,
+        country: formData.country
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save profile');
+      }
 
       toast({
         title: "Profile Updated",
-        description: "Your profile has been saved successfully.",
+        description: "Your profile and shipping details have been saved successfully.",
       });
 
       // Reload auth state to get updated displayName
@@ -290,10 +327,13 @@ export default function CustomerProfile() {
 
               {/* Shipping Address Section */}
               <div className="border-t pt-6 mt-6">
-                <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
+                <h3 className="text-lg font-semibold mb-2 flex items-center space-x-2">
                   <MapPin className="w-5 h-5" />
                   <span>Shipping Address</span>
                 </h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Save your shipping details to autofill during checkout
+                </p>
 
                 {/* Address */}
                 <div className="space-y-2 mb-4">
@@ -308,7 +348,7 @@ export default function CustomerProfile() {
                   />
                 </div>
 
-                {/* City and Postal Code */}
+                {/* City and State */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div className="space-y-2">
                     <Label htmlFor="city">City</Label>
@@ -317,31 +357,43 @@ export default function CustomerProfile() {
                       name="city"
                       value={formData.city}
                       onChange={handleInputChange}
-                      placeholder="City"
+                      placeholder="e.g., Petaling Jaya"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="postalCode">Postal Code</Label>
+                    <Label htmlFor="state">State / Province / Region</Label>
+                    <Input
+                      id="state"
+                      name="state"
+                      value={formData.state}
+                      onChange={handleInputChange}
+                      placeholder="e.g., Selangor"
+                    />
+                  </div>
+                </div>
+
+                {/* Postal Code and Country */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="postalCode">Postal / Zip Code</Label>
                     <Input
                       id="postalCode"
                       name="postalCode"
                       value={formData.postalCode}
                       onChange={handleInputChange}
-                      placeholder="12345"
+                      placeholder="e.g., 47301"
                     />
                   </div>
-                </div>
-
-                {/* Country */}
-                <div className="space-y-2">
-                  <Label htmlFor="country">Country</Label>
-                  <Input
-                    id="country"
-                    name="country"
-                    value={formData.country}
-                    onChange={handleInputChange}
-                    placeholder="Country"
-                  />
+                  <div className="space-y-2">
+                    <Label htmlFor="country">Country</Label>
+                    <Input
+                      id="country"
+                      name="country"
+                      value={formData.country}
+                      onChange={handleInputChange}
+                      placeholder="e.g., Malaysia"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -495,11 +547,40 @@ export default function CustomerProfile() {
                             {/* Shipment Tracking */}
                             {order.shipmentId && (
                               <div className="mt-3 bg-blue-50 border border-blue-200 p-3 rounded">
-                                <p className="text-sm font-medium text-blue-900 mb-1">Tracking Information:</p>
-                                <p className="text-sm text-blue-800 font-mono">{order.shipmentId}</p>
-                                <p className="text-xs text-blue-600 mt-1">
-                                  Your order is in shipment and on its way!
-                                </p>
+                                <div className="flex items-center justify-between mb-2">
+                                  <p className="text-sm font-medium text-blue-900">Tracking Information</p>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setTrackingNumber(order.shipmentId);
+                                      setTrackingOrderNumber(order.orderNumber);
+                                      setTrackingDialogOpen(true);
+                                    }}
+                                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-100"
+                                  >
+                                    <Truck className="w-4 h-4 mr-1" />
+                                    Track Order
+                                  </Button>
+                                </div>
+                                <div className="space-y-1">
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-blue-700">Tracking No:</span>
+                                    <span className="font-mono font-semibold text-blue-900">{order.shipmentId}</span>
+                                  </div>
+                                  {order.courier && (
+                                    <div className="flex justify-between text-sm">
+                                      <span className="text-blue-700">Courier:</span>
+                                      <span className="font-medium text-blue-900">{order.courier}</span>
+                                    </div>
+                                  )}
+                                  {order.estimatedDelivery && (
+                                    <div className="flex justify-between text-sm">
+                                      <span className="text-blue-700">Est. Delivery:</span>
+                                      <span className="text-blue-900">{order.estimatedDelivery}</span>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             )}
 
@@ -512,7 +593,7 @@ export default function CustomerProfile() {
                             )}
 
                             {/* Refund Status */}
-                            {order.refundRequested && (
+                            {order.refundRequested && !order.refundRejected && !order.refundApproved && (
                               <div className="mt-3">
                                 <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300">
                                   <RotateCcw className="w-3 h-3 mr-1" />
@@ -522,6 +603,35 @@ export default function CustomerProfile() {
                                   <p className="text-xs text-gray-600 mt-1">
                                     Reason: {order.refundReason}
                                   </p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Refund Rejected */}
+                            {order.refundRejected && (
+                              <div className="mt-3 bg-red-50 border border-red-200 p-3 rounded">
+                                <div className="flex items-center space-x-2 mb-2">
+                                  <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300">
+                                    <XCircle className="w-3 h-3 mr-1" />
+                                    Refund Request Rejected
+                                  </Badge>
+                                </div>
+                                {order.rejectionReason && (
+                                  <div>
+                                    <p className="text-sm font-medium text-red-900 mb-1">
+                                      Seller's Response:
+                                    </p>
+                                    <p className="text-sm text-red-800">
+                                      {order.rejectionReason}
+                                    </p>
+                                  </div>
+                                )}
+                                {order.refundReason && (
+                                  <div className="mt-2 pt-2 border-t border-red-200">
+                                    <p className="text-xs text-red-700">
+                                      Your request: {order.refundReason}
+                                    </p>
+                                  </div>
                                 )}
                               </div>
                             )}
@@ -640,6 +750,14 @@ export default function CustomerProfile() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Tracking Dialog */}
+      <TrackingDialog
+        open={trackingDialogOpen}
+        onOpenChange={setTrackingDialogOpen}
+        trackingNo={trackingNumber}
+        orderNumber={trackingOrderNumber}
+      />
     </div>
   );
 }

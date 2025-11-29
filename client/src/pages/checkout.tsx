@@ -26,6 +26,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useCart } from "@/contexts/CartContext";
 import { apiRequest } from "@/lib/queryClient";
 import CustomerLoginModal from "@/components/customer-login-modal";
+import { useQuery } from "@tanstack/react-query";
 import type { Coupon } from "@/types";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
@@ -132,6 +133,40 @@ export default function CheckoutPage() {
   const [, setLocation] = useLocation();
   const { cart, clearCart, cartTotal, cartCount } = useCart();
 
+  // Fetch customer profile
+  const { data: customerProfile } = useQuery({
+    queryKey: ['customer-profile', currentUser?.uid],
+    queryFn: async () => {
+      if (!currentUser?.uid) return null;
+      const response = await apiRequest('GET', `/api/customer/profile/${currentUser.uid}`);
+      if (!response.ok) return null;
+      return response.json();
+    },
+    enabled: !!currentUser?.uid
+  });
+
+  // Auto-fill shipping details from profile (strictly use saved address)
+  useEffect(() => {
+    if (customerProfile && currentUser) {
+      setCustomerName(customerProfile.displayName || currentUser.displayName || "");
+      setCustomerEmail(currentUser.email || "");
+      setCustomerPhone(customerProfile.phoneNumber || currentUser.phoneNumber || "");
+      
+      // Strictly use saved shipping address if exists
+      if (customerProfile.address) {
+        const fullAddress = [
+          customerProfile.address,
+          customerProfile.city,
+          customerProfile.state,
+          customerProfile.postalCode,
+          customerProfile.country
+        ].filter(Boolean).join(', ');
+        
+        setShippingAddress(fullAddress);
+      }
+    }
+  }, [customerProfile, currentUser]);
+
   // Calculate discount and final total
   const calculateDiscount = () => {
     if (!appliedCoupon) return 0;
@@ -178,12 +213,7 @@ export default function CheckoutPage() {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       
-      if (user) {
-        // Pre-fill customer info from auth
-        setCustomerName(user.displayName || "");
-        setCustomerEmail(user.email || "");
-        setCustomerPhone(user.phoneNumber || "");
-      } else {
+      if (!user) {
         setShowLoginModal(true);
       }
     });
@@ -545,15 +575,53 @@ export default function CheckoutPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="address">Shipping Address *</Label>
-                  <Textarea
-                    id="address"
-                    value={shippingAddress}
-                    onChange={(e) => setShippingAddress(e.target.value)}
-                    placeholder="123 Main St, City, State, ZIP"
-                    rows={3}
-                    required
-                  />
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="address">Shipping Address *</Label>
+                    {customerProfile?.address ? (
+                      <Link href="/customer-profile">
+                        <Button variant="link" size="sm" className="text-xs h-auto p-0">
+                          Update in Profile
+                        </Button>
+                      </Link>
+                    ) : (
+                      <Link href="/customer-profile">
+                        <Button variant="link" size="sm" className="text-xs h-auto p-0 text-orange-600">
+                          Save Address in Profile
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
+                  {customerProfile?.address ? (
+                    <>
+                      <div className="bg-green-50 border border-green-200 rounded-md p-3">
+                        <div className="flex items-start gap-2">
+                          <CheckCircle size={16} className="text-green-600 mt-0.5 flex-shrink-0" />
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-green-900">Using your saved address:</p>
+                            <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap">{shippingAddress}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        To use a different address, please update it in your profile.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <Textarea
+                        id="address"
+                        value={shippingAddress}
+                        onChange={(e) => setShippingAddress(e.target.value)}
+                        placeholder="Street Address, City, State, Postal Code, Country"
+                        rows={3}
+                        required
+                      />
+                      <p className="text-xs text-orange-600 flex items-center gap-1">
+                        <AlertCircle size={12} />
+                        Save this address in your profile for faster checkout next time
+                      </p>
+                    </>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="notes">Order Notes (Optional)</Label>

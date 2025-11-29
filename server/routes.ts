@@ -118,7 +118,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/categories/:id", isAuthenticated, async (req: any, res) => {
     try {
       const categoryId = req.params.id;
-      await storage.deleteCategory(categoryId, req.user.uid);
+      await storage.deleteCategory(categoryId);
       res.json({ message: "Category deleted successfully" });
     } catch (error) {
       console.error("Error deleting category:", error);
@@ -746,7 +746,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Temporary public endpoint to verify server -> Firestore connectivity (no auth)
   app.get("/api/public/products", async (_req, res) => {
     try {
-      const products = await storage.getProducts();
+      const products: any[] = await storage.getProducts();
       
       // Fetch user settings to get company names for each product
       const productsWithCompanyNames = await Promise.all(
@@ -1809,9 +1809,7 @@ Remember: You're helping a business owner understand their operations better. Be
 
       console.log('[PAYMENT] Stripe secret key found, initializing Stripe...');
 
-      const stripe = new Stripe(stripeSecretKey, {
-        apiVersion: '2024-11-20.acacia'
-      });
+      const stripe = new Stripe(stripeSecretKey, {} as any);
 
       console.log('[PAYMENT] Creating payment intent...');
 
@@ -1854,9 +1852,7 @@ Remember: You're helping a business owner understand their operations better. Be
         return res.status(400).json({ message: 'Stripe not configured' });
       }
 
-      const stripe = new Stripe(stripeSecretKey, {
-        apiVersion: '2024-11-20.acacia'
-      });
+      const stripe = new Stripe(stripeSecretKey, {} as any);
       
       let event;
       try {
@@ -2046,6 +2042,88 @@ Remember: You're helping a business owner understand their operations better. Be
       console.error('[GET ORDERS] Error:', error);
       res.status(500).json({ 
         message: 'Failed to fetch orders',
+        error: error.message 
+      });
+    }
+  });
+
+  // Get customer profile
+  app.get("/api/customer/profile/:customerId", async (req: any, res) => {
+    try {
+      const { customerId } = req.params;
+      
+      console.log('[GET PROFILE] Fetching profile for customer:', customerId);
+
+      const profileDoc = await db.collection('customerProfiles').doc(customerId).get();
+
+      if (!profileDoc.exists) {
+        return res.json(null);
+      }
+
+      const profile = {
+        id: profileDoc.id,
+        ...profileDoc.data()
+      };
+
+      res.json(profile);
+
+    } catch (error: any) {
+      console.error('[GET PROFILE] Error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch profile',
+        error: error.message 
+      });
+    }
+  });
+
+  // Save or update customer profile
+  app.post("/api/customer/profile", async (req: any, res) => {
+    try {
+      const { customerId, displayName, phoneNumber, address, city, postalCode, country } = req.body;
+      
+      if (!customerId) {
+        return res.status(400).json({ message: 'Customer ID required' });
+      }
+
+      console.log('[SAVE PROFILE] Saving profile for customer:', customerId);
+
+      const { state } = req.body;
+      
+      const profileData = {
+        customerId,
+        displayName: displayName || '',
+        phoneNumber: phoneNumber || '',
+        address: address || '',
+        city: city || '',
+        state: state || '',
+        postalCode: postalCode || '',
+        country: country || '',
+        updatedAt: new Date()
+      };
+
+      const profileRef = db.collection('customerProfiles').doc(customerId);
+      const profileDoc = await profileRef.get();
+
+      if (!profileDoc.exists) {
+        // Create new profile
+        await profileRef.set({
+          ...profileData,
+          createdAt: new Date()
+        });
+      } else {
+        // Update existing profile
+        await profileRef.update(profileData);
+      }
+
+      res.json({ 
+        message: 'Profile saved successfully',
+        profile: profileData 
+      });
+
+    } catch (error: any) {
+      console.error('[SAVE PROFILE] Error:', error);
+      res.status(500).json({ 
+        message: 'Failed to save profile',
         error: error.message 
       });
     }
@@ -2326,6 +2404,780 @@ Remember: You're helping a business owner understand their operations better. Be
       res.status(500).json({ 
         message: 'Failed to accept order',
         error: error.message 
+      });
+    }
+  });
+
+  // ===================== LOCAL / SANDBOX SHIPPING ROUTES =====================
+  // These routes implement a simple, free, no-registration "virtual courier"
+  // for demo purposes. No external API calls are made.
+
+  // Create shipment and generate internal waybill
+  app.post("/api/shipping/create", isAuthenticated, async (req: any, res) => {
+    try {
+      const { orderId, weight, insuranceValue } = req.body;
+
+      if (!orderId) {
+        return res.status(400).json({ message: "Order ID is required" });
+      }
+
+      console.log("[SHIPPING] Creating LOCAL shipment for order:", orderId);
+
+      // Get order details
+      const orderDoc = await db.collection("orders").doc(orderId).get();
+      if (!orderDoc.exists) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      const order = orderDoc.data() as any;
+
+      // Verify order has items for this seller
+      const hasSellerItems = order.items?.some((item: any) => item.sellerId === req.user.uid);
+      if (!hasSellerItems) {
+        return res.status(403).json({ message: "Unauthorized - This order does not contain your products" });
+      }
+
+      // Simple internal tracking number
+      const trackingNo = `TRK-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+
+      // Basic shipping cost estimation (purely for demo)
+      const totalItems = (order.items || []).reduce(
+        (sum: number, item: any) => sum + (item.quantity || 0),
+        0
+      );
+      const effectiveWeight = weight && Number(weight) > 0 ? Number(weight) : Math.max(totalItems * 0.5, 0.5);
+      const baseRate = 5; // base currency units
+      const perKg = 2;
+      const cost = baseRate + perKg * effectiveWeight;
+
+      const estimatedDelivery = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+
+      // Persist shipment details back to order
+      await db.collection("orders").doc(orderId).update({
+        shipmentId: trackingNo,
+        courier: "DemoCourier",
+        waybillUrl: null,
+        estimatedDelivery,
+        shippingCost: cost,
+        status: "processing",
+        updatedAt: new Date(),
+        insuranceValue: insuranceValue ? Number(insuranceValue) : 0,
+      });
+
+      return res.json({
+        success: true,
+        trackingNo,
+        orderId,
+        waybillUrl: null,
+        courier: "DemoCourier",
+        estimatedDelivery,
+        cost,
+      });
+    } catch (error: any) {
+      console.error("[SHIPPING] Error creating local shipment:", error);
+      return res.status(500).json({
+        message: "Failed to create shipment",
+        error: error?.message || String(error),
+      });
+    }
+  });
+
+  // Track shipment (simple synthetic timeline)
+  app.get("/api/shipping/track/:trackingNo", async (req: any, res) => {
+    try {
+      const trackingNo = req.params.trackingNo;
+
+      // Find order with this shipmentId
+      const snapshot = await db
+        .collection("orders")
+        .where("shipmentId", "==", trackingNo)
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        return res.status(404).json({ message: "Shipment not found" });
+      }
+
+      const doc = snapshot.docs[0];
+      const order = doc.data() as any;
+
+      const createdAt = (order.createdAt as any)?.toDate?.() || new Date();
+      const estimatedDelivery =
+        order.estimatedDelivery ||
+        new Date(createdAt.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString();
+
+      const events = [
+        {
+          timestamp: createdAt.toISOString(),
+          status: "Order received",
+          location: "Origin Warehouse",
+          description: "Seller has received the order and is preparing the shipment.",
+        },
+        {
+          timestamp: new Date(createdAt.getTime() + 6 * 60 * 60 * 1000).toISOString(),
+          status: "In transit",
+          location: "On the way",
+          description: "Your package is on the way with DemoCourier.",
+        },
+        {
+          timestamp: estimatedDelivery,
+          status: "Out for delivery",
+          location: "Destination City",
+          description: "Courier is delivering the package to the customer address.",
+        },
+      ];
+
+      return res.json({
+        status: order.status || "processing",
+        tracking_no: trackingNo,
+        courier: order.courier || "DemoCourier",
+        events,
+      });
+    } catch (error: any) {
+      console.error("[SHIPPING] Error tracking local shipment:", error);
+      return res.status(500).json({
+        message: "Failed to track shipment",
+        error: error?.message || String(error),
+      });
+    }
+  });
+
+  // "Waybill" – return professional HTML template optimized for PDF printing
+  // Accepts auth via header (Bearer token) or query param (token) for new window access
+  app.get("/api/shipping/waybill/:orderId", async (req: any, res) => {
+    try {
+      // Check for token in query param (for new window access) or header
+      const tokenFromQuery = req.query.token;
+      const authHeader = req.headers.authorization || req.headers.Authorization;
+      
+      let user;
+      if (tokenFromQuery) {
+        // Authenticate using token from query param
+        try {
+          const decoded = await auth.verifyIdToken(tokenFromQuery);
+          user = decoded;
+          console.log("[WAYBILL] Authenticated user via query token:", user.uid);
+        } catch (error: any) {
+          console.error("[WAYBILL] Token verification failed:", error.message);
+          // Return HTML error page instead of JSON for better UX
+          return res.status(401).send(`
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <title>Authentication Error</title>
+                <style>
+                  body { font-family: sans-serif; padding: 40px; text-align: center; }
+                  .error { color: #dc2626; font-size: 18px; margin: 20px; }
+                  .message { color: #666; margin: 10px; }
+                </style>
+              </head>
+              <body>
+                <h1>⚠️ Authentication Error</h1>
+                <div class="error">Your session has expired or the token is invalid.</div>
+                <div class="message">Please close this window and try again from the orders page.</div>
+              </body>
+            </html>
+          `);
+        }
+      } else if (authHeader && authHeader.startsWith('Bearer ')) {
+        // Authenticate using token from header
+        const token = authHeader.split('Bearer ')[1];
+        try {
+          const decoded = await auth.verifyIdToken(token);
+          user = decoded;
+          console.log("[WAYBILL] Authenticated user via header token:", user.uid);
+        } catch (error: any) {
+          console.error("[WAYBILL] Header token verification failed:", error.message);
+          return res.status(401).json({ message: "Unauthorized - Invalid token" });
+        }
+      } else {
+        console.error("[WAYBILL] No authentication token provided");
+        return res.status(401).send(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Authentication Required</title>
+              <style>
+                body { font-family: sans-serif; padding: 40px; text-align: center; }
+                .error { color: #dc2626; font-size: 18px; margin: 20px; }
+                .message { color: #666; margin: 10px; }
+              </style>
+            </head>
+            <body>
+              <h1>🔒 Authentication Required</h1>
+              <div class="error">Please access the waybill from the orders page.</div>
+            </body>
+          </html>
+        `);
+      }
+      
+      const { orderId } = req.params;
+
+      const orderDoc = await db.collection("orders").doc(orderId).get();
+      if (!orderDoc.exists) {
+        return res.status(404).send(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Order Not Found</title>
+              <style>
+                body { font-family: sans-serif; padding: 40px; text-align: center; }
+                .error { color: #dc2626; font-size: 18px; margin: 20px; }
+              </style>
+            </head>
+            <body>
+              <h1>❌ Order Not Found</h1>
+              <div class="error">The requested order could not be found.</div>
+            </body>
+          </html>
+        `);
+      }
+
+      const order = orderDoc.data() as any;
+      
+      // Verify order has items belonging to the seller
+      const hasSellerItems = order.items?.some((item: any) => item.sellerId === user.uid);
+      if (!hasSellerItems) {
+        return res.status(403).send(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Access Denied</title>
+              <style>
+                body { font-family: sans-serif; padding: 40px; text-align: center; }
+                .error { color: #dc2626; font-size: 18px; margin: 20px; }
+              </style>
+            </head>
+            <body>
+              <h1>🚫 Access Denied</h1>
+              <div class="error">This order does not belong to you.</div>
+            </body>
+          </html>
+        `);
+      }
+      
+      // Get seller info for "Ship From" section
+      const sellerDoc = await db.collection("users").doc(user.uid).get();
+      const seller = sellerDoc.data() as any;
+      
+      const orderDate = order.createdAt?.toDate?.() || order.createdAt || new Date();
+      const formattedDate = new Date(orderDate).toLocaleDateString('en-MY', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+      
+      const estimatedDelivery = order.estimatedDelivery 
+        ? new Date(order.estimatedDelivery).toLocaleDateString('en-MY', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          })
+        : 'N/A';
+
+      const html = `
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Waybill - ${order.orderNumber || orderId}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      
+      @page {
+        size: A4 portrait;
+        margin: 10mm;
+      }
+      
+      @media print {
+        html, body {
+          width: 210mm;
+          height: 297mm;
+        }
+        body {
+          margin: 0;
+          padding: 0;
+          background: white !important;
+        }
+        .no-print {
+          display: none !important;
+        }
+        .waybill-container {
+          box-shadow: none !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          page-break-after: avoid;
+        }
+        .waybill {
+          border-width: 2px !important;
+        }
+      }
+      
+      body {
+        font-family: 'Arial', 'Helvetica', sans-serif;
+        background: #f0f0f0;
+        padding: 15px;
+        color: #000;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      
+      .waybill-container {
+        max-width: 210mm;
+        margin: 0 auto;
+        background: white;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      }
+      
+      .waybill {
+        border: 4px solid #000;
+        padding: 15px;
+        background: white;
+      }
+      
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        border-bottom: 4px solid #000;
+        padding-bottom: 12px;
+        margin-bottom: 15px;
+      }
+      
+      .logo-section h1 {
+        font-size: 32px;
+        color: #000;
+        font-weight: 900;
+        margin-bottom: 4px;
+        letter-spacing: -1px;
+        text-transform: uppercase;
+      }
+      
+      .logo-section .company {
+        font-size: 16px;
+        color: #333;
+        font-weight: 600;
+        margin-top: 4px;
+      }
+      
+      .logo-section .subtitle {
+        font-size: 11px;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-top: 2px;
+      }
+      
+      .order-info {
+        text-align: right;
+        background: #000;
+        color: white;
+        padding: 12px 16px;
+        border-radius: 4px;
+      }
+      
+      .order-info .label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        opacity: 0.8;
+        margin-bottom: 4px;
+      }
+      
+      .order-info .value {
+        font-size: 20px;
+        font-weight: 900;
+        letter-spacing: 0.5px;
+      }
+      
+      .order-info .date-section {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255,255,255,0.3);
+      }
+      
+      .tracking-section {
+        background: #000;
+        color: white;
+        padding: 18px 20px;
+        margin: 18px 0;
+        border-radius: 0;
+        text-align: center;
+        border: 3px solid #000;
+      }
+      
+      .tracking-section .label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        font-weight: 700;
+        margin-bottom: 10px;
+      }
+      
+      .tracking-section .tracking-number {
+        font-size: 28px;
+        font-weight: 900;
+        letter-spacing: 4px;
+        font-family: 'Courier New', 'Courier', monospace;
+        background: white;
+        color: #000;
+        padding: 12px 20px;
+        border-radius: 4px;
+        display: inline-block;
+        margin: 8px 0;
+      }
+      
+      .two-column {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        margin: 18px 0;
+      }
+      
+      .section {
+        border: 3px solid #000;
+        padding: 12px;
+        background: white;
+        min-height: 140px;
+      }
+      
+      .section-title {
+        font-size: 13px;
+        font-weight: 900;
+        text-transform: uppercase;
+        color: white;
+        background: #000;
+        letter-spacing: 1.5px;
+        padding: 8px 12px;
+        margin: -12px -12px 12px -12px;
+      }
+      
+      .section-content {
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      
+      .section-content .name {
+        font-weight: 900;
+        font-size: 16px;
+        margin-bottom: 6px;
+        color: #000;
+        text-transform: uppercase;
+      }
+      
+      .section-content .detail {
+        color: #333;
+        margin: 4px 0;
+        padding-left: 0;
+      }
+      
+      .section-content .address {
+        color: #000;
+        margin-top: 8px;
+        font-weight: 600;
+        border-left: 4px solid #000;
+        padding-left: 8px;
+        line-height: 1.5;
+      }
+      
+      .barcode-area {
+        margin-top: 20px;
+        padding: 25px 20px;
+        border: 4px solid #000;
+        text-align: center;
+        background: white;
+      }
+      
+      .barcode-label {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #000;
+        margin-bottom: 15px;
+      }
+      
+      .barcode {
+        width: 100%;
+        max-width: 400px;
+        margin: 0 auto;
+      }
+      
+      .barcode-lines {
+        display: flex;
+        justify-content: center;
+        align-items: flex-end;
+        height: 80px;
+        background: white;
+        margin: 10px 0;
+        gap: 2px;
+      }
+      
+      .barcode-line {
+        background: #000;
+        height: 100%;
+        flex-shrink: 0;
+      }
+      
+      .barcode-line.thin {
+        width: 2px;
+      }
+      
+      .barcode-line.medium {
+        width: 3px;
+      }
+      
+      .barcode-line.thick {
+        width: 4px;
+      }
+      
+      .barcode-line.short {
+        height: 60%;
+      }
+      
+      .barcode-number {
+        font-family: 'Courier New', 'Courier', monospace;
+        font-size: 16px;
+        font-weight: 900;
+        letter-spacing: 6px;
+        color: #000;
+        margin-top: 8px;
+        text-align: center;
+      }
+      
+      .tracking-ref {
+        font-size: 12px;
+        color: #666;
+        margin-top: 10px;
+        font-weight: 600;
+      }
+      
+      .qr-placeholder {
+        width: 100px;
+        height: 100px;
+        background: white;
+        border: 2px solid #000;
+        margin: 12px auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        color: #666;
+      }
+      
+      .footer {
+        margin-top: 18px;
+        padding-top: 12px;
+        border-top: 3px solid #000;
+        text-align: center;
+        font-size: 10px;
+        color: #666;
+        line-height: 1.6;
+      }
+      
+      .footer .important {
+        color: #000;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+      
+      .print-controls {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        display: flex;
+        gap: 10px;
+      }
+      
+      .print-button {
+        background: #000;
+        color: white;
+        border: none;
+        padding: 14px 28px;
+        font-size: 15px;
+        font-weight: 700;
+        border-radius: 6px;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        transition: all 0.2s;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      
+      .print-button:hover {
+        background: #333;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+      }
+      
+      .print-button:active {
+        transform: translateY(0);
+      }
+      
+      .print-button.secondary {
+        background: white;
+        color: #000;
+        border: 2px solid #000;
+      }
+      
+      .print-button.secondary:hover {
+        background: #f5f5f5;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="print-controls no-print">
+      <button class="print-button secondary" onclick="window.close()">✕ Close</button>
+      <button class="print-button" onclick="window.print()">🖨️ Print / Save PDF</button>
+    </div>
+    
+    <div class="waybill-container">
+      <div class="waybill">
+        <!-- Header -->
+        <div class="header">
+          <div class="logo-section">
+            <h1>Shipping Waybill</h1>
+            <div class="company">${seller?.settings?.shopName || seller?.companyName || seller?.displayName || 'Your Store'}</div>
+            <div class="subtitle">Commercial Invoice & Packing List</div>
+          </div>
+          <div class="order-info">
+            <div class="label">Order Number</div>
+            <div class="value">${order.orderNumber || orderId}</div>
+            <div class="date-section">
+              <div class="label">Order Date</div>
+              <div class="value" style="font-size: 14px;">${formattedDate}</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Tracking Number -->
+        <div class="tracking-section">
+          <div class="label">● Tracking Number ●</div>
+          <div class="tracking-number">${order.shipmentId || "PENDING-ASSIGNMENT"}</div>
+        </div>
+        
+        <!-- Ship From / Ship To -->
+        <div class="two-column">
+          <div class="section">
+            <div class="section-title">📦 Ship From (Sender)</div>
+            <div class="section-content">
+              <div class="name">${seller?.settings?.shopName || seller?.companyName || seller?.displayName || 'Seller'}</div>
+              <div class="detail">📞 ${seller?.settings?.shopPhone || seller?.phoneNumber || 'N/A'}</div>
+              <div class="detail">📧 ${seller?.email || 'N/A'}</div>
+              <div class="address">${seller?.settings?.shopAddress || seller?.businessAddress || 'Address not configured'}</div>
+            </div>
+          </div>
+          
+          <div class="section">
+            <div class="section-title">📍 Ship To (Recipient)</div>
+            <div class="section-content">
+              <div class="name">${order.customerName || 'N/A'}</div>
+              <div class="detail">📞 ${order.customerPhone || 'N/A'}</div>
+              <div class="detail">📧 ${order.customerEmail || 'N/A'}</div>
+              <div class="address">${order.shippingAddress || 'N/A'}</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Barcode Area -->
+        <div class="barcode-area">
+          <div class="barcode-label">Tracking Barcode</div>
+          <div class="barcode">
+            <div class="barcode-lines">
+              <!-- Simulated barcode pattern -->
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium short"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin"></div>
+            </div>
+            <div class="barcode-number">${order.shipmentId || 'PENDING'}</div>
+            <div class="tracking-ref">Order: ${order.orderNumber || 'N/A'}</div>
+          </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+          <div class="important">⚠️ IMPORTANT NOTICE</div>
+          <p>This is a computer-generated waybill and serves as proof of shipment.</p>
+          <p>For order tracking, please use the tracking number above on the courier's website.</p>
+          <p style="margin-top: 8px; font-weight: 700;">Generated: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}</p>
+          <p style="margin-top: 4px; font-size: 9px;">Order ID: ${orderId}</p>
+        </div>
+      </div>
+    </div>
+    
+    <script>
+      // Instructions for saving as PDF
+      console.log('%c📄 SAVE AS PDF INSTRUCTIONS:', 'font-size: 16px; font-weight: bold; color: #000;');
+      console.log('1. Click the Print button above');
+      console.log('2. In the print dialog, select "Save as PDF" or "Microsoft Print to PDF"');
+      console.log('3. Choose your destination and save');
+      console.log('');
+      console.log('The page is optimized for A4 paper size.');
+    </script>
+  </body>
+</html>`;
+
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(html);
+    } catch (error: any) {
+      console.error("[SHIPPING] Error generating local waybill:", error);
+      return res.status(500).json({
+        message: "Failed to generate waybill",
+        error: error?.message || String(error),
       });
     }
   });

@@ -40,10 +40,13 @@ import {
   RotateCcw,
   Loader2,
   Store,
-  Ticket
+  Ticket,
+  Truck,
+  Printer
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import CouponManagement from "@/components/coupon-management";
+import { ShippingDialog } from "@/components/shipping-dialog";
 
 export default function Orders() {
   const { formatCurrency } = useCurrency();
@@ -60,6 +63,32 @@ export default function Orders() {
   // Accept order state
   const [acceptDialogOpen, setAcceptDialogOpen] = useState(false);
   const [shipmentId, setShipmentId] = useState("");
+
+  // Shipping dialog state
+  const [shippingDialogOpen, setShippingDialogOpen] = useState(false);
+  const [sellerPostcode, setSellerPostcode] = useState("");
+
+  // Fetch user settings to get business address
+  const { data: userSettings } = useQuery({
+    queryKey: ['user-settings', user?.uid],
+    queryFn: async () => {
+      if (!user?.uid) return null;
+      const response = await apiRequest('GET', `/api/users/${user.uid}`);
+      if (!response.ok) throw new Error('Failed to fetch user settings');
+      const data = await response.json();
+      
+      // Extract postcode from business address
+      if (data.businessAddress) {
+        const postcodeMatch = data.businessAddress.match(/\b\d{5}\b/);
+        if (postcodeMatch) {
+          setSellerPostcode(postcodeMatch[0]);
+        }
+      }
+      
+      return data;
+    },
+    enabled: !!user?.uid
+  });
 
   // Fetch orders for this seller
   const { data: orders, isLoading } = useQuery({
@@ -138,6 +167,12 @@ export default function Orders() {
     setSelectedOrder(order);
     setAcceptDialogOpen(true);
   };
+
+  const handleOpenShipping = (order: any) => {
+    setSelectedOrder(order);
+    setShippingDialogOpen(true);
+  };
+
 
   const confirmAcceptOrder = () => {
     if (!shipmentId.trim()) {
@@ -428,12 +463,26 @@ export default function Orders() {
                       {order.status === 'pending' && !order.refundRequested && (
                         <div className="flex items-center space-x-3 pt-3 border-t">
                           <Button
-                            onClick={() => handleAcceptOrder(order)}
-                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() => handleOpenShipping(order)}
+                            className="bg-red-600 hover:bg-red-700"
                             size="sm"
                           >
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            Accept Order
+                            <Truck className="w-4 h-4 mr-1" />
+                            Create Shipment
+                          </Button>
+                        </div>
+                      )}
+
+                      {order.status === 'processing' && order.shipmentId && (
+                        <div className="flex items-center space-x-3 pt-3 border-t">
+                          <Button
+                            onClick={() => handleOpenShipping(order)}
+                            variant="outline"
+                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            size="sm"
+                          >
+                            <Package className="w-4 h-4 mr-1" />
+                            View Shipping Details
                           </Button>
                         </div>
                       )}
@@ -659,6 +708,14 @@ export default function Orders() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Shipping Dialog */}
+      <ShippingDialog
+        open={shippingDialogOpen}
+        onOpenChange={setShippingDialogOpen}
+        order={selectedOrder}
+        sellerPostcode={sellerPostcode}
+      />
         </TabsContent>
 
         {/* Coupons Tab */}

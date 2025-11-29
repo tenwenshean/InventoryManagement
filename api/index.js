@@ -329,6 +329,17 @@ export default async function handler(req, res) {
       return await handleGetCustomerOrders(req, res);
     }
 
+    // ===== CUSTOMER PROFILE ROUTES (public - no auth required) =====
+    // GET /api/customer/profile/:customerId
+    if (pathParts[0] === 'customer' && pathParts[1] === 'profile' && pathParts.length === 3 && req.method === 'GET') {
+      return await handleGetCustomerProfile(req, res, pathParts[2]);
+    }
+
+    // POST /api/customer/profile
+    if (pathParts[0] === 'customer' && pathParts[1] === 'profile' && pathParts.length === 2 && req.method === 'POST') {
+      return await handleSaveCustomerProfile(req, res);
+    }
+
     // ===== SELLER ORDERS ROUTE (public - no auth required) =====
     if (pathParts[0] === 'seller' && pathParts[1] === 'orders' && req.method === 'GET') {
       return await handleGetSellerOrders(req, res);
@@ -354,6 +365,41 @@ export default async function handler(req, res) {
       const user = await verifyAuth(req, res);
       if (!user) return;
       return await handleAcceptOrder(req, res, user, orderId);
+    }
+
+    // ===== EASY PARCEL / SHIPPING ROUTES =====
+    // POST /api/shipping/create - Create shipment and get waybill
+    if (pathParts[0] === 'shipping' && pathParts[1] === 'create' && req.method === 'POST') {
+      console.log('[API ROUTE] Shipping create route matched');
+      const user = await authenticate(req);
+      console.log('[API ROUTE] User authenticated:', user.uid);
+      console.log('[API ROUTE] Calling handleCreateShipment...');
+      const result = await handleCreateShipment(req, res, user);
+      console.log('[API ROUTE] handleCreateShipment completed');
+      return result;
+    }
+
+    // GET /api/shipping/track/:trackingNo - Track shipment
+    if (pathParts[0] === 'shipping' && pathParts[1] === 'track' && pathParts.length === 3 && req.method === 'GET') {
+      return await handleTrackShipment(req, res, pathParts[2]);
+    }
+
+    // GET /api/shipping/waybill/:orderId - Download waybill PDF
+    if (pathParts[0] === 'shipping' && pathParts[1] === 'waybill' && pathParts.length === 3 && req.method === 'GET') {
+      const user = await authenticate(req);
+      return await handleDownloadWaybill(req, res, user, pathParts[2]);
+    }
+
+    // GET /api/shipping/services - Get available courier services
+    if (pathParts[0] === 'shipping' && pathParts[1] === 'services' && req.method === 'GET') {
+      const user = await authenticate(req);
+      return await handleGetShippingServices(req, res);
+    }
+
+    // POST /api/shipping/bulk-waybill - Get bulk waybill for multiple orders
+    if (pathParts[0] === 'shipping' && pathParts[1] === 'bulk-waybill' && req.method === 'POST') {
+      const user = await authenticate(req);
+      return await handleBulkWaybill(req, res, user);
     }
 
     // ===== COUPON ROUTES =====
@@ -1608,6 +1654,88 @@ async function handleGetCustomerOrders(req, res) {
   }
 }
 
+// ===== GET CUSTOMER PROFILE HANDLER =====
+async function handleGetCustomerProfile(req, res, customerId) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    console.log('[GET PROFILE] Fetching profile for customer:', customerId);
+
+    const profileDoc = await db.collection('customerProfiles').doc(customerId).get();
+
+    if (!profileDoc.exists) {
+      return res.json(null);
+    }
+
+    const profile = {
+      id: profileDoc.id,
+      ...profileDoc.data()
+    };
+
+    return res.json(profile);
+
+  } catch (error) {
+    console.error('[GET PROFILE] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to fetch profile',
+      error: error.message 
+    });
+  }
+}
+
+// ===== SAVE CUSTOMER PROFILE HANDLER =====
+async function handleSaveCustomerProfile(req, res) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const { customerId, displayName, phoneNumber, address, city, state, postalCode, country } = req.body;
+    
+    if (!customerId) {
+      return res.status(400).json({ message: 'Customer ID required' });
+    }
+
+    console.log('[SAVE PROFILE] Saving profile for customer:', customerId);
+
+    const profileData = {
+      customerId,
+      displayName: displayName || '',
+      phoneNumber: phoneNumber || '',
+      address: address || '',
+      city: city || '',
+      state: state || '',
+      postalCode: postalCode || '',
+      country: country || '',
+      updatedAt: new Date()
+    };
+
+    const profileRef = db.collection('customerProfiles').doc(customerId);
+    const profileDoc = await profileRef.get();
+
+    if (!profileDoc.exists) {
+      // Create new profile
+      await profileRef.set({
+        ...profileData,
+        createdAt: new Date()
+      });
+    } else {
+      // Update existing profile
+      await profileRef.update(profileData);
+    }
+
+    return res.json({ 
+      message: 'Profile saved successfully',
+      profile: profileData 
+    });
+
+  } catch (error) {
+    console.error('[SAVE PROFILE] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to save profile',
+      error: error.message 
+    });
+  }
+}
+
 // ===== GET SELLER ORDERS HANDLER =====
 async function handleGetSellerOrders(req, res) {
   const { db } = await initializeFirebase();
@@ -2237,56 +2365,418 @@ async function handleReportsChat(req, res, user) {
       });
     }
 
-    // Prepare context from reports data
-    const context = `
-You are an expert business and financial analyst AI assistant. You have access to the following business data for the user:
+    // Fetch comprehensive enterprise data from ALL pages and features
+    const { db } = await initializeFirebase();
+    const userId = user.uid;
 
-KEY METRICS:
-- Total Revenue: ${reportsData?.keyMetrics?.totalRevenue || 'N/A'}
-- Units Sold: ${reportsData?.keyMetrics?.unitsSold || 0}
-- Average Order Value: ${reportsData?.keyMetrics?.avgOrderValue || 'N/A'}
-- Return Rate: ${reportsData?.keyMetrics?.returnRate || 'N/A'}
+    console.log('[REPORTS CHAT] Fetching comprehensive business data from all pages...');
 
-SALES DATA (Monthly):
-${JSON.stringify(reportsData?.salesData || [], null, 2)}
+    // Get all products with full details (INVENTORY PAGE)
+    const productsSnap = await db.collection('products')
+      .where('userId', '==', userId)
+      .get();
+    const allProducts = productsSnap.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name,
+        sku: data.sku,
+        description: data.description,
+        category: data.category || data.categoryId,
+        supplier: data.supplier,
+        price: data.price,
+        costPrice: data.costPrice,
+        quantity: data.quantity,
+        minStockLevel: data.minStockLevel,
+        location: data.location,
+        isActive: data.isActive,
+        qrCode: data.qrCode,
+        imageUrl: data.imageUrl
+      };
+    });
 
-INVENTORY TRENDS:
-${JSON.stringify(reportsData?.inventoryTrends || [], null, 2)}
+    // Get all categories (INVENTORY PAGE)
+    const categoriesSnap = await db.collection('categories')
+      .where('userId', '==', userId)
+      .get();
+    const allCategories = categoriesSnap.docs.map(doc => ({
+      id: doc.id,
+      name: doc.data().name,
+      description: doc.data().description
+    }));
 
-ACCOUNTING DATA (Monthly):
-${JSON.stringify(reportsData?.accountingData || [], null, 2)}
+    // Get all coupons (COUPON MANAGEMENT)
+    const couponsSnap = await db.collection('coupons').get();
+    const allCoupons = couponsSnap.docs.map(doc => ({
+      id: doc.id,
+      code: doc.data().code,
+      discountType: doc.data().discountType,
+      discountValue: doc.data().discountValue,
+      minPurchase: doc.data().minPurchase,
+      maxUses: doc.data().maxUses,
+      currentUses: doc.data().currentUses,
+      expiryDate: doc.data().expiryDate?.toDate?.()?.toISOString() || doc.data().expiryDate,
+      isActive: doc.data().isActive
+    }));
 
-CASH FLOW:
-${JSON.stringify(reportsData?.cashFlow || [], null, 2)}
+    // Get user settings/profile (SETTINGS PAGE)
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userProfile = userDoc.exists ? {
+      displayName: userDoc.data().displayName,
+      email: userDoc.data().email,
+      phoneNumber: userDoc.data().phoneNumber,
+      companyName: userDoc.data().companyName,
+      businessAddress: userDoc.data().businessAddress,
+      shopSlug: userDoc.data().shopSlug,
+      currency: userDoc.data().currency || 'USD',
+      theme: userDoc.data().theme,
+      notifications: userDoc.data().notifications
+    } : null;
 
-AI PREDICTIONS:
-${JSON.stringify(reportsData?.predictions || [], null, 2)}
+    // Get all transactions (INVENTORY PAGE - transaction history)
+    const productIds = allProducts.map(p => p.id);
+    let allTransactions = [];
+    
+    if (productIds.length > 0) {
+      const batchSize = 10;
+      for (let i = 0; i < productIds.length; i += batchSize) {
+        const batch = productIds.slice(i, i + batchSize);
+        const txSnap = await db.collection('inventoryTransactions')
+          .where('productId', 'in', batch)
+          .orderBy('createdAt', 'desc')
+          .limit(50)
+          .get();
+        allTransactions = allTransactions.concat(txSnap.docs.map(doc => ({
+          id: doc.id,
+          productId: doc.data().productId,
+          productName: allProducts.find(p => p.id === doc.data().productId)?.name || 'Unknown',
+          type: doc.data().type,
+          quantity: doc.data().quantity,
+          reason: doc.data().reason,
+          unitPrice: doc.data().unitPrice,
+          notes: doc.data().notes,
+          createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || doc.data().createdAt
+        })));
+      }
+    }
 
-TOP PRODUCTS:
-${JSON.stringify(reportsData?.topProducts || [], null, 2)}
+    // Get all accounting entries (ACCOUNTING PAGE)
+    const accountingSnap = await db.collection('accountingEntries')
+      .where('userId', '==', userId)
+      .orderBy('createdAt', 'desc')
+      .limit(100)
+      .get();
+    const allAccountingEntries = accountingSnap.docs.map(doc => ({
+      id: doc.id,
+      accountType: doc.data().accountType,
+      accountName: doc.data().accountName,
+      debitAmount: doc.data().debitAmount,
+      creditAmount: doc.data().creditAmount,
+      description: doc.data().description,
+      reference: doc.data().reference,
+      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || doc.data().createdAt
+    }));
 
-CATEGORY DISTRIBUTION:
-${JSON.stringify(reportsData?.categoryData || [], null, 2)}
+    // Get all orders (ORDERS PAGE)
+    const ordersSnap = await db.collection('orders')
+      .orderBy('createdAt', 'desc')
+      .limit(100)
+      .get();
+    
+    const allOrders = ordersSnap.docs
+      .map(doc => {
+        const data = doc.data();
+        // Filter orders that have items from this seller
+        const sellerItems = data.items?.filter(item => item.sellerId === userId) || [];
+        if (sellerItems.length > 0) {
+          return {
+            id: doc.id,
+            orderNumber: data.orderNumber,
+            customerName: data.customerName,
+            customerEmail: data.customerEmail,
+            customerPhone: data.customerPhone,
+            shippingAddress: data.shippingAddress,
+            status: data.status,
+            totalAmount: data.totalAmount,
+            subtotal: data.subtotal,
+            discount: data.discount,
+            couponCode: data.couponCode,
+            items: sellerItems,
+            refundRequested: data.refundRequested || false,
+            refundReason: data.refundReason,
+            refundApproved: data.refundApproved,
+            shipmentId: data.shipmentId,
+            createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt
+          };
+        }
+        return null;
+      })
+      .filter(order => order !== null);
 
-${reportsData?.insights ? `CURRENT INSIGHTS:
-- Trend: ${reportsData.insights.trend}
-- Recommendation: ${reportsData.insights.recommendation}
-${reportsData.insights.anomalies ? `- Anomalies Detected: ${reportsData.insights.anomalies}` : ''}
-` : ''}
+    // Calculate supplier analysis
+    const supplierAnalysis = {};
+    allProducts.forEach(product => {
+      const supplier = product.supplier || 'Unknown Supplier';
+      if (!supplierAnalysis[supplier]) {
+        supplierAnalysis[supplier] = {
+          name: supplier,
+          totalProducts: 0,
+          totalValue: 0,
+          totalQuantity: 0,
+          salesCount: 0,
+          salesRevenue: 0,
+          returnCount: 0,
+          returnValue: 0,
+          products: []
+        };
+      }
+      
+      supplierAnalysis[supplier].totalProducts += 1;
+      supplierAnalysis[supplier].totalQuantity += product.quantity || 0;
+      supplierAnalysis[supplier].totalValue += (product.price || 0) * (product.quantity || 0);
+      supplierAnalysis[supplier].products.push({
+        name: product.name,
+        sku: product.sku,
+        quantity: product.quantity,
+        price: product.price,
+        costPrice: product.costPrice
+      });
+    });
 
-INSTRUCTIONS:
-1. Analyze the provided data to answer the user's questions
-2. Provide specific, actionable insights based on the actual numbers
-3. Highlight trends, patterns, and potential issues
-4. Give recommendations for improvement when relevant
-5. Be concise but comprehensive
-6. Use markdown formatting for better readability
-7. Reference specific data points when making observations
-8. If asked about inventory management, focus on stock levels, turnover, and optimization
-9. If asked about finances, focus on profitability, cash flow, and financial health
-10. If the user asks about something not in the data, politely explain what data is available
+    // Add transaction data to supplier analysis
+    allTransactions.forEach(tx => {
+      const product = allProducts.find(p => p.id === tx.productId);
+      if (product && product.supplier) {
+        const supplier = product.supplier;
+        if (supplierAnalysis[supplier]) {
+          if (tx.type === 'out') {
+            supplierAnalysis[supplier].salesCount += tx.quantity || 0;
+            supplierAnalysis[supplier].salesRevenue += (tx.unitPrice || product.price || 0) * (tx.quantity || 0);
+          } else if (tx.type === 'in' && tx.reason?.toLowerCase().includes('return')) {
+            supplierAnalysis[supplier].returnCount += tx.quantity || 0;
+            supplierAnalysis[supplier].returnValue += (tx.unitPrice || product.price || 0) * (tx.quantity || 0);
+          }
+        }
+      }
+    });
 
-Remember: You're helping a business owner understand their operations better. Be helpful, professional, and insightful.
+    // Calculate return rates for suppliers
+    const supplierStats = Object.values(supplierAnalysis).map(supplier => ({
+      ...supplier,
+      returnRate: supplier.salesCount > 0 
+        ? `${((supplier.returnCount / supplier.salesCount) * 100).toFixed(1)}%` 
+        : '0%',
+      profitMargin: supplier.products.length > 0
+        ? `${(supplier.products.reduce((sum, p) => {
+            const margin = p.price && p.costPrice ? ((p.price - p.costPrice) / p.price) * 100 : 0;
+            return sum + margin;
+          }, 0) / supplier.products.length).toFixed(1)}%`
+        : '0%'
+    })).sort((a, b) => b.returnCount - a.returnCount);
+
+    // Calculate low stock products
+    const lowStockProducts = allProducts.filter(p => {
+      const qty = p.quantity || 0;
+      const minStock = p.minStockLevel || 0;
+      return minStock > 0 && qty <= minStock;
+    }).map(p => ({
+      name: p.name,
+      sku: p.sku,
+      quantity: p.quantity,
+      minStockLevel: p.minStockLevel,
+      supplier: p.supplier,
+      price: p.price
+    }));
+
+    // Calculate profit margins
+    const productProfitability = allProducts
+      .filter(p => p.price && p.costPrice)
+      .map(p => ({
+        name: p.name,
+        sku: p.sku,
+        price: p.price,
+        costPrice: p.costPrice,
+        profitPerUnit: p.price - p.costPrice,
+        profitMargin: `${(((p.price - p.costPrice) / p.price) * 100).toFixed(1)}%`,
+        quantity: p.quantity,
+        totalPotentialProfit: (p.price - p.costPrice) * p.quantity
+      }))
+      .sort((a, b) => b.totalPotentialProfit - a.totalPotentialProfit);
+
+    // Calculate product sales mapping for easy lookup (MUST BE BEFORE USING IT)
+    const productSalesMap = {};
+    allTransactions.forEach(tx => {
+      if (tx.type === 'out') {
+        productSalesMap[tx.productId] = (productSalesMap[tx.productId] || 0) + (tx.quantity || 0);
+      }
+    });
+
+    // Identify products that have NEVER been sold
+    const unsoldProducts = allProducts
+      .filter(p => !productSalesMap[p.id] || productSalesMap[p.id] === 0)
+      .map(p => ({
+        id: p.id,
+        name: p.name,
+        sku: p.sku,
+        category: p.category,
+        supplier: p.supplier,
+        price: p.price,
+        costPrice: p.costPrice,
+        quantity: p.quantity,
+        location: p.location,
+        totalValue: (p.price || 0) * (p.quantity || 0)
+      }))
+      .sort((a, b) => b.totalValue - a.totalValue);
+
+    console.log('[REPORTS CHAT] Comprehensive data loaded:', {
+      products: allProducts.length,
+      productsWithSales: Object.keys(productSalesMap).length,
+      unsoldProducts: unsoldProducts.length,
+      transactions: allTransactions.length,
+      accounting: allAccountingEntries.length,
+      orders: allOrders.length,
+      suppliers: Object.keys(supplierAnalysis).length,
+      coupons: allCoupons.length,
+      categories: allCategories.length
+    });
+
+    console.log('[REPORTS CHAT] Sample products:', allProducts.slice(0, 3).map(p => ({name: p.name, sku: p.sku, sales: productSalesMap[p.id] || 0})));
+
+    // Calculate dashboard statistics
+    const totalProducts = allProducts.length;
+    const activeProducts = allProducts.filter(p => p.isActive).length;
+    const totalInventoryValue = allProducts.reduce((sum, p) => sum + ((p.price || 0) * (p.quantity || 0)), 0);
+    const lowStockCount = lowStockProducts.length;
+
+    // Calculate order statistics
+    const totalOrders = allOrders.length;
+    const pendingOrders = allOrders.filter(o => o.status === 'pending').length;
+    const processingOrders = allOrders.filter(o => o.status === 'processing').length;
+    const completedOrders = allOrders.filter(o => o.status === 'completed').length;
+    const refundedOrders = allOrders.filter(o => o.refundApproved).length;
+    const refundRequestedOrders = allOrders.filter(o => o.refundRequested && !o.refundApproved).length;
+
+    // Calculate financial metrics
+    const totalRevenue = allAccountingEntries
+      .filter(e => e.accountType === 'revenue')
+      .reduce((sum, e) => sum + parseFloat(e.creditAmount || 0), 0);
+    const totalExpenses = allAccountingEntries
+      .filter(e => e.accountType === 'expense')
+      .reduce((sum, e) => sum + parseFloat(e.debitAmount || 0), 0);
+
+    // Prepare comprehensive context covering ALL pages and features
+    const context = `You are a business intelligence AI assistant for this enterprise.
+
+=== ⚠️ PRODUCTS WITH ZERO SALES (NEVER SOLD) ===
+${unsoldProducts.length > 0 ? `You have ${unsoldProducts.length} products that have NEVER been sold:
+
+${unsoldProducts.map((p, idx) => `${idx + 1}. ${p.name} (SKU: ${p.sku})
+   - Price: $${p.price || 0}
+   - Cost: $${p.costPrice || 0}
+   - Stock: ${p.quantity} units
+   - Category: ${p.category}
+   - Supplier: ${p.supplier || 'Not specified'}
+   - Location: ${p.location || 'Not specified'}
+   - Inventory Value: $${p.totalValue.toFixed(2)}
+   - STATUS: ZERO SALES - Never been sold`).join('\n\n')}` : 'All products have been sold at least once.'}
+
+=== DASHBOARD OVERVIEW ===
+Total Products: ${totalProducts} (${activeProducts} active)
+Products with Sales: ${Object.keys(productSalesMap).length}
+Products NEVER Sold: ${unsoldProducts.length}
+Total Inventory Value: $${totalInventoryValue.toFixed(2)}
+Low Stock Items: ${lowStockCount}
+Total Orders: ${totalOrders}
+Total Revenue: $${totalRevenue.toFixed(2)}
+Total Expenses: $${totalExpenses.toFixed(2)}
+Net Profit: $${(totalRevenue - totalExpenses).toFixed(2)}
+
+=== PRODUCTS WITH SALES ===
+**${Object.keys(productSalesMap).length} products HAVE BEEN SOLD**
+
+${Object.entries(productSalesMap).slice(0, 20).map(([productId, sales]) => {
+  const p = allProducts.find(prod => prod.id === productId);
+  return p ? `- ${p.name} (${p.sku}): ${sales} units sold, Current stock: ${p.quantity}` : '';
+}).filter(Boolean).join('\n')}
+${Object.keys(productSalesMap).length > 20 ? `\n...and ${Object.keys(productSalesMap).length - 20} more products with sales` : ''}
+
+=== ORDERS SUMMARY ===
+Total Orders: ${totalOrders}
+Pending: ${pendingOrders}
+Processing: ${processingOrders}
+Completed: ${completedOrders}
+Refunded: ${refundedOrders}
+Refund Requests Pending: ${refundRequestedOrders}
+
+Recent Orders (showing ${Math.min(allOrders.length, 30)} of ${totalOrders}):
+${allOrders.slice(0, 30).map((o, idx) => `
+${idx + 1}. Order ${o.orderNumber}
+   Customer: ${o.customerName} (${o.customerEmail}, ${o.customerPhone})
+   Status: ${o.status}
+   Total: $${o.totalAmount} (Subtotal: $${o.subtotal || o.totalAmount}, Discount: $${o.discount || 0})
+   Items: ${o.items.map(item => `${item.productName} x${item.quantity}`).join(', ')}
+   Shipping: ${o.shippingAddress || 'Not provided'}
+   ${o.shipmentId ? 'Tracking: ' + o.shipmentId : 'No tracking yet'}
+   ${o.refundRequested ? 'REFUND REQUESTED: ' + o.refundReason : ''}
+   ${o.refundApproved ? 'REFUNDED' : ''}
+   Created: ${o.createdAt}`).join('\n')}
+
+=== COMPLETE PRODUCT CATALOG (${totalProducts} products) ===
+${allProducts.slice(0, 50).map((p, idx) => `
+${idx + 1}. ${p.name} (SKU: ${p.sku})
+   Price: $${p.price}, Cost: $${p.costPrice || 0}, Stock: ${p.quantity}
+   Category: ${p.category}, Supplier: ${p.supplier || 'N/A'}
+   Sales: ${productSalesMap[p.id] || 0} units sold ${!productSalesMap[p.id] || productSalesMap[p.id] === 0 ? '(NEVER SOLD)' : ''}
+   Status: ${p.isActive ? 'Active' : 'Inactive'}
+   ${p.qrCode ? 'QR: ' + p.qrCode : 'No QR code'}`).join('\n')}
+${allProducts.length > 50 ? `\n...and ${allProducts.length - 50} more products (see UNSOLD PRODUCTS and PRODUCTS WITH SALES sections for complete inventory analysis)` : ''}
+
+=== INVENTORY HEALTH ===
+
+Low Stock Products (${lowStockCount}):
+${lowStockProducts.map(p => `- ${p.name}: ${p.quantity}/${p.minStockLevel} units (Supplier: ${p.supplier})`).join('\n')}
+
+Top Profitable Products:
+${productProfitability.slice(0, 10).map(p => `- ${p.name}: Margin ${p.profitMargin}, Potential profit $${p.totalPotentialProfit.toFixed(2)}`).join('\n')}
+
+=== ACCOUNTING ===
+Recent Entries (${allAccountingEntries.length} total):
+${allAccountingEntries.slice(0, 15).map(e => `- ${e.accountName}: Debit $${e.debitAmount}, Credit $${e.creditAmount} - ${e.description}`).join('\n')}
+
+Financial Summary:
+- Revenue Entries: ${allAccountingEntries.filter(e => e.accountType === 'revenue').length}
+- Expense Entries: ${allAccountingEntries.filter(e => e.accountType === 'expense').length}
+
+=== SUPPLIERS ===
+${supplierStats.slice(0, 10).map(s => `- ${s.name}: ${s.totalProducts} products, ${s.salesCount} sales, Return rate: ${s.returnRate}, Profit margin: ${s.profitMargin}`).join('\n')}
+
+=== CATEGORIES ===
+${allCategories.map(c => `- ${c.name}${c.description ? ': ' + c.description : ''}`).join('\n')}
+
+=== COUPONS ===
+Active Coupons (${allCoupons.filter(c => c.isActive).length}/${allCoupons.length}):
+${allCoupons.filter(c => c.isActive).map(c => `- ${c.code}: ${c.discountType} ${c.discountValue}, Used ${c.currentUses || 0}/${c.maxUses || 'unlimited'} times`).join('\n')}
+
+=== BUSINESS SETTINGS ===
+${userProfile ? `Company: ${userProfile.companyName || 'Not set'}
+Owner: ${userProfile.displayName}
+Email: ${userProfile.email}
+Currency: ${userProfile.currency || 'USD'}
+Shop: ${userProfile.shopSlug || 'Not set'}
+Address: ${userProfile.businessAddress || 'Not set'}` : 'Profile not configured'}
+
+=== TRANSACTIONS ===
+Recent Inventory Movements (${allTransactions.length} total):
+${allTransactions.slice(0, 20).map(tx => `- ${tx.type.toUpperCase()}: ${tx.quantity} units, Reason: ${tx.reason}`).join('\n')}
+
+${reportsData ? `\n=== ANALYTICS & PREDICTIONS ===\nRevenue Predictions: ${JSON.stringify(reportsData.predictions, null, 2)}\nCash Flow: ${JSON.stringify(reportsData.cashFlow, null, 2)}\nInsights: ${JSON.stringify(reportsData.insights, null, 2)}` : ''}
+
+WHEN USER ASKS ABOUT UNSOLD/NEVER SOLD PRODUCTS:
+- Refer to the "⚠️ PRODUCTS WITH ZERO SALES (NEVER SOLD)" section at the very top
+- List the products by name, SKU, and details
+- There are ${unsoldProducts.length} products with zero sales
+
+Answer naturally and provide specific details from the data above.
 `;
 
     // Build prompt for Gemini
@@ -2299,8 +2789,9 @@ Remember: You're helping a business owner understand their operations better. Be
     fullPrompt += `User: ${message}`;
 
     console.log('[REPORTS CHAT] Calling Gemini API via REST...');
+    console.log('[REPORTS CHAT] Context size:', fullPrompt.length, 'characters');
 
-    // Call Gemini REST API directly
+    // Call Gemini REST API directly with increased token limits
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
@@ -2312,7 +2803,7 @@ Remember: You're helping a business owner understand their operations better. Be
           }],
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 1000,
+            maxOutputTokens: 2048, // Increased for detailed responses
           }
         })
       }
@@ -2997,4 +3488,521 @@ async function handlePaymentWebhook(req, res) {
       error: error.message 
     });
   }
+}
+
+// ===== EASY PARCEL / SHIPPING HANDLERS =====
+
+/**
+ * Create shipment and generate waybill via Easy Parcel
+ */
+async function handleCreateShipment(req, res, user) {
+  const { db } = await initializeFirebase();
+  const adminModule = await import('firebase-admin');
+  
+  try {
+    const { 
+      orderId, 
+      serviceId, // Optional - will auto-select if not provided
+      weight,
+      insuranceValue 
+    } = req.body;
+
+    console.log('[SHIPPING] Creating shipment for order:', orderId);
+
+    if (!orderId) {
+      return res.status(400).json({ 
+        message: 'Order ID is required' 
+      });
+    }
+
+    // Check Easy Parcel API key
+    if (!process.env.EASYPARCEL_API_KEY) {
+      console.error('[SHIPPING] Easy Parcel API key not configured');
+      return res.status(500).json({ 
+        message: 'Shipping service not configured' 
+      });
+    }
+
+    // Get order details
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    
+    if (!orderDoc.exists) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    const order = orderDoc.data();
+
+    // Verify order belongs to seller
+    const hasSellerItems = order.items?.some(item => item.sellerId === user.uid);
+    if (!hasSellerItems) {
+      return res.status(403).json({ 
+        message: 'Unauthorized - Order does not belong to you' 
+      });
+    }
+
+    // Get seller (pickup) information
+    const userDoc = await db.collection('users').doc(user.uid).get();
+    const userProfile = userDoc.data();
+
+    if (!userProfile || !userProfile.businessAddress) {
+      return res.status(400).json({ 
+        message: 'Please complete your business profile with address information in Settings' 
+      });
+    }
+
+    // Parse addresses
+    const pickupAddress = parseShippingAddress(userProfile.businessAddress);
+    const dropAddress = parseShippingAddress(order.shippingAddress);
+
+    // Calculate total weight from items (or use provided weight)
+    const totalWeight = weight || calculateOrderWeight(order.items);
+
+    // If no service ID provided, get the cheapest available service
+    let selectedServiceId = serviceId;
+    
+    if (!selectedServiceId) {
+      console.log('[SHIPPING] No service specified, fetching available services...');
+      
+      const ratesResponse = await fetch(
+        'https://connect.easyparcel.com/api/v1/rate/check',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.EASYPARCEL_API_KEY}`
+          },
+          body: JSON.stringify({
+            pick_postcode: pickupAddress.postcode,
+            drop_postcode: dropAddress.postcode,
+            weight: totalWeight,
+            width: 10,
+            height: 10,
+            length: 10
+          })
+        }
+      );
+
+      if (ratesResponse.ok) {
+        const rates = await ratesResponse.json();
+        if (rates.rates && rates.rates.length > 0) {
+          // Select the cheapest service
+          const cheapestService = rates.rates.reduce((min, service) => 
+            service.price < min.price ? service : min
+          );
+          selectedServiceId = cheapestService.service_id;
+          console.log('[SHIPPING] Auto-selected cheapest service:', cheapestService.courier_name || cheapestService.service_name, 'at', cheapestService.price);
+        }
+      }
+      
+      if (!selectedServiceId) {
+        return res.status(400).json({ 
+          message: 'No shipping service available for this route. Please check the addresses.' 
+        });
+      }
+    }
+
+    // Prepare shipment data for Easy Parcel
+    const shipmentData = {
+      pick_code: user.uid,
+      pick_contact_person: userProfile.displayName || userProfile.companyName || 'Seller',
+      pick_company: userProfile.companyName || userProfile.displayName || 'My Shop',
+      pick_mobile: userProfile.phoneNumber || '0123456789',
+      pick_email: userProfile.email || user.email,
+      pick_addr1: pickupAddress.addr1,
+      pick_addr2: pickupAddress.addr2,
+      pick_postcode: pickupAddress.postcode,
+      pick_city: pickupAddress.city,
+      pick_state: pickupAddress.state,
+      pick_country: pickupAddress.country || 'Malaysia',
+      
+      drop_code: order.customerId || 'CUSTOMER',
+      drop_contact_person: order.customerName,
+      drop_mobile: order.customerPhone,
+      drop_email: order.customerEmail,
+      drop_addr1: dropAddress.addr1,
+      drop_addr2: dropAddress.addr2,
+      drop_postcode: dropAddress.postcode,
+      drop_city: dropAddress.city,
+      drop_state: dropAddress.state,
+      drop_country: dropAddress.country || 'Malaysia',
+      
+      parcel_items: order.items
+        .filter(item => item.sellerId === user.uid)
+        .map(item => ({
+          item_desc: item.productName,
+          quantity: item.quantity,
+          weight: totalWeight / order.items.length, // Distribute weight evenly
+          value: item.totalPrice
+        })),
+      
+      service_id: selectedServiceId,
+      insurance_value: insuranceValue || 0,
+      reference_no: order.orderNumber
+    };
+
+    // Create shipment via Easy Parcel API
+    const easyParcelResponse = await fetch(
+      'https://connect.easyparcel.com/api/v1/order/create',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.EASYPARCEL_API_KEY}`
+        },
+        body: JSON.stringify(shipmentData)
+      }
+    );
+
+    if (!easyParcelResponse.ok) {
+      const error = await easyParcelResponse.json();
+      console.error('[SHIPPING] Easy Parcel API error:', error);
+      throw new Error(error.message || 'Failed to create shipment with Easy Parcel');
+    }
+
+    const shipmentResult = await easyParcelResponse.json();
+
+    console.log('[SHIPPING] Shipment created successfully:', shipmentResult);
+
+    // Update order with shipping information
+    await db.collection('orders').doc(orderId).update({
+      shipmentId: shipmentResult.tracking_no || shipmentResult.awb_no,
+      easyParcelOrderId: shipmentResult.order_id,
+      waybillUrl: shipmentResult.waybill_url,
+      courier: shipmentResult.courier || selectedServiceId,
+      estimatedDelivery: shipmentResult.estimated_delivery,
+      shippingCost: shipmentResult.total_charge,
+      status: 'processing',
+      updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+    });
+
+    return res.json({
+      success: true,
+      trackingNo: shipmentResult.tracking_no || shipmentResult.awb_no,
+      orderId: shipmentResult.order_id,
+      waybillUrl: shipmentResult.waybill_url,
+      courier: shipmentResult.courier || selectedServiceId,
+      estimatedDelivery: shipmentResult.estimated_delivery,
+      cost: shipmentResult.total_charge
+    });
+
+  } catch (error) {
+    console.error('[SHIPPING] Error creating shipment:', error);
+    return res.status(500).json({ 
+      message: 'Failed to create shipment',
+      error: error.message 
+    });
+  }
+}
+
+/**
+ * Track shipment status
+ */
+async function handleTrackShipment(req, res, trackingNo) {
+  try {
+    console.log('[SHIPPING] Tracking shipment:', trackingNo);
+
+    if (!process.env.EASYPARCEL_API_KEY) {
+      return res.status(500).json({ 
+        message: 'Shipping service not configured' 
+      });
+    }
+
+    // Track via Easy Parcel API
+    const trackingResponse = await fetch(
+      `https://connect.easyparcel.com/api/v1/track/${trackingNo}`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${process.env.EASYPARCEL_API_KEY}`
+        }
+      }
+    );
+
+    if (!trackingResponse.ok) {
+      const error = await trackingResponse.json();
+      console.error('[SHIPPING] Tracking API error:', error);
+      throw new Error(error.message || 'Failed to track shipment');
+    }
+
+    const trackingData = await trackingResponse.json();
+
+    return res.json({
+      status: trackingData.status,
+      trackingNo: trackingData.tracking_no,
+      courier: trackingData.courier,
+      events: trackingData.tracking_events || [],
+      estimatedDelivery: trackingData.estimated_delivery
+    });
+
+  } catch (error) {
+    console.error('[SHIPPING] Error tracking shipment:', error);
+    return res.status(500).json({ 
+      message: 'Failed to track shipment',
+      error: error.message 
+    });
+  }
+}
+
+/**
+ * Download waybill PDF
+ */
+async function handleDownloadWaybill(req, res, user, orderId) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    console.log('[SHIPPING] Downloading waybill for order:', orderId);
+
+    if (!process.env.EASYPARCEL_API_KEY) {
+      return res.status(500).json({ 
+        message: 'Shipping service not configured' 
+      });
+    }
+
+    // Get order to verify ownership and get Easy Parcel order ID
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    
+    if (!orderDoc.exists) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    const order = orderDoc.data();
+
+    // Verify order belongs to seller
+    const hasSellerItems = order.items?.some(item => item.sellerId === user.uid);
+    if (!hasSellerItems) {
+      return res.status(403).json({ 
+        message: 'Unauthorized - Order does not belong to you' 
+      });
+    }
+
+    if (!order.easyParcelOrderId) {
+      return res.status(400).json({ 
+        message: 'No waybill available - shipment not created yet' 
+      });
+    }
+
+    // If waybill URL is available, redirect to it
+    if (order.waybillUrl) {
+      return res.redirect(order.waybillUrl);
+    }
+
+    // Otherwise, download from Easy Parcel API
+    const waybillResponse = await fetch(
+      `https://connect.easyparcel.com/api/v1/order/${order.easyParcelOrderId}/waybill`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${process.env.EASYPARCEL_API_KEY}`
+        }
+      }
+    );
+
+    if (!waybillResponse.ok) {
+      throw new Error('Failed to download waybill from Easy Parcel');
+    }
+
+    // Stream the PDF to client
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="waybill-${order.orderNumber}.pdf"`);
+    
+    const buffer = await waybillResponse.arrayBuffer();
+    return res.send(Buffer.from(buffer));
+
+  } catch (error) {
+    console.error('[SHIPPING] Error downloading waybill:', error);
+    return res.status(500).json({ 
+      message: 'Failed to download waybill',
+      error: error.message 
+    });
+  }
+}
+
+/**
+ * Get available shipping services
+ */
+async function handleGetShippingServices(req, res) {
+  try {
+    const { pickupPostcode, dropPostcode, weight } = req.query;
+
+    console.log('[SHIPPING] Getting available services:', { pickupPostcode, dropPostcode, weight });
+
+    if (!process.env.EASYPARCEL_API_KEY) {
+      return res.status(500).json({ 
+        message: 'Shipping service not configured' 
+      });
+    }
+
+    if (!pickupPostcode || !dropPostcode || !weight) {
+      return res.status(400).json({ 
+        message: 'Pickup postcode, drop postcode, and weight are required' 
+      });
+    }
+
+    // Get rates from Easy Parcel API
+    const ratesResponse = await fetch(
+      'https://connect.easyparcel.com/api/v1/rate/check',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.EASYPARCEL_API_KEY}`
+        },
+        body: JSON.stringify({
+          pick_postcode: pickupPostcode,
+          drop_postcode: dropPostcode,
+          weight: parseFloat(weight),
+          width: 10,
+          height: 10,
+          length: 10
+        })
+      }
+    );
+
+    if (!ratesResponse.ok) {
+      const error = await ratesResponse.json();
+      console.error('[SHIPPING] Rates API error:', error);
+      throw new Error(error.message || 'Failed to get shipping rates');
+    }
+
+    const rates = await ratesResponse.json();
+
+    return res.json({
+      services: rates.rates || [],
+      success: true
+    });
+
+  } catch (error) {
+    console.error('[SHIPPING] Error getting shipping services:', error);
+    return res.status(500).json({ 
+      message: 'Failed to get shipping services',
+      error: error.message 
+    });
+  }
+}
+
+/**
+ * Get bulk waybill for multiple orders
+ */
+async function handleBulkWaybill(req, res, user) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const { orderIds } = req.body;
+
+    console.log('[SHIPPING] Getting bulk waybill for orders:', orderIds);
+
+    if (!process.env.EASYPARCEL_API_KEY) {
+      return res.status(500).json({ 
+        message: 'Shipping service not configured' 
+      });
+    }
+
+    if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
+      return res.status(400).json({ 
+        message: 'Order IDs array is required' 
+      });
+    }
+
+    // Get all orders and extract Easy Parcel order IDs
+    const easyParcelOrderIds = [];
+    
+    for (const orderId of orderIds) {
+      const orderDoc = await db.collection('orders').doc(orderId).get();
+      
+      if (orderDoc.exists) {
+        const order = orderDoc.data();
+        
+        // Verify order belongs to seller
+        const hasSellerItems = order.items?.some(item => item.sellerId === user.uid);
+        if (hasSellerItems && order.easyParcelOrderId) {
+          easyParcelOrderIds.push(order.easyParcelOrderId);
+        }
+      }
+    }
+
+    if (easyParcelOrderIds.length === 0) {
+      return res.status(400).json({ 
+        message: 'No valid orders with waybills found' 
+      });
+    }
+
+    // Get bulk waybill from Easy Parcel API
+    const bulkResponse = await fetch(
+      'https://connect.easyparcel.com/api/v1/order/bulk-waybill',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.EASYPARCEL_API_KEY}`
+        },
+        body: JSON.stringify({
+          order_ids: easyParcelOrderIds
+        })
+      }
+    );
+
+    if (!bulkResponse.ok) {
+      throw new Error('Failed to get bulk waybill from Easy Parcel');
+    }
+
+    // Stream the PDF to client
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="waybills-bulk.pdf"`);
+    
+    const buffer = await bulkResponse.arrayBuffer();
+    return res.send(Buffer.from(buffer));
+
+  } catch (error) {
+    console.error('[SHIPPING] Error getting bulk waybill:', error);
+    return res.status(500).json({ 
+      message: 'Failed to get bulk waybill',
+      error: error.message 
+    });
+  }
+}
+
+// ===== HELPER FUNCTIONS FOR SHIPPING =====
+
+/**
+ * Parse shipping address into Easy Parcel format
+ */
+function parseShippingAddress(fullAddress) {
+  if (!fullAddress) {
+    return {
+      addr1: '',
+      addr2: '',
+      postcode: '',
+      city: '',
+      state: '',
+      country: 'Malaysia'
+    };
+  }
+
+  const lines = fullAddress.split(',').map(line => line.trim());
+  
+  // Extract postcode (5 digits for Malaysia)
+  const postcodeMatch = fullAddress.match(/\b\d{5}\b/);
+  const postcode = postcodeMatch ? postcodeMatch[0] : '';
+  
+  // Basic parsing - you may need to enhance this based on your address format
+  return {
+    addr1: lines[0] || '',
+    addr2: lines.length > 3 ? lines.slice(1, -2).join(', ') : lines[1] || '',
+    postcode: postcode,
+    city: lines.length >= 2 ? lines[lines.length - 2].replace(/\d{5}/g, '').trim() : '',
+    state: lines.length >= 1 ? lines[lines.length - 1] : '',
+    country: 'Malaysia'
+  };
+}
+
+/**
+ * Calculate order weight
+ */
+function calculateOrderWeight(items) {
+  // Default weight per item: 0.5kg
+  // You can enhance this by storing weight in product data
+  const defaultWeightPerItem = 0.5;
+  
+  const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
+  return totalItems * defaultWeightPerItem;
 }
