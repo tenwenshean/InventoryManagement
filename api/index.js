@@ -491,6 +491,15 @@ export default async function handler(req, res) {
       if (pathParts[1] === 'weekly-summary' && req.method === 'POST') {
         return await handleWeeklySummaryCron(req, res);
       }
+      // If cron path matched but method isn't POST
+      if (req.method !== 'POST') {
+        return res.status(405).json({ message: 'Method not allowed. Use POST.' });
+      }
+      // Unknown cron job
+      return res.status(404).json({ 
+        message: 'Unknown cron job', 
+        available: ['low-stock-check', 'daily-report', 'weekly-summary'] 
+      });
     }
 
     // ===== HEALTH CHECK ROUTE (for debugging) =====
