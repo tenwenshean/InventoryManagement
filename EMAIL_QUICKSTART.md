@@ -42,10 +42,13 @@
 2. After logging in, click **"Create cron job"**
 3. Create these 3 jobs:
 
+**Your Vercel URL is:**
+`https://inventory-management-server-nine.vercel.app`
+
 **Job 1: Hourly Low Stock Check**
 ```
 Title: Low Stock Check
-URL: https://YOUR-APP.vercel.app/api/cron/low-stock-check
+URL: https://inventory-management-server-nine.vercel.app/api/cron/low-stock-check
 Schedule: 0 * * * * (every hour)
 Method: POST
 ```
@@ -53,7 +56,7 @@ Method: POST
 **Job 2: Daily Report at 9 AM**
 ```
 Title: Daily Report
-URL: https://YOUR-APP.vercel.app/api/cron/daily-report
+URL: https://inventory-management-server-nine.vercel.app/api/cron/daily-report
 Schedule: 0 9 * * * (daily 9 AM)
 Method: POST
 ```
@@ -61,7 +64,7 @@ Method: POST
 **Job 3: Weekly Summary (Monday 9 AM)**
 ```
 Title: Weekly Summary
-URL: https://YOUR-APP.vercel.app/api/cron/weekly-summary
+URL: https://inventory-management-server-nine.vercel.app/api/cron/weekly-summary
 Schedule: 0 9 * * 1 (Monday 9 AM)
 Method: POST
 ```
@@ -75,9 +78,9 @@ See `GITHUB_ACTIONS_SETUP.md` - just add 2 secrets and you're done.
 
 ### 4️⃣ Configure in App (30 seconds)
 
-1. Go to your app: `https://your-app.vercel.app/settings`
-2. Scroll to **Email Notifications**
-3. Enter your notification email
+1. Go to: `https://inventory-management-server-nine.vercel.app/settings`
+2. Scroll to **Email Notifications** section
+3. Enter your notification email (where you want to receive alerts)
 4. Enable the toggles you want:
    - ☑️ Low Stock Alerts
    - ☑️ Daily Reports
@@ -139,6 +142,15 @@ You're done! Emails will now send automatically based on your schedule.
 1. Check your Vercel URL is correct
 2. Verify app is deployed successfully
 3. Check Vercel function logs for errors
+4. **Important:** Cron endpoints ONLY accept POST requests (not GET)
+   - Don't test by typing URL in browser (that's GET)
+   - Use cron-job.org "Execute now" or PowerShell/curl for POST
+
+**How to test manually:**
+```powershell
+# PowerShell test:
+Invoke-RestMethod -Uri "https://inventory-management-server-nine.vercel.app/api/cron/daily-report" -Method POST
+```
 
 **Gmail not working?**
 1. Verify 2-Step Verification is enabled

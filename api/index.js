@@ -145,6 +145,37 @@ async function authenticate(req) {
   }
 }
 
+// Flexible authentication middleware that supports both query params and headers
+async function authenticateFlexible(req) {
+  const { auth } = await initializeFirebase();
+  
+  // Check for token in query param first (for new window access like waybills)
+  const tokenFromQuery = req.query?.token;
+  
+  // Check for token in Authorization header
+  const authHeader = req.headers.authorization || req.headers.Authorization;
+  
+  let token;
+  if (tokenFromQuery) {
+    token = tokenFromQuery;
+    console.log('[Auth] Using token from query parameter');
+  } else if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split('Bearer ')[1];
+    console.log('[Auth] Using token from Authorization header');
+  } else {
+    throw { status: 401, message: 'Unauthorized - Missing token' };
+  }
+  
+  try {
+    const decoded = await auth.verifyIdToken(token);
+    console.log('[Auth] Token verified for user:', decoded.uid);
+    return decoded;
+  } catch (error) {
+    console.error('[Auth] Token verification failed:', error);
+    throw { status: 401, message: 'Unauthorized - Invalid token' };
+  }
+}
+
 // Main handler
 export default async function handler(req, res) {
   setCorsHeaders(res);
@@ -386,7 +417,9 @@ export default async function handler(req, res) {
 
     // GET /api/shipping/waybill/:orderId - Download waybill PDF
     if (pathParts[0] === 'shipping' && pathParts[1] === 'waybill' && pathParts.length === 3 && req.method === 'GET') {
-      const user = await authenticate(req);
+      console.log('[API ROUTE] Waybill route matched for orderId:', pathParts[2]);
+      const user = await authenticateFlexible(req);
+      console.log('[API ROUTE] User authenticated for waybill:', user.uid);
       return await handleDownloadWaybill(req, res, user, pathParts[2]);
     }
 
@@ -3521,7 +3554,7 @@ async function handlePaymentWebhook(req, res) {
 // ===== EASY PARCEL / SHIPPING HANDLERS =====
 
 /**
- * Create shipment and generate waybill via Easy Parcel
+ * Create shipment and generate waybill via Easy Parcel OR Local Demo Mode
  */
 async function handleCreateShipment(req, res, user) {
   const { db } = await initializeFirebase();
@@ -3543,13 +3576,9 @@ async function handleCreateShipment(req, res, user) {
       });
     }
 
-    // Check Easy Parcel API key
-    if (!process.env.EASYPARCEL_API_KEY) {
-      console.error('[SHIPPING] Easy Parcel API key not configured');
-      return res.status(500).json({ 
-        message: 'Shipping service not configured' 
-      });
-    }
+    // Always use local demo mode
+    console.log('[SHIPPING] Using LOCAL DEMO mode');
+    return await handleCreateShipmentLocal(req, res, user, db);
 
     // Get order details
     const orderDoc = await db.collection('orders').doc(orderId).get();
@@ -3723,6 +3752,76 @@ async function handleCreateShipment(req, res, user) {
 }
 
 /**
+ * Create shipment in LOCAL DEMO mode (no external API)
+ */
+async function handleCreateShipmentLocal(req, res, user, db) {
+  try {
+    const { orderId, weight, insuranceValue } = req.body;
+
+    console.log('[SHIPPING LOCAL] Creating LOCAL shipment for order:', orderId);
+
+    // Get order details
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    if (!orderDoc.exists) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    const order = orderDoc.data();
+
+    // Verify order has items for this seller
+    const hasSellerItems = order.items?.some(item => item.sellerId === user.uid);
+    if (!hasSellerItems) {
+      return res.status(403).json({ message: 'Unauthorized - This order does not contain your products' });
+    }
+
+    // Simple internal tracking number
+    const trackingNo = `TRK-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+
+    // Basic shipping cost estimation (purely for demo)
+    const totalItems = (order.items || []).reduce(
+      (sum, item) => sum + (item.quantity || 0),
+      0
+    );
+    const effectiveWeight = weight && Number(weight) > 0 ? Number(weight) : Math.max(totalItems * 0.5, 0.5);
+    const baseRate = 5; // base currency units
+    const perKg = 2;
+    const cost = baseRate + perKg * effectiveWeight;
+
+    const estimatedDelivery = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Persist shipment details back to order
+    await db.collection('orders').doc(orderId).update({
+      shipmentId: trackingNo,
+      courier: 'DemoCourier',
+      waybillUrl: null,
+      estimatedDelivery,
+      shippingCost: cost,
+      status: 'processing',
+      updatedAt: new Date(),
+      insuranceValue: insuranceValue ? Number(insuranceValue) : 0,
+    });
+
+    console.log('[SHIPPING LOCAL] Created local shipment:', trackingNo);
+
+    return res.json({
+      success: true,
+      trackingNo,
+      orderId,
+      waybillUrl: null,
+      courier: 'DemoCourier',
+      estimatedDelivery,
+      cost,
+    });
+  } catch (error) {
+    console.error('[SHIPPING LOCAL] Error creating local shipment:', error);
+    return res.status(500).json({
+      message: 'Failed to create shipment',
+      error: error?.message || String(error),
+    });
+  }
+}
+
+/**
  * Track shipment status
  */
 async function handleTrackShipment(req, res, trackingNo) {
@@ -3791,21 +3890,15 @@ async function handleTrackShipment(req, res, trackingNo) {
 }
 
 /**
- * Download waybill PDF
+ * Download waybill PDF or HTML
  */
 async function handleDownloadWaybill(req, res, user, orderId) {
   const { db } = await initializeFirebase();
   
   try {
-    console.log('[SHIPPING] Downloading waybill for order:', orderId);
+    console.log('[WAYBILL] Downloading waybill for order:', orderId);
 
-    if (!process.env.EASYPARCEL_API_KEY) {
-      return res.status(500).json({ 
-        message: 'Shipping service not configured' 
-      });
-    }
-
-    // Get order to verify ownership and get Easy Parcel order ID
+    // Get order to verify ownership
     const orderDoc = await db.collection('orders').doc(orderId).get();
     
     if (!orderDoc.exists) {
@@ -3822,44 +3915,232 @@ async function handleDownloadWaybill(req, res, user, orderId) {
       });
     }
 
-    if (!order.easyParcelOrderId) {
+    if (!order.shipmentId) {
       return res.status(400).json({ 
         message: 'No waybill available - shipment not created yet' 
       });
     }
 
-    // If waybill URL is available, redirect to it
-    if (order.waybillUrl) {
-      return res.redirect(order.waybillUrl);
-    }
-
-    // Otherwise, download from Easy Parcel API
-    const waybillResponse = await fetch(
-      `https://connect.easyparcel.com/api/v1/order/${order.easyParcelOrderId}/waybill`,
-      {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${process.env.EASYPARCEL_API_KEY}`
-        }
-      }
-    );
-
-    if (!waybillResponse.ok) {
-      throw new Error('Failed to download waybill from Easy Parcel');
-    }
-
-    // Stream the PDF to client
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="waybill-${order.orderNumber}.pdf"`);
-    
-    const buffer = await waybillResponse.arrayBuffer();
-    return res.send(Buffer.from(buffer));
+    // Always use local HTML waybill
+    console.log('[WAYBILL] Using local HTML waybill');
+    return await generateLocalWaybillHTML(req, res, user, orderId, order, db);
 
   } catch (error) {
-    console.error('[SHIPPING] Error downloading waybill:', error);
+    console.error('[WAYBILL] Error downloading waybill:', error);
     return res.status(500).json({ 
       message: 'Failed to download waybill',
       error: error.message 
+    });
+  }
+}
+
+/**
+ * Generate local HTML waybill (for demo mode when Easy Parcel is not configured)
+ */
+async function generateLocalWaybillHTML(req, res, user, orderId, order, db) {
+  try {
+    // Get seller info for "Ship From" section
+    const sellerDoc = await db.collection('users').doc(user.uid).get();
+    const seller = sellerDoc.data();
+    
+    const orderDate = order.createdAt?.toDate?.() || order.createdAt || new Date();
+    const formattedDate = new Date(orderDate).toLocaleDateString('en-MY', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    
+    const estimatedDelivery = order.estimatedDelivery 
+      ? new Date(order.estimatedDelivery).toLocaleDateString('en-MY', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        })
+      : 'N/A';
+
+    const html = `<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Waybill - ${order.orderNumber || orderId}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      @page { size: A4 portrait; margin: 10mm; }
+      @media print {
+        html, body { width: 210mm; height: 297mm; }
+        body { margin: 0; padding: 0; background: white !important; }
+        .no-print { display: none !important; }
+        .waybill-container { box-shadow: none !important; margin: 0 !important; padding: 0 !important; page-break-after: avoid; }
+        .waybill { border-width: 2px !important; }
+      }
+      body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; padding: 15px; color: #000; }
+      .waybill-container { max-width: 210mm; margin: 0 auto; background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+      .waybill { border: 4px solid #000; padding: 15px; background: white; }
+      .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 4px solid #000; padding-bottom: 12px; margin-bottom: 15px; }
+      .logo-section h1 { font-size: 32px; color: #000; font-weight: 900; margin-bottom: 4px; letter-spacing: -1px; text-transform: uppercase; }
+      .logo-section .company { font-size: 16px; color: #333; font-weight: 600; margin-top: 4px; }
+      .logo-section .subtitle { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 2px; }
+      .order-info { text-align: right; background: #000; color: white; padding: 12px 16px; border-radius: 4px; }
+      .order-info .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; margin-bottom: 4px; }
+      .order-info .value { font-size: 20px; font-weight: 900; letter-spacing: 0.5px; }
+      .order-info .date-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.3); }
+      .tracking-section { background: #000; color: white; padding: 18px 20px; margin: 18px 0; text-align: center; border: 3px solid #000; }
+      .tracking-section .label { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; font-weight: 700; margin-bottom: 10px; }
+      .tracking-section .tracking-number { font-size: 28px; font-weight: 900; letter-spacing: 4px; font-family: Courier New, monospace; background: white; color: #000; padding: 12px 20px; border-radius: 4px; display: inline-block; margin: 8px 0; }
+      .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 18px 0; }
+      .section { border: 3px solid #000; padding: 12px; background: white; min-height: 140px; }
+      .section-title { font-size: 13px; font-weight: 900; text-transform: uppercase; color: white; background: #000; letter-spacing: 1.5px; padding: 8px 12px; margin: -12px -12px 12px -12px; }
+      .section-content { font-size: 13px; line-height: 1.6; }
+      .section-content .name { font-weight: 900; font-size: 16px; margin-bottom: 6px; color: #000; text-transform: uppercase; }
+      .section-content .detail { color: #333; margin: 4px 0; padding-left: 0; }
+      .section-content .address { color: #000; margin-top: 8px; font-weight: 600; border-left: 4px solid #000; padding-left: 8px; line-height: 1.5; }
+      .barcode-area { margin-top: 20px; padding: 25px 20px; border: 4px solid #000; text-align: center; background: white; }
+      .barcode-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #000; margin-bottom: 15px; }
+      .barcode { width: 100%; max-width: 400px; margin: 0 auto; }
+      .barcode-lines { display: flex; justify-content: center; align-items: flex-end; height: 80px; background: white; margin: 10px 0; gap: 2px; }
+      .barcode-line { background: #000; height: 100%; flex-shrink: 0; }
+      .barcode-line.thin { width: 2px; }
+      .barcode-line.medium { width: 3px; }
+      .barcode-line.thick { width: 4px; }
+      .barcode-line.short { height: 60%; }
+      .barcode-number { font-family: Courier New, monospace; font-size: 16px; font-weight: 900; letter-spacing: 6px; color: #000; margin-top: 8px; text-align: center; }
+      .tracking-ref { font-size: 12px; color: #666; margin-top: 10px; font-weight: 600; }
+      .footer { margin-top: 18px; padding-top: 12px; border-top: 3px solid #000; text-align: center; font-size: 10px; color: #666; line-height: 1.6; }
+      .footer .important { color: #000; font-weight: 700; margin-bottom: 6px; }
+      .print-controls { position: fixed; top: 20px; right: 20px; z-index: 1000; display: flex; gap: 10px; }
+      .print-button { background: #000; color: white; border: none; padding: 14px 28px; font-size: 15px; font-weight: 700; border-radius: 6px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px; }
+      .print-button:hover { background: #333; transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.4); }
+      .print-button:active { transform: translateY(0); }
+      .print-button.secondary { background: white; color: #000; border: 2px solid #000; }
+      .print-button.secondary:hover { background: #f5f5f5; }
+    </style>
+  </head>
+  <body>
+    <div class="print-controls no-print">
+      <button class="print-button secondary" onclick="window.close()">✕ Close</button>
+      <button class="print-button" onclick="window.print()">🖨️ Print / Save PDF</button>
+    </div>
+    <div class="waybill-container">
+      <div class="waybill">
+        <div class="header">
+          <div class="logo-section">
+            <h1>Shipping Waybill</h1>
+            <div class="company">${seller?.settings?.shopName || seller?.companyName || seller?.displayName || 'Your Store'}</div>
+            <div class="subtitle">Commercial Invoice & Packing List</div>
+          </div>
+          <div class="order-info">
+            <div class="label">Order Number</div>
+            <div class="value">${order.orderNumber || orderId}</div>
+            <div class="date-section">
+              <div class="label">Order Date</div>
+              <div class="value" style="font-size: 14px;">${formattedDate}</div>
+            </div>
+          </div>
+        </div>
+        <div class="tracking-section">
+          <div class="label">● Tracking Number ●</div>
+          <div class="tracking-number">${order.shipmentId || "PENDING-ASSIGNMENT"}</div>
+        </div>
+        <div class="two-column">
+          <div class="section">
+            <div class="section-title">📦 Ship From (Sender)</div>
+            <div class="section-content">
+              <div class="name">${seller?.settings?.shopName || seller?.companyName || seller?.displayName || 'Seller'}</div>
+              <div class="detail">📞 ${seller?.settings?.shopPhone || seller?.phoneNumber || 'N/A'}</div>
+              <div class="detail">📧 ${seller?.email || 'N/A'}</div>
+              <div class="address">${seller?.settings?.shopAddress || seller?.businessAddress || 'Address not configured'}</div>
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-title">📍 Ship To (Recipient)</div>
+            <div class="section-content">
+              <div class="name">${order.customerName || 'N/A'}</div>
+              <div class="detail">📞 ${order.customerPhone || 'N/A'}</div>
+              <div class="detail">📧 ${order.customerEmail || 'N/A'}</div>
+              <div class="address">${order.shippingAddress || 'N/A'}</div>
+            </div>
+          </div>
+        </div>
+        <div class="barcode-area">
+          <div class="barcode-label">Tracking Barcode</div>
+          <div class="barcode">
+            <div class="barcode-lines">
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium short"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin short"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thick"></div>
+              <div class="barcode-line thin"></div>
+              <div class="barcode-line medium"></div>
+              <div class="barcode-line thin"></div>
+            </div>
+            <div class="barcode-number">${order.shipmentId || 'PENDING'}</div>
+            <div class="tracking-ref">Order: ${order.orderNumber || 'N/A'}</div>
+          </div>
+        </div>
+        <div class="footer">
+          <div class="important">⚠️ IMPORTANT NOTICE</div>
+          <p>This is a computer-generated waybill and serves as proof of shipment.</p>
+          <p>For order tracking, please use the tracking number above on the courier's website.</p>
+          <p style="margin-top: 8px; font-weight: 700;">Generated: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}</p>
+          <p style="margin-top: 4px; font-size: 9px;">Order ID: ${orderId}</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
+  } catch (error) {
+    console.error('[WAYBILL] Error generating local waybill:', error);
+    return res.status(500).json({
+      message: 'Failed to generate waybill',
+      error: error?.message || String(error),
     });
   }
 }
