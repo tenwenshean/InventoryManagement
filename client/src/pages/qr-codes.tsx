@@ -281,6 +281,66 @@ export default function QRCodes() {
     },
   });
 
+  // Generate all QR codes mutation
+  const generateAllQRMutation = useMutation({
+    mutationFn: async (productIds: string[]) => {
+      const results = [];
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const productId of productIds) {
+        try {
+          const response = await apiRequest("POST", `/api/products/${productId}/qr`);
+          if (!response.ok) {
+            failCount++;
+            continue;
+          }
+          const data = await response.json();
+          results.push(data);
+          successCount++;
+        } catch (error) {
+          failCount++;
+          console.error(`Failed to generate QR for product ${productId}:`, error);
+        }
+      }
+
+      return { results, successCount, failCount, total: productIds.length };
+    },
+    onSuccess: async (data) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      
+      // Update QR URLs for all generated codes
+      const newQrUrls: Record<string, string> = {};
+      for (const result of data.results) {
+        try {
+          const qrUrl = await QRCode.toDataURL(
+            `${window.location.origin}/scan/${encodeURIComponent(result.qrCode)}`,
+            { width: 240, margin: 1 }
+          );
+          newQrUrls[result.productId] = qrUrl;
+        } catch (error) {
+          console.error("Error generating QR image:", error);
+        }
+      }
+      
+      setQrUrls(prev => ({ ...prev, ...newQrUrls }));
+      
+      toast({
+        title: "QR Generation Complete",
+        description: `Successfully generated ${data.successCount} QR code(s)${data.failCount > 0 ? `. Failed: ${data.failCount}` : ''}`,
+        variant: data.failCount > 0 ? "default" : "default",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to generate QR codes. Please try again.",
+        variant: "destructive",
+      });
+      console.error("Generate all QR error:", error);
+    },
+  });
+
   // Show loading state
   if (isLoading) {
     return (
@@ -438,8 +498,28 @@ export default function QRCodes() {
       {/* Products without QR Codes */}
       {productsWithoutQR.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle>Products Needing QR Codes</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Products Needing QR Codes</CardTitle>
+            </div>
+            <Button
+              onClick={() => generateAllQRMutation.mutate(productsWithoutQR.map(p => p.id))}
+              disabled={generateAllQRMutation.isPending}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+              data-testid="button-generate-all-qr"
+            >
+              {generateAllQRMutation.isPending ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <QrCode className="mr-2" size={16} />
+                  Generate All ({productsWithoutQR.length})
+                </>
+              )}
+            </Button>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
