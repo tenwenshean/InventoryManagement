@@ -67,6 +67,12 @@ export default function SettingsPage() {
   const [defaultUnit, setDefaultUnit] = useState<string>("pieces");
   const [currency, setCurrency] = useState<string>("usd");
 
+  // Email Notification States
+  const [notificationEmail, setNotificationEmail] = useState<string>("");
+  const [emailLowStock, setEmailLowStock] = useState<boolean>(true);
+  const [emailDailyReports, setEmailDailyReports] = useState<boolean>(false);
+  const [emailWeeklySummary, setEmailWeeklySummary] = useState<boolean>(true);
+
   // Load settings from localStorage
   useEffect(() => {
     const savedSettings = localStorage.getItem(`settings_${user?.uid}`);
@@ -88,6 +94,11 @@ export default function SettingsPage() {
       setDefaultLowStock(typeof settings.defaultLowStock === "number" ? settings.defaultLowStock : 10);
       setDefaultUnit(settings.defaultUnit || "pieces");
       setCurrency(settings.currency || "usd");
+      // Load email notification settings
+      setNotificationEmail(settings.notificationEmail || user?.email || "");
+      setEmailLowStock(settings.emailLowStock !== undefined ? settings.emailLowStock : true);
+      setEmailDailyReports(settings.emailDailyReports !== undefined ? settings.emailDailyReports : false);
+      setEmailWeeklySummary(settings.emailWeeklySummary !== undefined ? settings.emailWeeklySummary : true);
     }
   }, [user]);
 
@@ -159,6 +170,10 @@ export default function SettingsPage() {
       shopFacebook,
       shopInstagram,
       shopTwitter,
+      notificationEmail,
+      emailLowStock,
+      emailDailyReports,
+      emailWeeklySummary,
       updatedAt: new Date().toISOString(),
     };
     
@@ -776,10 +791,10 @@ export default function SettingsPage() {
             <Card data-testid="settings-notifications" ref={sections.notifications} data-section-id="notifications">
               <CardHeader>
                 <CardTitle className="flex items-center">
-                  <Bell className="w-5 h-5 mr-2 text-red-600" />
-                  Notifications
+                  <Mail className="w-5 h-5 mr-2 text-red-600" />
+                  Email Notifications
                 </CardTitle>
-                <CardDescription>Manage how and when you receive alerts</CardDescription>
+                <CardDescription>Configure email alerts and reports</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
@@ -788,38 +803,69 @@ export default function SettingsPage() {
                     id="notification-email" 
                     type="email" 
                     placeholder="admin@company.com" 
+                    value={notificationEmail}
+                    onChange={(e) => setNotificationEmail(e.target.value)}
                     data-testid="input-notification-email"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    All email notifications will be sent to this address
+                  </p>
                 </div>
                 
-                <div className="space-y-3">
-                  <h4 className="font-medium">Email Notifications</h4>
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <Switch id="email-low-stock" defaultChecked data-testid="switch-email-low-stock" />
-                      <Label htmlFor="email-low-stock">Low Stock Alerts</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Switch id="email-daily-reports" data-testid="switch-email-daily-reports" />
-                      <Label htmlFor="email-daily-reports">Daily Reports</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Switch id="email-weekly-summary" defaultChecked data-testid="switch-email-weekly-summary" />
-                      <Label htmlFor="email-weekly-summary">Weekly Summary</Label>
-                    </div>
-                  </div>
-                </div>
+                <Separator />
                 
                 <div className="space-y-3">
-                  <h4 className="font-medium">In-App Notifications</h4>
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <Switch id="app-sound" defaultChecked data-testid="switch-app-sound" />
-                      <Label htmlFor="app-sound">Sound Notifications</Label>
+                  <h4 className="font-medium">Email Alerts</h4>
+                  <div className="space-y-4">
+                    <div className="flex items-start justify-between space-x-2">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2">
+                          <Switch 
+                            id="email-low-stock" 
+                            checked={emailLowStock}
+                            onCheckedChange={setEmailLowStock}
+                            data-testid="switch-email-low-stock" 
+                          />
+                          <Label htmlFor="email-low-stock" className="font-medium">Low Stock Alerts</Label>
+                        </div>
+                        <p className="text-xs text-muted-foreground ml-6 mt-1">
+                          Receive instant email when products fall below their low stock threshold
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Switch id="app-desktop" defaultChecked data-testid="switch-app-desktop" />
-                      <Label htmlFor="app-desktop">Desktop Notifications</Label>
+                    
+                    <div className="flex items-start justify-between space-x-2">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2">
+                          <Switch 
+                            id="email-daily-reports" 
+                            checked={emailDailyReports}
+                            onCheckedChange={setEmailDailyReports}
+                            data-testid="switch-email-daily-reports" 
+                          />
+                          <Label htmlFor="email-daily-reports" className="font-medium">Daily Reports</Label>
+                        </div>
+                        <p className="text-xs text-muted-foreground ml-6 mt-1">
+                          Get a daily summary of sales, inventory changes, and key metrics (sent at 9 AM)
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-start justify-between space-x-2">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2">
+                          <Switch 
+                            id="email-weekly-summary" 
+                            checked={emailWeeklySummary}
+                            onCheckedChange={setEmailWeeklySummary}
+                            data-testid="switch-email-weekly-summary" 
+                          />
+                          <Label htmlFor="email-weekly-summary" className="font-medium">Weekly Summary</Label>
+                        </div>
+                        <p className="text-xs text-muted-foreground ml-6 mt-1">
+                          Receive comprehensive weekly business performance report (sent every Monday at 9 AM)
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>

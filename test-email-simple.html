@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick Email Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 700px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .step {
+            background: #f8f9fa;
+            padding: 20px;
+            border-left: 4px solid #4CAF50;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .step h3 {
+            margin-top: 0;
+            color: #4CAF50;
+        }
+        .code {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            margin: 10px 0;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .alert {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📧 Email Test - Simple Method</h1>
+        <p class="subtitle">Follow these steps to test email notifications</p>
+
+        <div class="alert">
+            <strong>⚠️ Prerequisites:</strong> Make sure you're logged in at <a href="http://localhost:5000" target="_blank">http://localhost:5000</a>
+        </div>
+
+        <div class="step">
+            <h3>Step 1: Open Browser Console</h3>
+            <p>1. Go to <a href="http://localhost:5000" target="_blank">http://localhost:5000</a></p>
+            <p>2. Press <kbd>F12</kbd> or <kbd>Ctrl+Shift+I</kbd> to open Developer Tools</p>
+            <p>3. Click on the <strong>Console</strong> tab</p>
+        </div>
+
+        <div class="step">
+            <h3>Step 2: Copy & Paste This Code</h3>
+            <p>Copy the code below and paste it into the browser console, then press Enter:</p>
+            
+            <div class="code" id="code">
+// Import auth module
+import { auth } from '/src/lib/firebaseClient.ts';
+
+// Send test email
+auth.currentUser.getIdToken(true).then(token => {
+  console.log('🔑 Got token, sending email...');
+  
+  return fetch('/api/notifications/test-email', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token
+    },
+    body: JSON.stringify({
+      email: 'tenwenshean@gmail.com',
+      type: 'low-stock'
+    })
+  });
+})
+.then(r => r.json())
+.then(d => {
+  console.log('✅ SUCCESS!', d);
+  console.log('📬 Check your email at: tenwenshean@gmail.com');
+})
+.catch(e => {
+  console.error('❌ ERROR:', e);
+  if (e.message.includes('currentUser')) {
+    console.error('Make sure you are logged in!');
+  }
+});
+            </div>
+            
+            <button onclick="copyCode()">📋 Copy Code to Clipboard</button>
+        </div>
+
+        <div class="step">
+            <h3>Step 3: Check Your Email</h3>
+            <p>If successful, you'll see "✅ SUCCESS!" in the console.</p>
+            <p>Check your inbox at: <strong>tenwenshean@gmail.com</strong></p>
+            <p><em>Don't forget to check the spam folder!</em></p>
+        </div>
+
+        <div class="step">
+            <h3>🔄 Test Other Email Types</h3>
+            <p>Change the <code>type</code> value in the code to test different emails:</p>
+            <ul>
+                <li><code>"low-stock"</code> - Low Stock Alert</li>
+                <li><code>"daily-report"</code> - Daily Summary Report</li>
+                <li><code>"weekly-summary"</code> - Weekly Summary Report</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        function copyCode() {
+            const code = document.getElementById('code').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                alert('✅ Code copied to clipboard! Now paste it in the browser console at http://localhost:5000');
+            });
+        }
+    </script>
+</body>
+</html>

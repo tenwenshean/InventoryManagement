@@ -3,6 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { createServer as createNetServer } from "node:net";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { scheduledTaskService } from "./scheduled-tasks";
 //import { seedSampleData } from "./storage";
 
 const app = express();

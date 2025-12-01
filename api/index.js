@@ -474,6 +474,25 @@ export default async function handler(req, res) {
       }
     }
 
+    // ===== EMAIL NOTIFICATION ROUTES (protected) =====
+    if (pathParts[0] === 'notifications' && pathParts[1] === 'test-email' && req.method === 'POST') {
+      const user = await authenticate(req);
+      return await handleTestEmail(req, res, user);
+    }
+
+    // ===== CRON JOB ROUTES (public with secret) =====
+    if (pathParts[0] === 'cron') {
+      if (pathParts[1] === 'low-stock-check' && req.method === 'POST') {
+        return await handleLowStockCron(req, res);
+      }
+      if (pathParts[1] === 'daily-report' && req.method === 'POST') {
+        return await handleDailyReportCron(req, res);
+      }
+      if (pathParts[1] === 'weekly-summary' && req.method === 'POST') {
+        return await handleWeeklySummaryCron(req, res);
+      }
+    }
+
     // ===== HEALTH CHECK ROUTE (for debugging) =====
     if (pathParts[0] === 'health' && req.method === 'GET') {
       return await handleHealthCheck(req, res);
@@ -4024,4 +4043,634 @@ function calculateOrderWeight(items) {
   
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
   return totalItems * defaultWeightPerItem;
+}
+
+// ===== EMAIL NOTIFICATION SERVICE =====
+
+/**
+ * Send email using configured SMTP
+ */
+async function sendEmail({ to, subject, html, text = '' }) {
+  // Check if nodemailer is available (will be installed)
+  const nodemailer = await import('nodemailer').catch(() => null);
+  
+  if (!nodemailer) {
+    console.warn('[EMAIL] nodemailer not available - emails disabled');
+    return false;
+  }
+
+  const emailHost = process.env.EMAIL_HOST || 'smtp.gmail.com';
+  const emailPort = parseInt(process.env.EMAIL_PORT || '587');
+  const emailUser = process.env.EMAIL_USER;
+  const emailPass = process.env.EMAIL_PASS;
+
+  if (!emailUser || !emailPass) {
+    console.warn('[EMAIL] Email credentials not configured - emails disabled');
+    return false;
+  }
+
+  try {
+    const transporter = nodemailer.default.createTransport({
+      host: emailHost,
+      port: emailPort,
+      secure: emailPort === 465,
+      auth: {
+        user: emailUser,
+        pass: emailPass,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"Inventory Management System" <${emailUser}>`,
+      to,
+      subject,
+      text,
+      html,
+    });
+
+    console.log('[EMAIL] Email sent successfully to:', to);
+    return true;
+  } catch (error) {
+    console.error('[EMAIL] Error sending email:', error);
+    return false;
+  }
+}
+
+/**
+ * Generate Low Stock Alert Email HTML
+ */
+function generateLowStockEmail(companyName, lowStockProducts) {
+  const productRows = lowStockProducts
+    .map(
+      (product) => `
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">${product.name}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; color: #dc2626; font-weight: bold;">${product.currentStock}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">${product.lowStockThreshold}</td>
+      </tr>
+    `
+    )
+    .join('');
+
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f3f4f6;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
+          <div style="background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); padding: 30px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px;">⚠️ Low Stock Alert</h1>
+          </div>
+          <div style="padding: 30px;">
+            <p style="color: #374151; font-size: 16px; line-height: 1.6; margin-top: 0;">
+              Hello,
+            </p>
+            <p style="color: #374151; font-size: 16px; line-height: 1.6;">
+              The following products in <strong>${companyName}</strong> have fallen below their low stock threshold and need restocking:
+            </p>
+            <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+              <thead>
+                <tr style="background-color: #f9fafb;">
+                  <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb; color: #374151; font-weight: 600;">Product Name</th>
+                  <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb; color: #374151; font-weight: 600;">Current Stock</th>
+                  <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb; color: #374151; font-weight: 600;">Threshold</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${productRows}
+              </tbody>
+            </table>
+            <p style="color: #6b7280; font-size: 14px; line-height: 1.6; margin-bottom: 0;">
+              Please review your inventory and place orders as needed.
+            </p>
+          </div>
+          <div style="background-color: #f9fafb; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <p style="color: #6b7280; font-size: 12px; margin: 0;">
+              This is an automated notification from your Inventory Management System.
+            </p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+/**
+ * Generate daily report email HTML
+ */
+function generateDailyReportEmail(companyName, reportData) {
+  const topProductRows = reportData.topProducts
+    .map(
+      (product) => `
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">${product.name}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${product.quantity}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">$${product.revenue.toFixed(2)}</td>
+      </tr>
+    `
+    )
+    .join('');
+
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f3f4f6;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
+          <div style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); padding: 30px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px;">📊 Daily Business Report</h1>
+            <p style="color: #dbeafe; margin: 10px 0 0 0; font-size: 14px;">${reportData.date}</p>
+          </div>
+          <div style="padding: 30px;">
+            <h2 style="color: #374151; font-size: 20px; margin-top: 0;">Today's Summary</h2>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 20px 0;">
+              <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid #3b82f6;">
+                <p style="color: #6b7280; font-size: 12px; margin: 0;">Total Sales</p>
+                <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 5px 0 0 0;">${reportData.totalSales}</p>
+              </div>
+              <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid #10b981;">
+                <p style="color: #6b7280; font-size: 12px; margin: 0;">Total Orders</p>
+                <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 5px 0 0 0;">${reportData.totalOrders}</p>
+              </div>
+              <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                <p style="color: #6b7280; font-size: 12px; margin: 0;">Revenue</p>
+                <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 5px 0 0 0;">$${reportData.totalRevenue.toFixed(2)}</p>
+              </div>
+              <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid #ef4444;">
+                <p style="color: #6b7280; font-size: 12px; margin: 0;">Low Stock Items</p>
+                <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 5px 0 0 0;">${reportData.lowStockCount}</p>
+              </div>
+            </div>
+            <h3 style="color: #374151; font-size: 18px; margin-top: 30px;">Top Selling Products</h3>
+            <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+              <thead>
+                <tr style="background-color: #f9fafb;">
+                  <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb; color: #374151; font-weight: 600;">Product</th>
+                  <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e5e7eb; color: #374151; font-weight: 600;">Qty Sold</th>
+                  <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e5e7eb; color: #374151; font-weight: 600;">Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${topProductRows}
+              </tbody>
+            </table>
+          </div>
+          <div style="background-color: #f9fafb; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <p style="color: #6b7280; font-size: 12px; margin: 0;">
+              This is an automated daily report from ${companyName}
+            </p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+/**
+ * Generate weekly summary email HTML
+ */
+function generateWeeklySummaryEmail(companyName, summaryData) {
+  const topProductRows = summaryData.topProducts
+    .map(
+      (product) => `
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">${product.name}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${product.quantity}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">$${product.revenue.toFixed(2)}</td>
+      </tr>
+    `
+    )
+    .join('');
+
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f3f4f6;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
+          <div style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); padding: 30px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px;">📈 Weekly Business Summary</h1>
+            <p style="color: #ede9fe; margin: 10px 0 0 0; font-size: 14px;">${summaryData.weekRange}</p>
+          </div>
+          <div style="padding: 30px;">
+            <h2 style="color: #374151; font-size: 20px; margin-top: 0;">Week in Review</h2>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 20px 0;">
+              <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid #8b5cf6;">
+                <p style="color: #6b7280; font-size: 12px; margin: 0;">Total Sales</p>
+                <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 5px 0 0 0;">${summaryData.totalSales}</p>
+              </div>
+              <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid #10b981;">
+                <p style="color: #6b7280; font-size: 12px; margin: 0;">Total Orders</p>
+                <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 5px 0 0 0;">${summaryData.totalOrders}</p>
+              </div>
+              <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                <p style="color: #6b7280; font-size: 12px; margin: 0;">Total Revenue</p>
+                <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 5px 0 0 0;">$${summaryData.totalRevenue.toFixed(2)}</p>
+              </div>
+              <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid #3b82f6;">
+                <p style="color: #6b7280; font-size: 12px; margin: 0;">Avg Order Value</p>
+                <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 5px 0 0 0;">$${summaryData.averageOrderValue.toFixed(2)}</p>
+              </div>
+            </div>
+            <h3 style="color: #374151; font-size: 18px; margin-top: 30px;">Top Products This Week</h3>
+            <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+              <thead>
+                <tr style="background-color: #f9fafb;">
+                  <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb; color: #374151; font-weight: 600;">Product</th>
+                  <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e5e7eb; color: #374151; font-weight: 600;">Qty Sold</th>
+                  <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e5e7eb; color: #374151; font-weight: 600;">Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${topProductRows}
+              </tbody>
+            </table>
+            <h3 style="color: #374151; font-size: 18px; margin-top: 30px;">Inventory Status</h3>
+            <div style="background-color: #f9fafb; padding: 20px; border-radius: 8px; margin-top: 15px;">
+              <p style="color: #374151; margin: 5px 0;"><strong>Total Products:</strong> ${summaryData.inventoryStatus.totalProducts}</p>
+              <p style="color: #f59e0b; margin: 5px 0;"><strong>Low Stock Items:</strong> ${summaryData.inventoryStatus.lowStockCount}</p>
+              <p style="color: #ef4444; margin: 5px 0;"><strong>Out of Stock:</strong> ${summaryData.inventoryStatus.outOfStockCount}</p>
+            </div>
+          </div>
+          <div style="background-color: #f9fafb; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <p style="color: #6b7280; font-size: 12px; margin: 0;">
+              This is an automated weekly summary from ${companyName}
+            </p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+/**
+ * Handle test email notification
+ */
+async function handleTestEmail(req, res, user) {
+  try {
+    const { type, email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email address is required' });
+    }
+
+    const userRef = db.collection('users').doc(user.uid);
+    const userDoc = await userRef.get();
+    const settings = userDoc.data()?.settings || {};
+    const companyName = settings.companyName || 'Your Company';
+
+    let success = false;
+
+    if (type === 'low-stock') {
+      const html = generateLowStockEmail(companyName, [
+        { name: 'Sample Product A', currentStock: 5, lowStockThreshold: 10 },
+        { name: 'Sample Product B', currentStock: 2, lowStockThreshold: 15 },
+      ]);
+      
+      success = await sendEmail({
+        to: email,
+        subject: `⚠️ Low Stock Alert - Test Email`,
+        html,
+      });
+    } else if (type === 'daily-report') {
+      // For now, just send a simple confirmation
+      success = await sendEmail({
+        to: email,
+        subject: `📊 Daily Report - Test Email`,
+        html: `<p>Daily report feature is configured. Full implementation requires cron job setup on your hosting platform.</p>`,
+      });
+    } else if (type === 'weekly-summary') {
+      success = await sendEmail({
+        to: email,
+        subject: `📈 Weekly Summary - Test Email`,
+        html: `<p>Weekly summary feature is configured. Full implementation requires cron job setup on your hosting platform.</p>`,
+      });
+    } else {
+      return res.status(400).json({ 
+        message: "Invalid email type. Use 'low-stock', 'daily-report', or 'weekly-summary'" 
+      });
+    }
+
+    if (success) {
+      return res.json({ message: 'Test email sent successfully', email, type });
+    } else {
+      return res.status(500).json({ 
+        message: 'Failed to send test email. Check server logs and email configuration.' 
+      });
+    }
+  } catch (error) {
+    console.error('[EMAIL] Error sending test email:', error);
+    return res.status(500).json({ message: 'Failed to send test email' });
+  }
+}
+
+/**
+ * Handle low stock check cron job
+ */
+async function handleLowStockCron(req, res) {
+  try {
+    // Verify cron secret if configured
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && req.headers['x-cron-secret'] !== cronSecret) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    console.log('[CRON] Running low stock check...');
+    
+    const usersSnapshot = await db.collection('users').get();
+    let emailsSent = 0;
+
+    for (const userDoc of usersSnapshot.docs) {
+      const user = userDoc.data();
+      const settings = user.settings || {};
+      
+      if (!settings.emailLowStock) continue;
+
+      const notificationEmail = settings.notificationEmail || user.email;
+      if (!notificationEmail) continue;
+
+      // Get user's products
+      const productsSnapshot = await db
+        .collection('products')
+        .where('userId', '==', user.uid)
+        .get();
+
+      const lowStockProducts = [];
+      
+      for (const productDoc of productsSnapshot.docs) {
+        const product = productDoc.data();
+        const threshold = product.lowStockThreshold || settings.defaultLowStock || 10;
+        const quantity = product.quantity || 0;
+        
+        if (quantity > 0 && quantity <= threshold) {
+          lowStockProducts.push({
+            name: product.name || 'Unnamed Product',
+            currentStock: quantity,
+            lowStockThreshold: threshold,
+          });
+        }
+      }
+
+      if (lowStockProducts.length > 0) {
+        const companyName = settings.companyName || 'Your Company';
+        const html = generateLowStockEmail(companyName, lowStockProducts);
+        
+        await sendEmail({
+          to: notificationEmail,
+          subject: `⚠️ Low Stock Alert - ${lowStockProducts.length} Product(s) Need Restocking`,
+          html,
+        });
+        
+        emailsSent++;
+      }
+    }
+
+    console.log(`[CRON] Low stock check complete. Sent ${emailsSent} emails.`);
+    return res.json({ message: 'Low stock check complete', emailsSent });
+  } catch (error) {
+    console.error('[CRON] Error in low stock check:', error);
+    return res.status(500).json({ message: 'Cron job failed', error: error.message });
+  }
+}
+
+/**
+ * Handle daily report cron job
+ */
+async function handleDailyReportCron(req, res) {
+  try {
+    // Verify cron secret if configured
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && req.headers['x-cron-secret'] !== cronSecret) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    console.log('[CRON] Running daily report...');
+    
+    const usersSnapshot = await db.collection('users').get();
+    let emailsSent = 0;
+
+    for (const userDoc of usersSnapshot.docs) {
+      try {
+        const user = userDoc.data();
+        const settings = user.settings || {};
+        
+        if (!settings.emailDailyReports) continue;
+
+        const notificationEmail = settings.notificationEmail || user.email;
+        if (!notificationEmail) continue;
+
+        // Get yesterday's date range
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        // Fetch user's orders from last 24 hours
+        const ordersSnapshot = await db
+          .collection('orders')
+          .where('userId', '==', user.uid)
+          .where('createdAt', '>=', yesterday.toISOString())
+          .get();
+
+        const orders = ordersSnapshot.docs.map((doc) => doc.data());
+        const totalOrders = orders.length;
+        const totalRevenue = orders.reduce((sum, order) => sum + (order.total || 0), 0);
+        const totalSales = orders.reduce((sum, order) => {
+          return sum + (order.items?.reduce((itemSum, item) => itemSum + (item.quantity || 0), 0) || 0);
+        }, 0);
+
+        // Get low stock count
+        const productsSnapshot = await db
+          .collection('products')
+          .where('userId', '==', user.uid)
+          .get();
+        
+        const lowStockCount = productsSnapshot.docs.filter((doc) => {
+          const data = doc.data();
+          const quantity = data.quantity || 0;
+          const threshold = data.lowStockThreshold || settings.defaultLowStock || 10;
+          return quantity <= threshold && quantity > 0;
+        }).length;
+
+        // Calculate top products
+        const productSales = {};
+        orders.forEach((order) => {
+          order.items?.forEach((item) => {
+            if (!productSales[item.productId]) {
+              productSales[item.productId] = { name: item.name || "Unknown", quantity: 0, revenue: 0 };
+            }
+            productSales[item.productId].quantity += item.quantity || 0;
+            productSales[item.productId].revenue += (item.price || 0) * (item.quantity || 0);
+          });
+        });
+
+        const topProducts = Object.values(productSales)
+          .sort((a, b) => b.revenue - a.revenue)
+          .slice(0, 5);
+
+        if (topProducts.length === 0) {
+          topProducts.push({ name: "No sales today", quantity: 0, revenue: 0 });
+        }
+
+        const companyName = settings.companyName || 'Your Company';
+        const html = generateDailyReportEmail(companyName, {
+          date: new Date().toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          }),
+          totalSales,
+          totalOrders,
+          totalRevenue,
+          lowStockCount,
+          topProducts,
+        });
+
+        await sendEmail({
+          to: notificationEmail,
+          subject: `📊 Daily Business Report - ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+          html,
+        });
+        
+        emailsSent++;
+      } catch (error) {
+        console.error(`[CRON] Error sending daily report for user ${userDoc.id}:`, error);
+      }
+    }
+
+    console.log(`[CRON] Daily report complete. Sent ${emailsSent} emails.`);
+    return res.json({ message: 'Daily report complete', emailsSent });
+  } catch (error) {
+    console.error('[CRON] Error in daily report:', error);
+    return res.status(500).json({ message: 'Cron job failed', error: error.message });
+  }
+}
+
+/**
+ * Handle weekly summary cron job
+ */
+async function handleWeeklySummaryCron(req, res) {
+  try {
+    // Verify cron secret if configured
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && req.headers['x-cron-secret'] !== cronSecret) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    console.log('[CRON] Running weekly summary...');
+    
+    const usersSnapshot = await db.collection('users').get();
+    let emailsSent = 0;
+
+    for (const userDoc of usersSnapshot.docs) {
+      try {
+        const user = userDoc.data();
+        const settings = user.settings || {};
+        
+        if (!settings.emailWeeklySummary) continue;
+
+        const notificationEmail = settings.notificationEmail || user.email;
+        if (!notificationEmail) continue;
+
+        // Get last week's date range
+        const today = new Date();
+        const lastWeek = new Date(today);
+        lastWeek.setDate(lastWeek.getDate() - 7);
+
+        // Fetch user's orders from last week
+        const ordersSnapshot = await db
+          .collection('orders')
+          .where('userId', '==', user.uid)
+          .where('createdAt', '>=', lastWeek.toISOString())
+          .get();
+
+        const orders = ordersSnapshot.docs.map((doc) => doc.data());
+        const totalOrders = orders.length;
+        const totalRevenue = orders.reduce((sum, order) => sum + (order.total || 0), 0);
+        const totalSales = orders.reduce((sum, order) => {
+          return sum + (order.items?.reduce((itemSum, item) => itemSum + (item.quantity || 0), 0) || 0);
+        }, 0);
+        const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+        // Get inventory status
+        const productsSnapshot = await db
+          .collection('products')
+          .where('userId', '==', user.uid)
+          .get();
+        
+        const totalProducts = productsSnapshot.size;
+        const lowStockCount = productsSnapshot.docs.filter((doc) => {
+          const data = doc.data();
+          const quantity = data.quantity || 0;
+          const threshold = data.lowStockThreshold || settings.defaultLowStock || 10;
+          return quantity <= threshold && quantity > 0;
+        }).length;
+        
+        const outOfStockCount = productsSnapshot.docs.filter((doc) => {
+          const data = doc.data();
+          return (data.quantity || 0) === 0;
+        }).length;
+
+        // Calculate top products
+        const productSales = {};
+        orders.forEach((order) => {
+          order.items?.forEach((item) => {
+            if (!productSales[item.productId]) {
+              productSales[item.productId] = { name: item.name || "Unknown", quantity: 0, revenue: 0 };
+            }
+            productSales[item.productId].quantity += item.quantity || 0;
+            productSales[item.productId].revenue += (item.price || 0) * (item.quantity || 0);
+          });
+        });
+
+        const topProducts = Object.values(productSales)
+          .sort((a, b) => b.revenue - a.revenue)
+          .slice(0, 5);
+
+        if (topProducts.length === 0) {
+          topProducts.push({ name: "No sales this week", quantity: 0, revenue: 0 });
+        }
+
+        const companyName = settings.companyName || 'Your Company';
+        const html = generateWeeklySummaryEmail(companyName, {
+          weekRange: `${lastWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+          totalSales,
+          totalOrders,
+          totalRevenue,
+          averageOrderValue,
+          topProducts,
+          inventoryStatus: {
+            totalProducts,
+            lowStockCount,
+            outOfStockCount,
+          },
+        });
+
+        await sendEmail({
+          to: notificationEmail,
+          subject: `📈 Weekly Business Summary - ${lastWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+          html,
+        });
+        
+        emailsSent++;
+      } catch (error) {
+        console.error(`[CRON] Error sending weekly summary for user ${userDoc.id}:`, error);
+      }
+    }
+
+    console.log(`[CRON] Weekly summary complete. Sent ${emailsSent} emails.`);
+    return res.json({ message: 'Weekly summary complete', emailsSent });
+  } catch (error) {
+    console.error('[CRON] Error in weekly summary:', error);
+    return res.status(500).json({ message: 'Cron job failed', error: error.message });
+  }
 }

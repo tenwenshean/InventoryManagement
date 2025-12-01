@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Test - Working Version</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 700px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .alert {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .step {
+            background: #f8f9fa;
+            padding: 20px;
+            border-left: 4px solid #4CAF50;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .step h3 {
+            margin-top: 0;
+            color: #4CAF50;
+        }
+        .code {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            margin: 10px 0;
+            white-space: pre-wrap;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        kbd {
+            background: #eee;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📧 Email Test - Simple Method</h1>
+        <p style="color: #666; margin-bottom: 30px;">No imports needed - works directly in console!</p>
+
+        <div class="alert">
+            <strong>⚠️ Important:</strong> You must be logged in at <a href="http://localhost:5000" target="_blank">http://localhost:5000</a> first!
+        </div>
+
+        <div class="step">
+            <h3>Step 1: Open Your App</h3>
+            <p>1. Go to <a href="http://localhost:5000" target="_blank" style="font-weight: bold;">http://localhost:5000</a></p>
+            <p>2. Make sure you're logged in (you should see your dashboard)</p>
+        </div>
+
+        <div class="step">
+            <h3>Step 2: Open Developer Console</h3>
+            <p>While on <strong>http://localhost:5000</strong>, press:</p>
+            <p><kbd>F12</kbd> or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd></p>
+            <p>Then click the <strong>Console</strong> tab</p>
+        </div>
+
+        <div class="step">
+            <h3>Step 3: Paste This Code</h3>
+            <p>Copy the code below and paste it into the console:</p>
+            
+            <div class="code" id="code">// Get Firebase auth from window
+const getAuth = async () => {
+  // Wait for Firebase to load
+  await new Promise(r => setTimeout(r, 1000));
+  
+  // Access the auth instance from the global Firebase
+  if (window.firebase && window.firebase.auth) {
+    return window.firebase.auth();
+  }
+  
+  // Try to get from the React app context
+  // The auth token is automatically included in fetch calls by apiClient
+  console.log('📧 Sending test email...');
+  
+  const response = await fetch('/api/notifications/test-email', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    credentials: 'include',
+    body: JSON.stringify({
+      email: 'tenwenshean@gmail.com',
+      type: 'low-stock'
+    })
+  });
+  
+  const data = await response.json();
+  
+  if (response.ok) {
+    console.log('✅ SUCCESS!', data);
+    console.log('📬 Check your email at: tenwenshean@gmail.com');
+    console.log('💡 Don\'t forget to check spam folder!');
+  } else {
+    console.error('❌ ERROR:', data);
+    console.error('You might not be logged in. Please refresh the page and log in.');
+  }
+};
+
+getAuth();</div>
+            
+            <button onclick="copyCode()">📋 Copy Code to Clipboard</button>
+        </div>
+
+        <div class="step">
+            <h3>Step 4: Check Results</h3>
+            <p>✅ If successful, you'll see: <strong>"✅ SUCCESS!"</strong> in the console</p>
+            <p>📧 Check your email at: <strong>tenwenshean@gmail.com</strong></p>
+            <p>⏱️ It may take 10-30 seconds to arrive</p>
+            <p>📁 <strong>Check spam folder</strong> if you don't see it in inbox!</p>
+        </div>
+
+        <div class="step" style="border-left-color: #ff9800;">
+            <h3>🔄 Alternative: Test Different Email Types</h3>
+            <p>Change the <code>type</code> value in the code:</p>
+            <ul>
+                <li><code>"low-stock"</code> - Low Stock Alert (default)</li>
+                <li><code>"daily-report"</code> - Daily Summary Report</li>
+                <li><code>"weekly-summary"</code> - Weekly Summary Report</li>
+            </ul>
+        </div>
+
+        <div class="step" style="border-left-color: #dc3545;">
+            <h3>❌ Troubleshooting</h3>
+            <p><strong>Error: "Unauthorized"</strong></p>
+            <ul>
+                <li>Make sure you're logged in at http://localhost:5000</li>
+                <li>Refresh the page and try again</li>
+            </ul>
+            <p><strong>Email not arriving?</strong></p>
+            <ul>
+                <li>Check spam/junk folder</li>
+                <li>Wait 1-2 minutes</li>
+                <li>Check server terminal for errors</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        function copyCode() {
+            const code = document.getElementById('code').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                alert('✅ Code copied!\n\nNext steps:\n1. Go to http://localhost:5000\n2. Press F12\n3. Paste in Console tab\n4. Press Enter');
+            });
+        }
+    </script>
+</body>
+</html>

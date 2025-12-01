@@ -1,10 +1,10 @@
-// server/routes.ts
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { cache } from "./cache";
 import { auth, db } from "./db"; // ✅ fixed import
 import { mlService } from "./ml-service";
+import { emailService } from "./email-service";
 import Stripe from "stripe";
 import {
   insertProductSchema,
@@ -3223,6 +3223,197 @@ Remember: You're helping a business owner understand their operations better. Be
     } catch (error) {
       console.error("Error generating ML predictions:", error);
       res.status(500).json({ message: "Failed to generate predictions" });
+    }
+  });
+
+  // ===================== EMAIL NOTIFICATION ROUTES =====================
+  
+  // Test endpoint to send a test email notification
+  app.post("/api/notifications/test-email", isAuthenticated, async (req: any, res) => {
+    try {
+      const { type, email } = req.body;
+      
+      if (!email) {
+        return res.status(400).json({ message: "Email address is required" });
+      }
+
+      const user = await storage.getUser(req.user.uid);
+      const userRef = db.collection("users").doc(req.user.uid);
+      const userDoc = await userRef.get();
+      const settings = userDoc.data()?.settings || {};
+      const companyName = settings.companyName || "Your Company";
+
+      let success = false;
+
+      if (type === "low-stock") {
+        // Fetch actual low stock products for this user
+        const productsRef = db.collection("products");
+        const snapshot = await productsRef.where("userId", "==", req.user.uid).get();
+        
+        const lowStockProducts = snapshot.docs
+          .map((doc) => {
+            const data = doc.data();
+            return {
+              name: data.name,
+              currentStock: data.quantity || 0,
+              lowStockThreshold: data.lowStockThreshold || 10,
+            };
+          })
+          .filter((p) => p.currentStock <= p.lowStockThreshold);
+
+        if (lowStockProducts.length === 0) {
+          // If no actual low stock products, use sample data
+          lowStockProducts.push(
+            { name: "Sample Product (No low stock items found)", currentStock: 5, lowStockThreshold: 10 }
+          );
+        }
+
+        success = await emailService.sendLowStockAlert(email, companyName, lowStockProducts);
+      } else if (type === "daily-report") {
+        // Fetch actual user data for daily report
+        const productsRef = db.collection("products");
+        const productsSnapshot = await productsRef.where("userId", "==", req.user.uid).get();
+        
+        const lowStockCount = productsSnapshot.docs.filter((doc) => {
+          const data = doc.data();
+          const quantity = data.quantity || 0;
+          const threshold = data.lowStockThreshold || 10;
+          return quantity <= threshold;
+        }).length;
+
+        // Get recent orders (last 24 hours)
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        
+        const ordersRef = db.collection("orders");
+        const ordersSnapshot = await ordersRef
+          .where("userId", "==", req.user.uid)
+          .where("createdAt", ">=", yesterday.toISOString())
+          .get();
+
+        const orders = ordersSnapshot.docs.map((doc) => doc.data());
+        const totalOrders = orders.length;
+        const totalRevenue = orders.reduce((sum, order) => sum + (order.total || 0), 0);
+        const totalSales = orders.reduce((sum, order) => {
+          return sum + (order.items?.reduce((itemSum: number, item: any) => itemSum + (item.quantity || 0), 0) || 0);
+        }, 0);
+
+        // Calculate top products from orders
+        const productSales: { [key: string]: { name: string; quantity: number; revenue: number } } = {};
+        orders.forEach((order) => {
+          order.items?.forEach((item: any) => {
+            if (!productSales[item.productId]) {
+              productSales[item.productId] = { name: item.name || "Unknown", quantity: 0, revenue: 0 };
+            }
+            productSales[item.productId].quantity += item.quantity || 0;
+            productSales[item.productId].revenue += (item.price || 0) * (item.quantity || 0);
+          });
+        });
+
+        const topProducts = Object.values(productSales)
+          .sort((a, b) => b.revenue - a.revenue)
+          .slice(0, 5);
+
+        if (topProducts.length === 0) {
+          topProducts.push({ name: "No sales today", quantity: 0, revenue: 0 });
+        }
+
+        success = await emailService.sendDailyReport(email, companyName, {
+          date: new Date().toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          }),
+          totalSales,
+          totalOrders,
+          totalRevenue,
+          lowStockCount,
+          topProducts,
+        });
+      } else if (type === "weekly-summary") {
+        // Fetch actual user data for weekly summary
+        const today = new Date();
+        const lastWeek = new Date(today);
+        lastWeek.setDate(lastWeek.getDate() - 7);
+
+        // Get products
+        const productsRef = db.collection("products");
+        const productsSnapshot = await productsRef.where("userId", "==", req.user.uid).get();
+        
+        const totalProducts = productsSnapshot.size;
+        const lowStockCount = productsSnapshot.docs.filter((doc) => {
+          const data = doc.data();
+          const quantity = data.quantity || 0;
+          const threshold = data.lowStockThreshold || 10;
+          return quantity <= threshold && quantity > 0;
+        }).length;
+        
+        const outOfStockCount = productsSnapshot.docs.filter((doc) => {
+          const data = doc.data();
+          return (data.quantity || 0) === 0;
+        }).length;
+
+        // Get orders from last week
+        const ordersRef = db.collection("orders");
+        const ordersSnapshot = await ordersRef
+          .where("userId", "==", req.user.uid)
+          .where("createdAt", ">=", lastWeek.toISOString())
+          .get();
+
+        const orders = ordersSnapshot.docs.map((doc) => doc.data());
+        const totalOrders = orders.length;
+        const totalRevenue = orders.reduce((sum, order) => sum + (order.total || 0), 0);
+        const totalSales = orders.reduce((sum, order) => {
+          return sum + (order.items?.reduce((itemSum: number, item: any) => itemSum + (item.quantity || 0), 0) || 0);
+        }, 0);
+        const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+        // Calculate top products from weekly orders
+        const productSales: { [key: string]: { name: string; quantity: number; revenue: number } } = {};
+        orders.forEach((order) => {
+          order.items?.forEach((item: any) => {
+            if (!productSales[item.productId]) {
+              productSales[item.productId] = { name: item.name || "Unknown", quantity: 0, revenue: 0 };
+            }
+            productSales[item.productId].quantity += item.quantity || 0;
+            productSales[item.productId].revenue += (item.price || 0) * (item.quantity || 0);
+          });
+        });
+
+        const topProducts = Object.values(productSales)
+          .sort((a, b) => b.revenue - a.revenue)
+          .slice(0, 5);
+
+        if (topProducts.length === 0) {
+          topProducts.push({ name: "No sales this week", quantity: 0, revenue: 0 });
+        }
+        
+        success = await emailService.sendWeeklySummary(email, companyName, {
+          weekRange: `${lastWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+          totalSales,
+          totalOrders,
+          totalRevenue,
+          averageOrderValue,
+          topProducts,
+          inventoryStatus: {
+            totalProducts,
+            lowStockCount,
+            outOfStockCount,
+          },
+        });
+      } else {
+        return res.status(400).json({ message: "Invalid email type. Use 'low-stock', 'daily-report', or 'weekly-summary'" });
+      }
+
+      if (success) {
+        res.json({ message: "Test email sent successfully", email, type });
+      } else {
+        res.status(500).json({ message: "Failed to send test email. Check server logs and email configuration." });
+      }
+    } catch (error) {
+      console.error("Error sending test email:", error);
+      res.status(500).json({ message: "Failed to send test email" });
     }
   });
 

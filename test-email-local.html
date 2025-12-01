@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Email Notifications</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #dc2626;
+            margin-top: 0;
+        }
+        button {
+            background: #dc2626;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #b91c1c;
+        }
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        .success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #34d399;
+        }
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #f87171;
+        }
+        .info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #60a5fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        label {
+            font-weight: bold;
+            display: block;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📧 Email Notification Tester</h1>
+        
+        <div class="info">
+            <strong>Instructions:</strong><br>
+            1. Make sure you're logged in to the app<br>
+            2. Enter your email address<br>
+            3. Select email type to test<br>
+            4. Click "Send Test Email"<br>
+            5. Check your inbox (and spam folder)
+        </div>
+
+        <label for="email">Your Email Address:</label>
+        <input type="email" id="email" placeholder="tenwenshean@gmail.com" value="tenwenshean@gmail.com">
+
+        <label for="emailType">Email Type:</label>
+        <select id="emailType">
+            <option value="low-stock">Low Stock Alert</option>
+            <option value="daily-report">Daily Report</option>
+            <option value="weekly-summary">Weekly Summary</option>
+        </select>
+
+        <div style="margin-top: 20px;">
+            <button onclick="sendTestEmail()" id="sendBtn">📨 Send Test Email</button>
+        </div>
+
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        async function sendTestEmail() {
+            const email = document.getElementById('email').value;
+            const type = document.getElementById('emailType').value;
+            const resultDiv = document.getElementById('result');
+            const sendBtn = document.getElementById('sendBtn');
+
+            if (!email) {
+                showResult('Please enter an email address', 'error');
+                return;
+            }
+
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Sending...';
+            resultDiv.style.display = 'none';
+
+            try {
+                // Get Firebase auth token from localStorage
+                const authKey = Object.keys(localStorage).find(key => key.startsWith('firebase:authUser:'));
+                if (!authKey) {
+                    throw new Error('Not logged in. Please login to the app first.');
+                }
+
+                const authData = JSON.parse(localStorage.getItem(authKey));
+                const token = authData.stsTokenManager.accessToken;
+
+                if (!token) {
+                    throw new Error('No auth token found. Please refresh and try again.');
+                }
+
+                const response = await fetch('http://localhost:5000/api/notifications/test-email', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ type, email })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showResult(`✅ Success! Test email sent to ${email}. Check your inbox (and spam folder).`, 'success');
+                } else {
+                    showResult(`❌ Error: ${data.message || 'Failed to send email'}`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ Error: ${error.message}`, 'error');
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.textContent = '📨 Send Test Email';
+            }
+        }
+
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = message;
+            resultDiv.className = `result ${type}`;
+            resultDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
