@@ -184,6 +184,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete all user data (reset account)
+  app.delete("/api/users/:userId/data", isAuthenticated, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+
+      // Ensure user can only delete their own data
+      if (req.user.uid !== userId) {
+        return res.status(403).json({ message: "Forbidden: Cannot delete other user's data" });
+      }
+
+      console.log(`[DELETE USER DATA] Deleting all data for user: ${userId}`);
+
+      // Delete all products
+      const productsSnapshot = await db.collection("products").where("userId", "==", userId).get();
+      const productDeletes = productsSnapshot.docs.map(doc => doc.ref.delete());
+      await Promise.all(productDeletes);
+      console.log(`[DELETE USER DATA] Deleted ${productsSnapshot.size} products`);
+
+      // Delete all orders where user is the customer
+      const customerOrdersSnapshot = await db.collection("orders").where("customerId", "==", userId).get();
+      const customerOrderDeletes = customerOrdersSnapshot.docs.map(doc => doc.ref.delete());
+      await Promise.all(customerOrderDeletes);
+      console.log(`[DELETE USER DATA] Deleted ${customerOrdersSnapshot.size} orders as customer`);
+
+      // Delete all orders where user is the seller (check all orders for items with sellerId)
+      const allOrdersSnapshot = await db.collection("orders").get();
+      const sellerOrderDeletes: Promise<any>[] = [];
+      
+      for (const doc of allOrdersSnapshot.docs) {
+        const order = doc.data();
+        // Delete if user is seller in any item and not already deleted
+        if (order.items?.some((item: any) => item.sellerId === userId)) {
+          // Check if not already deleted by customer query
+          const alreadyDeleted = customerOrdersSnapshot.docs.some(customerDoc => customerDoc.id === doc.id);
+          if (!alreadyDeleted) {
+            sellerOrderDeletes.push(doc.ref.delete());
+          }
+        }
+      }
+      
+      await Promise.all(sellerOrderDeletes);
+      console.log(`[DELETE USER DATA] Deleted ${sellerOrderDeletes.length} orders as seller`);
+
+      // Delete all accounting entries
+      const accountingSnapshot = await db.collection("accountingEntries").where("userId", "==", userId).get();
+      const accountingDeletes = accountingSnapshot.docs.map(doc => doc.ref.delete());
+      await Promise.all(accountingDeletes);
+      console.log(`[DELETE USER DATA] Deleted ${accountingSnapshot.size} accounting entries`);
+
+      // Delete all QR codes (if stored separately)
+      const qrCodesSnapshot = await db.collection("qrcodes").where("userId", "==", userId).get();
+      const qrCodeDeletes = qrCodesSnapshot.docs.map(doc => doc.ref.delete());
+      await Promise.all(qrCodeDeletes);
+      console.log(`[DELETE USER DATA] Deleted ${qrCodesSnapshot.size} QR codes`);
+
+      // Delete customer profile
+      let customerProfileDeleted = false;
+      try {
+        const customerProfileDoc = await db.collection("customerProfiles").doc(userId).get();
+        if (customerProfileDoc.exists) {
+          await customerProfileDoc.ref.delete();
+          customerProfileDeleted = true;
+          console.log(`[DELETE USER DATA] Deleted customer profile`);
+        }
+      } catch (error) {
+        console.error(`[DELETE USER DATA] Error deleting customer profile:`, error);
+      }
+
+      // Reset user settings (keep the user account but clear settings)
+      await db.collection("users").doc(userId).update({
+        settings: {},
+        companyName: "",
+        businessAddress: "",
+        phoneNumber: "",
+        updatedAt: new Date(),
+      });
+      console.log(`[DELETE USER DATA] Reset user settings`);
+
+      console.log(`[DELETE USER DATA] Successfully deleted all data for user: ${userId}`);
+      res.json({ 
+        message: "All account data deleted successfully",
+        deletedCounts: {
+          products: productsSnapshot.size,
+          orders: customerOrdersSnapshot.size + sellerOrderDeletes.length,
+          accountingEntries: accountingSnapshot.size,
+          qrCodes: qrCodesSnapshot.size,
+          customerProfile: customerProfileDeleted ? 1 : 0,
+        }
+      });
+    } catch (error) {
+      console.error("[DELETE USER DATA] Error deleting user data:", error);
+      console.error("[DELETE USER DATA] Error stack:", (error as Error).stack);
+      res.status(500).json({ 
+        message: "Failed to delete user data",
+        error: (error as Error).message 
+      });
+    }
+  });
+
   // Get user by ID (public endpoint for shop pages)
   app.get("/api/users/:userId", async (req: any, res) => {
     try {
@@ -1120,7 +1219,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate predictions for next 3 periods
       const { forecasts, totalPredicted } = mlService.forecastRevenue(revenueHistory, 3);
       const predictions = forecasts.map((f, index) => {
-        const lastMonth = sortedAccountingMonths[sortedAccountingMonths.length - 1];
+        const lastMonth = sortedAccountingMonths.length > 0 
+          ? sortedAccountingMonths[sortedAccountingMonths.length - 1]
+          : new Date().toISOString().slice(0, 7); // Use current year-month as fallback
         const [year, month] = lastMonth.split('-');
         const nextDate = new Date(parseInt(year), parseInt(month) + index, 1);
         

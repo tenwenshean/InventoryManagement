@@ -9,8 +9,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { 
-  Settings,  User, Bell,  Mail,  Package,  DollarSign, Save, Clock, Store, Upload, Image as ImageIcon} from "lucide-react";
+  Settings,  User, Bell,  Mail,  Package,  DollarSign, Save, Clock, Store, Upload, Image as ImageIcon, Trash2} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
@@ -72,6 +82,11 @@ export default function SettingsPage() {
   const [emailLowStock, setEmailLowStock] = useState<boolean>(true);
   const [emailDailyReports, setEmailDailyReports] = useState<boolean>(false);
   const [emailWeeklySummary, setEmailWeeklySummary] = useState<boolean>(true);
+
+  // Delete Account Data States
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Load settings from localStorage
   useEffect(() => {
@@ -140,7 +155,62 @@ export default function SettingsPage() {
     setShopSlug(formatted);
   };
 
-  // Save settings
+  const handleDeleteAccountData = async () => {
+    if (deleteConfirmation !== "DELETEDATA") {
+      toast({
+        title: "Invalid Confirmation",
+        description: "Please type DELETEDATA exactly as shown.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      await apiRequest("DELETE", `/api/users/${user?.uid}/data`);
+      
+      toast({
+        title: "Account Data Deleted",
+        description: "All your data has been permanently deleted. Your account has been reset.",
+      });
+      
+      localStorage.removeItem(`settings_${user?.uid}`);
+      
+      setCompanyName("");
+      setShopSlug("");
+      setShopDescription("");
+      setShopBannerUrl("");
+      setShopLogoUrl("");
+      setShopEmail("");
+      setShopPhone("");
+      setShopAddress("");
+      setShopWebsite("");
+      setShopFacebook("");
+      setShopInstagram("");
+      setShopTwitter("");
+      setDefaultLowStock(10);
+      setDefaultUnit("pieces");
+      setCurrency("usd");
+      setNotificationEmail(user?.email || "");
+      
+      setShowDeleteDialog(false);
+      setDeleteConfirmation("");
+      
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (error: any) {
+      console.error("Error deleting account data:", error);
+      toast({
+        title: "Delete Failed",
+        description: error.message || "Failed to delete account data. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleSaveSettings = async () => {
     // Validate shop slug
     if (shopSlug && shopSlug.length < 3) {
@@ -872,11 +942,106 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
+            <Card className="border-red-200 bg-red-50">
+              <CardHeader>
+                <CardTitle className="flex items-center text-red-600">
+                  <Trash2 className="w-5 h-5 mr-2" />
+                  Danger Zone
+                </CardTitle>
+                <CardDescription>Irreversible actions that will permanently delete your data</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-lg border border-red-300 bg-white p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-red-900">Delete All Account Data</h4>
+                      <p className="text-sm text-red-700 mt-1">
+                        This will permanently delete:
+                      </p>
+                      <ul className="text-sm text-red-600 mt-2 ml-4 list-disc space-y-1">
+                        <li>All product inventory</li>
+                        <li>All order history (current and past orders)</li>
+                        <li>All accounting entries and financial records</li>
+                        <li>All reports and analytics data</li>
+                        <li>All QR codes</li>
+                        <li>Shop profile and settings</li>
+                      </ul>
+                      <p className="text-sm text-red-800 mt-3 font-medium">
+                        ⚠️ This action cannot be undone. Your account will be reset to a fresh state.
+                      </p>
+                    </div>
+                    <Button
+                      variant="destructive"
+                      onClick={() => setShowDeleteDialog(true)}
+                      className="ml-4"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete All Data
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {null}
           </div>
         </div>
       </div>
       </main>
+
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600">Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p>
+                This action will permanently delete all your data including:
+              </p>
+              <ul className="list-disc ml-6 space-y-1">
+                <li>All products and inventory</li>
+                <li>All orders (current and history)</li>
+                <li>All accounting entries</li>
+                <li>All reports and QR codes</li>
+                <li>Shop profile and settings</li>
+              </ul>
+              <p className="font-semibold text-red-600">
+                This action cannot be undone!
+              </p>
+              <div className="mt-4">
+                <Label htmlFor="delete-confirm" className="text-sm font-medium">
+                  Type <span className="font-mono font-bold">DELETEDATA</span> to confirm:
+                </Label>
+                <Input
+                  id="delete-confirm"
+                  value={deleteConfirmation}
+                  onChange={(e) => setDeleteConfirmation(e.target.value)}
+                  placeholder="Type DELETEDATA here"
+                  className="mt-2"
+                  disabled={isDeleting}
+                />
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel 
+              onClick={() => {
+                setDeleteConfirmation("");
+                setShowDeleteDialog(false);
+              }}
+              disabled={isDeleting}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAccountData}
+              disabled={deleteConfirmation !== "DELETEDATA" || isDeleting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isDeleting ? "Deleting..." : "Delete All Data"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -220,6 +220,17 @@ export default async function handler(req, res) {
       return await handleUpdateUserSettings(req, res, user, userId);
     }
 
+    // ===== DELETE USER DATA ROUTE (protected) =====
+    if (pathParts[0] === 'users' && pathParts[2] === 'data' && req.method === 'DELETE') {
+      const user = await authenticate(req);
+      const userId = pathParts[1];
+      // Ensure user can only delete their own data
+      if (user.uid !== userId) {
+        return res.status(403).json({ message: 'Forbidden: Cannot delete other user data' });
+      }
+      return await handleDeleteUserData(req, res, user, userId);
+    }
+
     // ===== GET USER BY ID ROUTE (public) =====
     if (pathParts[0] === 'users' && pathParts.length === 2 && req.method === 'GET') {
       console.log('GET USER route matched, userId:', pathParts[1]);
@@ -688,6 +699,74 @@ async function handleUpdateUserSettings(req, res, user, userId) {
   } catch (error) {
     console.error('Error updating user settings:', error);
     return res.status(500).json({ message: 'Failed to update settings', error: error.message });
+  }
+}
+
+async function handleDeleteUserData(req, res, user, userId) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    console.log(`[DELETE USER DATA] Deleting all data for user: ${userId}`);
+
+    // Delete all products
+    const productsSnapshot = await db.collection('products').where('userId', '==', userId).get();
+    const productDeletes = productsSnapshot.docs.map(doc => doc.ref.delete());
+    await Promise.all(productDeletes);
+    console.log(`[DELETE USER DATA] Deleted ${productsSnapshot.size} products`);
+
+    // Delete all orders - need to check all orders since we need to check both customerId and sellerId in items
+    const allOrdersSnapshot = await db.collection('orders').get();
+    const orderDeletes = [];
+    
+    for (const doc of allOrdersSnapshot.docs) {
+      const order = doc.data();
+      // Delete if user is customer OR if user is seller in any item
+      if (order.customerId === userId || (order.items && Array.isArray(order.items) && order.items.some(item => item.sellerId === userId))) {
+        orderDeletes.push(doc.ref.delete());
+      }
+    }
+    
+    await Promise.all(orderDeletes);
+    console.log(`[DELETE USER DATA] Deleted ${orderDeletes.length} orders`);
+
+    // Delete all accounting entries
+    const accountingSnapshot = await db.collection('accountingEntries').where('userId', '==', userId).get();
+    const accountingDeletes = accountingSnapshot.docs.map(doc => doc.ref.delete());
+    await Promise.all(accountingDeletes);
+    console.log(`[DELETE USER DATA] Deleted ${accountingSnapshot.size} accounting entries`);
+
+    // Delete all QR codes (if stored separately)
+    const qrCodesSnapshot = await db.collection('qrcodes').where('userId', '==', userId).get();
+    const qrCodeDeletes = qrCodesSnapshot.docs.map(doc => doc.ref.delete());
+    await Promise.all(qrCodeDeletes);
+    console.log(`[DELETE USER DATA] Deleted ${qrCodesSnapshot.size} QR codes`);
+
+    // Reset user settings (keep the user account but clear settings)
+    await db.collection('users').doc(userId).update({
+      settings: {},
+      companyName: '',
+      businessAddress: '',
+      phoneNumber: '',
+      shopDescription: '',
+      shopBannerUrl: '',
+      shopLogoUrl: '',
+      updatedAt: new Date(),
+    });
+    console.log(`[DELETE USER DATA] Reset user settings`);
+
+    console.log(`[DELETE USER DATA] Successfully deleted all data for user: ${userId}`);
+    return res.json({ 
+      message: 'All account data deleted successfully',
+      deletedCounts: {
+        products: productsSnapshot.size,
+        orders: orderDeletes.length,
+        accountingEntries: accountingSnapshot.size,
+        qrCodes: qrCodesSnapshot.size,
+      }
+    });
+  } catch (error) {
+    console.error('Error deleting user data:', error);
+    return res.status(500).json({ message: 'Failed to delete user data', error: error.message });
   }
 }
 
