@@ -73,36 +73,43 @@ git push origin main
 
 Vercel will automatically deploy.
 
-### Step 4: Verify Cron Jobs (Vercel Pro Required)
-⚠️ **Important**: Vercel Cron is only available on Pro plan ($20/month)
+### Step 4: Set Up Cron Jobs (Choose One FREE Option)
 
-**Option A: Vercel Pro Plan**
-- Cron jobs will run automatically based on `vercel.json` schedule
-- View logs in Vercel Dashboard → Functions → Cron Logs
+⚠️ **Vercel Cron requires Pro plan ($20/month)**. Use one of these FREE alternatives instead:
 
-**Option B: Free Plan - Use External Cron Service**
-If on Hobby (free) plan, use [cron-job.org](https://cron-job.org) or similar:
+#### **Option A: cron-job.org (Recommended - 100% Free)**
+- ✅ Most reliable timing
+- ✅ Unlimited jobs
+- ✅ Easy setup (5 minutes)
+- ✅ Great monitoring dashboard
 
-1. Create account on cron-job.org
-2. Add three cron jobs:
+**Setup:** See `FREE_CRON_SETUP.md` for detailed instructions
 
-**Low Stock Check (Hourly)**
-- URL: `https://your-domain.vercel.app/api/cron/low-stock-check`
-- Method: POST
-- Schedule: `0 * * * *` (every hour)
-- Headers: `x-cron-secret: your_secret_key`
+Quick setup:
+1. Sign up at [cron-job.org](https://cron-job.org) (free)
+2. Create 3 jobs pointing to your Vercel endpoints:
+   - `https://your-app.vercel.app/api/cron/low-stock-check` (hourly)
+   - `https://your-app.vercel.app/api/cron/daily-report` (daily 9 AM)
+   - `https://your-app.vercel.app/api/cron/weekly-summary` (Monday 9 AM)
+3. Add header: `x-cron-secret: your_secret_key`
+4. Test with "Execute now" button
 
-**Daily Report (9 AM)**
-- URL: `https://your-domain.vercel.app/api/cron/daily-report`
-- Method: POST
-- Schedule: `0 9 * * *` (daily at 9 AM)
-- Headers: `x-cron-secret: your_secret_key`
+#### **Option B: GitHub Actions (100% Free)**
+- ✅ Integrated with your repo
+- ✅ 2,000 free minutes/month
+- ✅ Easy manual testing
+- ✅ Already configured!
 
-**Weekly Summary (Monday 9 AM)**
-- URL: `https://your-domain.vercel.app/api/cron/weekly-summary`
-- Method: POST
-- Schedule: `0 9 * * 1` (Mondays at 9 AM)
-- Headers: `x-cron-secret: your_secret_key`
+**Setup:** See `GITHUB_ACTIONS_SETUP.md` for detailed instructions
+
+Quick setup:
+1. Add GitHub secrets: `VERCEL_URL` and `CRON_SECRET`
+2. Enable Actions in your repo
+3. Workflow file already exists: `.github/workflows/cron-jobs.yml`
+4. Test manually from Actions tab
+
+#### **Option C: Both (Maximum Reliability)**
+Use both services for redundancy. They won't conflict!
 
 ## 🧪 Testing on Production
 
