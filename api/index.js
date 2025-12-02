@@ -4907,16 +4907,31 @@ async function handleDailyReportCron(req, res) {
     
     const usersSnapshot = await db.collection('users').get();
     let emailsSent = 0;
+    let usersChecked = 0;
+
+    console.log(`[CRON] Found ${usersSnapshot.docs.length} total users`);
 
     for (const userDoc of usersSnapshot.docs) {
       try {
         const user = userDoc.data();
+        const userId = userDoc.id; // Use document ID as user ID
         const settings = user.settings || {};
         
-        if (!settings.emailDailyReports) continue;
+        usersChecked++;
+        console.log(`[CRON] Checking user ${userId}, emailDailyReports: ${settings.emailDailyReports}`);
+        
+        if (!settings.emailDailyReports) {
+          console.log(`[CRON] Skipping user ${userId} - daily reports disabled`);
+          continue;
+        }
 
         const notificationEmail = settings.notificationEmail || user.email;
-        if (!notificationEmail) continue;
+        if (!notificationEmail) {
+          console.log(`[CRON] Skipping user ${userId} - no email configured`);
+          continue;
+        }
+
+        console.log(`[CRON] Generating report for ${notificationEmail}...`);
 
         // Get yesterday's date range
         const today = new Date();
@@ -4926,7 +4941,7 @@ async function handleDailyReportCron(req, res) {
         // Fetch user's orders from last 24 hours
         const ordersSnapshot = await db
           .collection('orders')
-          .where('userId', '==', user.uid)
+          .where('userId', '==', userId)
           .where('createdAt', '>=', yesterday.toISOString())
           .get();
 
@@ -4940,7 +4955,7 @@ async function handleDailyReportCron(req, res) {
         // Get low stock count and products (always included for enterprise users)
         const productsSnapshot = await db
           .collection('products')
-          .where('userId', '==', user.uid)
+          .where('userId', '==', userId)
           .get();
         
         const lowStockProducts = [];
