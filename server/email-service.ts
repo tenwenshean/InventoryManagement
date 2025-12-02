@@ -159,6 +159,7 @@ class EmailService {
       totalRevenue: number;
       lowStockCount: number;
       topProducts: Array<{ name: string; quantity: number; revenue: number }>;
+      lowStockProducts?: Array<{ name: string; currentStock: number; lowStockThreshold: number }>;
     }
   ): Promise<boolean> {
     const topProductRows = data.topProducts
@@ -229,6 +230,32 @@ class EmailService {
                 </thead>
                 <tbody>
                   ${topProductRows}
+                </tbody>
+              </table>
+              `
+                  : ''
+              }
+              
+              ${
+                data.lowStockProducts && data.lowStockProducts.length > 0
+                  ? `
+              <h3 style="color: #f59e0b; font-size: 18px; margin: 30px 0 15px 0;">⚠️ Low Stock Alert</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                  <tr style="background-color: #fef3c7;">
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #fcd34d; color: #92400e; font-weight: 600;">Product</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #fcd34d; color: #92400e; font-weight: 600;">Current Stock</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #fcd34d; color: #92400e; font-weight: 600;">Threshold</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${data.lowStockProducts.map(product => `
+                    <tr>
+                      <td style="padding: 12px; border-bottom: 1px solid #fde68a;">${product.name}</td>
+                      <td style="padding: 12px; border-bottom: 1px solid #fde68a; color: ${product.currentStock === 0 ? '#dc2626' : '#f59e0b'}; font-weight: bold;">${product.currentStock}</td>
+                      <td style="padding: 12px; border-bottom: 1px solid #fde68a;">${product.lowStockThreshold}</td>
+                    </tr>
+                  `).join('')}
                 </tbody>
               </table>
               `

@@ -518,17 +518,26 @@ export default async function handler(req, res) {
       }
     }
 
-    // ===== EMAIL NOTIFICATION ROUTES (protected) =====
+    // ===== EMAIL NOTIFICATION ROUTES (protected, or dev mode) =====
     if (pathParts[0] === 'notifications' && pathParts[1] === 'test-email' && req.method === 'POST') {
+      console.log('[TEST-EMAIL] Request received');
+      console.log('[TEST-EMAIL] NODE_ENV:', process.env.NODE_ENV);
+      console.log('[TEST-EMAIL] req.body:', req.body);
+      console.log('[TEST-EMAIL] userId from body:', req.body.userId);
+      
+      // In development, allow testing without auth if userId is provided
+      if (process.env.NODE_ENV === 'development' && req.body.userId) {
+        console.log('[TEST-EMAIL] Using dev mode with userId:', req.body.userId);
+        const mockUser = { uid: req.body.userId };
+        return await handleTestEmail(req, res, mockUser);
+      }
+      console.log('[TEST-EMAIL] Requiring authentication');
       const user = await authenticate(req);
       return await handleTestEmail(req, res, user);
     }
 
     // ===== CRON JOB ROUTES (public with secret) =====
     if (pathParts[0] === 'cron') {
-      if (pathParts[1] === 'low-stock-check' && req.method === 'POST') {
-        return await handleLowStockCron(req, res);
-      }
       if (pathParts[1] === 'daily-report' && req.method === 'POST') {
         return await handleDailyReportCron(req, res);
       }
@@ -542,7 +551,7 @@ export default async function handler(req, res) {
       // Unknown cron job
       return res.status(404).json({ 
         message: 'Unknown cron job', 
-        available: ['low-stock-check', 'daily-report', 'weekly-summary'] 
+        available: ['daily-report', 'weekly-summary'] 
       });
     }
 
@@ -659,16 +668,7 @@ async function handleUpdateUserSettings(req, res, user, userId) {
       shopWebsite,
       shopFacebook,
       shopInstagram,
-      shopTwitter,
-      // Email notification settings
-      notificationEmail,
-      emailLowStock,
-      emailDailyReports,
-      emailWeeklySummary,
-      // Inventory settings
-      defaultLowStock,
-      defaultUnit,
-      currency
+      shopTwitter
     } = req.body;
     
     const userRef = db.collection('users').doc(userId);
@@ -687,15 +687,6 @@ async function handleUpdateUserSettings(req, res, user, userId) {
         shopFacebook: shopFacebook || '',
         shopInstagram: shopInstagram || '',
         shopTwitter: shopTwitter || '',
-        // Email notification settings
-        notificationEmail: notificationEmail || '',
-        emailLowStock: emailLowStock !== undefined ? emailLowStock : true,
-        emailDailyReports: emailDailyReports !== undefined ? emailDailyReports : false,
-        emailWeeklySummary: emailWeeklySummary !== undefined ? emailWeeklySummary : true,
-        // Inventory settings
-        defaultLowStock: defaultLowStock !== undefined ? defaultLowStock : 10,
-        defaultUnit: defaultUnit || 'pieces',
-        currency: currency || 'usd',
         updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
       },
       // Also store key fields at top level for easier querying
@@ -4647,6 +4638,30 @@ function generateDailyReportEmail(companyName, reportData) {
     )
     .join('');
 
+  // Generate low stock products table if any
+  const lowStockSection = reportData.lowStockProducts && reportData.lowStockProducts.length > 0 ? `
+    <h3 style="color: #dc2626; font-size: 18px; margin-top: 30px;">⚠️ Low Stock Alert</h3>
+    <p style="color: #6b7280; font-size: 14px; margin: 10px 0;">The following products need restocking:</p>
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+      <thead>
+        <tr style="background-color: #fef2f2;">
+          <th style="padding: 12px; text-align: left; border-bottom: 2px solid #fecaca; color: #991b1b; font-weight: 600;">Product Name</th>
+          <th style="padding: 12px; text-align: center; border-bottom: 2px solid #fecaca; color: #991b1b; font-weight: 600;">Current Stock</th>
+          <th style="padding: 12px; text-align: center; border-bottom: 2px solid #fecaca; color: #991b1b; font-weight: 600;">Threshold</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${reportData.lowStockProducts.map(product => `
+        <tr>
+          <td style="padding: 12px; border-bottom: 1px solid #fecaca;">${product.name}</td>
+          <td style="padding: 12px; border-bottom: 1px solid #fecaca; text-align: center; color: #dc2626; font-weight: bold;">${product.currentStock}</td>
+          <td style="padding: 12px; border-bottom: 1px solid #fecaca; text-align: center;">${product.lowStockThreshold}</td>
+        </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  ` : '';
+
   return `
     <!DOCTYPE html>
     <html>
@@ -4680,6 +4695,7 @@ function generateDailyReportEmail(companyName, reportData) {
                 <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 5px 0 0 0;">${reportData.lowStockCount}</p>
               </div>
             </div>
+            ${lowStockSection}
             <h3 style="color: #374151; font-size: 18px; margin-top: 30px;">Top Selling Products</h3>
             <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
               <thead>
@@ -4721,6 +4737,30 @@ function generateWeeklySummaryEmail(companyName, summaryData) {
     )
     .join('');
 
+  // Generate low stock products table if any
+  const lowStockSection = summaryData.lowStockProducts && summaryData.lowStockProducts.length > 0 ? `
+    <h3 style="color: #dc2626; font-size: 18px; margin-top: 30px;">⚠️ Low Stock Alert</h3>
+    <p style="color: #6b7280; font-size: 14px; margin: 10px 0;">The following products need restocking:</p>
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+      <thead>
+        <tr style="background-color: #fef2f2;">
+          <th style="padding: 12px; text-align: left; border-bottom: 2px solid #fecaca; color: #991b1b; font-weight: 600;">Product Name</th>
+          <th style="padding: 12px; text-align: center; border-bottom: 2px solid #fecaca; color: #991b1b; font-weight: 600;">Current Stock</th>
+          <th style="padding: 12px; text-align: center; border-bottom: 2px solid #fecaca; color: #991b1b; font-weight: 600;">Threshold</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${summaryData.lowStockProducts.map(product => `
+        <tr>
+          <td style="padding: 12px; border-bottom: 1px solid #fecaca;">${product.name}</td>
+          <td style="padding: 12px; border-bottom: 1px solid #fecaca; text-align: center; color: #dc2626; font-weight: bold;">${product.currentStock}</td>
+          <td style="padding: 12px; border-bottom: 1px solid #fecaca; text-align: center;">${product.lowStockThreshold}</td>
+        </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  ` : '';
+
   return `
     <!DOCTYPE html>
     <html>
@@ -4754,6 +4794,7 @@ function generateWeeklySummaryEmail(companyName, summaryData) {
                 <p style="color: #111827; font-size: 24px; font-weight: bold; margin: 5px 0 0 0;">$${summaryData.averageOrderValue.toFixed(2)}</p>
               </div>
             </div>
+            ${lowStockSection}
             <h3 style="color: #374151; font-size: 18px; margin-top: 30px;">Top Products This Week</h3>
             <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
               <thead>
@@ -4847,115 +4888,30 @@ async function handleTestEmail(req, res, user) {
 }
 
 /**
- * Handle low stock check cron job
- */
-async function handleLowStockCron(req, res) {
-  try {
-    // Verify cron secret if configured - TEMPORARILY DISABLED FOR TESTING
-    // const cronSecret = process.env.CRON_SECRET;
-    // if (cronSecret && req.headers['x-cron-secret'] !== cronSecret) {
-    //   return res.status(401).json({ message: 'Unauthorized' });
-    // }
-
-    console.log('[CRON] Running low stock check...');
-    
-    const usersSnapshot = await db.collection('users').get();
-    let emailsSent = 0;
-
-    for (const userDoc of usersSnapshot.docs) {
-      const user = userDoc.data();
-      const settings = user.settings || {};
-      
-      if (!settings.emailLowStock) continue;
-
-      const notificationEmail = settings.notificationEmail || user.email;
-      if (!notificationEmail) continue;
-
-      // Get user's products
-      const productsSnapshot = await db
-        .collection('products')
-        .where('userId', '==', user.uid)
-        .get();
-
-      const lowStockProducts = [];
-      
-      for (const productDoc of productsSnapshot.docs) {
-        const product = productDoc.data();
-        const threshold = product.lowStockThreshold || settings.defaultLowStock || 10;
-        const quantity = product.quantity || 0;
-        
-        if (quantity > 0 && quantity <= threshold) {
-          lowStockProducts.push({
-            name: product.name || 'Unnamed Product',
-            currentStock: quantity,
-            lowStockThreshold: threshold,
-          });
-        }
-      }
-
-      if (lowStockProducts.length > 0) {
-        const companyName = settings.companyName || 'Your Company';
-        const html = generateLowStockEmail(companyName, lowStockProducts);
-        
-        await sendEmail({
-          to: notificationEmail,
-          subject: `⚠️ Low Stock Alert - ${lowStockProducts.length} Product(s) Need Restocking`,
-          html,
-        });
-        
-        emailsSent++;
-      }
-    }
-
-    console.log(`[CRON] Low stock check complete. Sent ${emailsSent} emails.`);
-    return res.json({ message: 'Low stock check complete', emailsSent });
-  } catch (error) {
-    console.error('[CRON] Error in low stock check:', error);
-    return res.status(500).json({ message: 'Cron job failed', error: error.message });
-  }
-}
-
-/**
  * Handle daily report cron job
  */
 async function handleDailyReportCron(req, res) {
   try {
-    // Verify cron secret if configured - TEMPORARILY DISABLED FOR TESTING
-    // const cronSecret = process.env.CRON_SECRET;
-    // if (cronSecret && req.headers['x-cron-secret'] !== cronSecret) {
-    //   return res.status(401).json({ message: 'Unauthorized' });
-    // }
+    // Verify cron secret if configured
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && req.headers['x-cron-secret'] !== cronSecret) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
 
     console.log('[CRON] Running daily report...');
     
     const usersSnapshot = await db.collection('users').get();
     let emailsSent = 0;
-    
-    console.log(`[CRON] Found ${usersSnapshot.size} total users`);
 
     for (const userDoc of usersSnapshot.docs) {
       try {
         const user = userDoc.data();
         const settings = user.settings || {};
         
-        console.log(`[CRON] Checking user ${userDoc.id}:`, {
-          hasSettings: !!settings,
-          emailDailyReports: settings.emailDailyReports,
-          notificationEmail: settings.notificationEmail || user.email
-        });
-        
-        if (!settings.emailDailyReports) {
-          console.log(`[CRON] User ${userDoc.id} - emailDailyReports is ${settings.emailDailyReports}, skipping`);
-          continue;
-        }
+        if (!settings.emailDailyReports) continue;
 
         const notificationEmail = settings.notificationEmail || user.email;
-        if (!notificationEmail) {
-          console.log(`[CRON] User ${userDoc.id} - no email address, skipping`);
-          continue;
-        }
-        
-        console.log(`[CRON] User ${userDoc.id} - will send email to ${notificationEmail}`);
+        if (!notificationEmail) continue;
 
         // Get yesterday's date range
         const today = new Date();
@@ -4976,18 +4932,27 @@ async function handleDailyReportCron(req, res) {
           return sum + (order.items?.reduce((itemSum, item) => itemSum + (item.quantity || 0), 0) || 0);
         }, 0);
 
-        // Get low stock count
+        // Get low stock count and products (always included for enterprise users)
         const productsSnapshot = await db
           .collection('products')
           .where('userId', '==', user.uid)
           .get();
         
-        const lowStockCount = productsSnapshot.docs.filter((doc) => {
+        const lowStockProducts = [];
+        productsSnapshot.docs.forEach((doc) => {
           const data = doc.data();
           const quantity = data.quantity || 0;
           const threshold = data.lowStockThreshold || settings.defaultLowStock || 10;
-          return quantity <= threshold && quantity > 0;
-        }).length;
+          if (quantity > 0 && quantity <= threshold) {
+            lowStockProducts.push({
+              name: data.name || 'Unnamed Product',
+              currentStock: quantity,
+              lowStockThreshold: threshold
+            });
+          }
+        });
+
+        const lowStockCount = lowStockProducts.length;
 
         // Calculate top products
         const productSales = {};
@@ -5021,6 +4986,7 @@ async function handleDailyReportCron(req, res) {
           totalOrders,
           totalRevenue,
           lowStockCount,
+          lowStockProducts,
           topProducts,
         });
 
@@ -5049,11 +5015,11 @@ async function handleDailyReportCron(req, res) {
  */
 async function handleWeeklySummaryCron(req, res) {
   try {
-    // Verify cron secret if configured - TEMPORARILY DISABLED FOR TESTING
-    // const cronSecret = process.env.CRON_SECRET;
-    // if (cronSecret && req.headers['x-cron-secret'] !== cronSecret) {
-    //   return res.status(401).json({ message: 'Unauthorized' });
-    // }
+    // Verify cron secret if configured
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && req.headers['x-cron-secret'] !== cronSecret) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
 
     console.log('[CRON] Running weekly summary...');
     
@@ -5090,24 +5056,34 @@ async function handleWeeklySummaryCron(req, res) {
         }, 0);
         const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
-        // Get inventory status
+        // Get inventory status with low stock product details
         const productsSnapshot = await db
           .collection('products')
           .where('userId', '==', user.uid)
           .get();
         
         const totalProducts = productsSnapshot.size;
-        const lowStockCount = productsSnapshot.docs.filter((doc) => {
+        
+        const lowStockProducts = [];
+        let outOfStockCount = 0;
+        
+        productsSnapshot.docs.forEach((doc) => {
           const data = doc.data();
           const quantity = data.quantity || 0;
           const threshold = data.lowStockThreshold || settings.defaultLowStock || 10;
-          return quantity <= threshold && quantity > 0;
-        }).length;
+          
+          if (quantity === 0) {
+            outOfStockCount++;
+          } else if (quantity > 0 && quantity <= threshold) {
+            lowStockProducts.push({
+              name: data.name || 'Unnamed Product',
+              currentStock: quantity,
+              lowStockThreshold: threshold
+            });
+          }
+        });
         
-        const outOfStockCount = productsSnapshot.docs.filter((doc) => {
-          const data = doc.data();
-          return (data.quantity || 0) === 0;
-        }).length;
+        const lowStockCount = lowStockProducts.length;
 
         // Calculate top products
         const productSales = {};
@@ -5137,6 +5113,7 @@ async function handleWeeklySummaryCron(req, res) {
           totalRevenue,
           averageOrderValue,
           topProducts,
+          lowStockProducts,
           inventoryStatus: {
             totalProducts,
             lowStockCount,

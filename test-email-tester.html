@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Notification System Tester</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 30px;
+        }
+        
+        button {
+            padding: 14px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 87, 108, 0.4);
+        }
+        
+        .btn-cron {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            grid-column: 1 / -1;
+        }
+        
+        .btn-cron:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(79, 172, 254, 0.4);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        .result {
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .result.success {
+            background: #d4edda;
+            color: #155724;
+            border: 2px solid #c3e6cb;
+        }
+        
+        .result.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 2px solid #f5c6cb;
+        }
+        
+        .result.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 2px solid #bee5eb;
+        }
+        
+        .instructions {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+        
+        .instructions h3 {
+            color: #856404;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        
+        .instructions ol {
+            margin-left: 20px;
+            color: #856404;
+        }
+        
+        .instructions li {
+            margin-bottom: 6px;
+            font-size: 13px;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .cron-section {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .cron-section h2 {
+            font-size: 20px;
+            color: #333;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📧 Email Notification Tester</h1>
+        <p class="subtitle">Test your email notification system locally and on production</p>
+        
+        <div class="instructions">
+            <h3>🔑 How to get your auth token:</h3>
+            <ol>
+                <li>Open your app and log in</li>
+                <li>Press <strong>F12</strong> to open Developer Tools</li>
+                <li>Go to <strong>Console</strong> tab</li>
+                <li>Type: <code>localStorage.getItem('token')</code></li>
+                <li>Copy the token value and paste below</li>
+            </ol>
+        </div>
+
+        <div class="form-group">
+            <label for="environment">Environment</label>
+            <select id="environment">
+                <option value="http://localhost:5000">Local (http://localhost:5000)</option>
+                <option value="production">Production (Vercel)</option>
+            </select>
+        </div>
+
+        <div class="form-group" id="vercelUrlGroup" style="display: none;">
+            <label for="vercelUrl">Vercel URL</label>
+            <input type="text" id="vercelUrl" placeholder="https://your-app.vercel.app">
+        </div>
+
+        <div class="form-group">
+            <label for="token">Authentication Token (Optional for local testing)</label>
+            <input type="text" id="token" placeholder="Leave empty for local testing - paste token for production">
+            <small style="color: #666; display: block; margin-top: 4px;">Local testing works without token. For production: Network tab → API request → Copy Authorization header</small>
+        </div>
+
+        <div class="form-group" id="userIdGroup">
+            <label for="userId">Your User ID (for local testing without token)</label>
+            <input type="text" id="userId" placeholder="Your Firebase UID (e.g., EFCG0Cy1Z1egAfOFd7VpHvprr242)">
+            <small style="color: #666; display: block; margin-top: 4px;">Only needed for local testing. Get it from Firebase Console or your app's user data.</small>
+        </div>
+
+        <div class="form-group">
+            <label for="email">Your Email Address</label>
+            <input type="email" id="email" placeholder="your-email@example.com">
+        </div>
+
+        <div class="button-group">
+            <button class="btn-primary" onclick="testEmail('daily-report')">
+                <span>📊</span>
+                <span>Test Daily Report</span>
+            </button>
+            <button class="btn-secondary" onclick="testEmail('weekly-summary')">
+                <span>📈</span>
+                <span>Test Weekly Summary</span>
+            </button>
+        </div>
+
+        <div class="cron-section">
+            <h2>🔄 Test Cron Endpoints (Optional)</h2>
+            <div class="form-group">
+                <label for="cronSecret">CRON_SECRET</label>
+                <input type="text" id="cronSecret" placeholder="Your cron secret from env variables">
+            </div>
+            <div class="button-group">
+                <button class="btn-cron" onclick="testCron('daily-report')">
+                    <span>🔄</span>
+                    <span>Test Daily Report Cron</span>
+                </button>
+                <button class="btn-cron" onclick="testCron('weekly-summary')">
+                    <span>🔄</span>
+                    <span>Test Weekly Summary Cron</span>
+                </button>
+            </div>
+        </div>
+
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        const environmentSelect = document.getElementById('environment');
+        const vercelUrlGroup = document.getElementById('vercelUrlGroup');
+
+        environmentSelect.addEventListener('change', function() {
+            if (this.value === 'production') {
+                vercelUrlGroup.style.display = 'block';
+            } else {
+                vercelUrlGroup.style.display = 'none';
+            }
+        });
+
+        function getBaseUrl() {
+            const env = document.getElementById('environment').value;
+            if (env === 'production') {
+                const vercelUrl = document.getElementById('vercelUrl').value.trim();
+                if (!vercelUrl) {
+                    throw new Error('Please enter your Vercel URL');
+                }
+                return vercelUrl;
+            }
+            return env;
+        }
+
+        async function testEmail(type) {
+            const resultDiv = document.getElementById('result');
+            const token = document.getElementById('token').value.trim();
+            const userId = document.getElementById('userId').value.trim();
+            const email = document.getElementById('email').value.trim();
+
+            // Validation
+            if (!email) {
+                showResult('error', '❌ Please enter your email address');
+                return;
+            }
+
+            try {
+                const baseUrl = getBaseUrl();
+                const emailType = type === 'daily-report' ? 'Daily Report' : 'Weekly Summary';
+                
+                showResult('info', `⏳ Sending ${emailType} test email...`);
+
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+                
+                // Only add Authorization header if token is provided
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                const body = {
+                    type: type,
+                    email: email
+                };
+
+                // Add userId for local dev testing
+                if (userId && baseUrl.includes('localhost')) {
+                    body.userId = userId;
+                }
+
+                const response = await fetch(`${baseUrl}/api/notifications/test-email`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(body)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showResult('success', `✅ ${emailType} test email sent successfully!<br>
+                        Check your inbox at: <strong>${email}</strong><br>
+                        💡 Also check your spam/junk folder!<br><br>
+                        <strong>Expected email content:</strong><br>
+                        ${type === 'daily-report' 
+                            ? '📊 Daily stats + ⚠️ Low stock alerts (if applicable) + Top products'
+                            : '📈 Weekly stats + ⚠️ Low stock alerts (if applicable) + Inventory status'
+                        }`);
+                } else {
+                    showResult('error', `❌ Failed: ${data.message || 'Unknown error'}`);
+                }
+            } catch (error) {
+                showResult('error', `❌ Error: ${error.message}<br><br>
+                    Make sure:<br>
+                    • Your server is running<br>
+                    • Email credentials are configured<br>
+                    • Your auth token is valid`);
+            }
+        }
+
+        async function testCron(type) {
+            const cronSecret = document.getElementById('cronSecret').value.trim();
+
+            if (!cronSecret) {
+                showResult('error', '❌ Please enter your CRON_SECRET');
+                return;
+            }
+
+            try {
+                const baseUrl = getBaseUrl();
+                const cronType = type === 'daily-report' ? 'Daily Report' : 'Weekly Summary';
+                
+                showResult('info', `⏳ Executing ${cronType} cron job...`);
+
+                const response = await fetch(`${baseUrl}/api/cron/${type}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-cron-secret': cronSecret
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showResult('success', `✅ ${cronType} cron executed successfully!<br>
+                        Emails sent: ${data.emailsSent || 0}<br>
+                        Message: ${data.message || 'Complete'}<br><br>
+                        Check your notification email for the report!`);
+                } else {
+                    showResult('error', `❌ Failed: ${data.message || 'Unknown error'}`);
+                }
+            } catch (error) {
+                showResult('error', `❌ Error: ${error.message}<br><br>
+                    Make sure:<br>
+                    • Your CRON_SECRET is correct<br>
+                    • Your server is running<br>
+                    • Email credentials are configured`);
+            }
+        }
+
+        function showResult(type, message) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.className = `result ${type}`;
+            resultDiv.innerHTML = message;
+            resultDiv.style.display = 'block';
+            resultDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    </script>
+</body>
+</html>

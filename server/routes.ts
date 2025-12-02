@@ -779,6 +779,241 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Test email endpoint - allows testing in dev mode without auth
+  app.post("/api/notifications/test-email", async (req: any, res) => {
+    try {
+      const { type, email, userId } = req.body;
+      
+      if (!email) {
+        return res.status(400).json({ message: 'Email address is required' });
+      }
+
+      // In development, allow testing without auth if userId is provided
+      let userIdToUse = userId;
+      if (!userIdToUse) {
+        // Require authentication
+        if (!req.user || !req.user.uid) {
+          return res.status(401).json({ message: 'Unauthorized - Missing token' });
+        }
+        userIdToUse = req.user.uid;
+      }
+
+      console.log('[TEST-EMAIL] Sending test email to:', email, 'for user:', userIdToUse);
+
+      // Get user settings for company name
+      const userDoc = await db.collection('users').doc(userIdToUse).get();
+      const userData = userDoc.data();
+      const companyName = userData?.settings?.companyName || 'Your Company';
+
+      let success = false;
+
+      if (type === 'daily-report') {
+        // Fetch real orders data (last 24 hours or all if none)
+        const oneDayAgo = new Date();
+        oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+        
+        const ordersSnapshot = await db.collection('orders')
+          .where('userId', '==', userIdToUse)
+          .where('createdAt', '>=', oneDayAgo)
+          .get();
+
+        // If no orders in last 24h, get recent orders
+        let orders = ordersSnapshot.docs;
+        if (orders.length === 0) {
+          const recentOrdersSnapshot = await db.collection('orders')
+            .where('userId', '==', userIdToUse)
+            .orderBy('createdAt', 'desc')
+            .limit(10)
+            .get();
+          orders = recentOrdersSnapshot.docs;
+        }
+
+        const totalOrders = orders.length;
+        const totalRevenue = orders.reduce((sum, doc) => {
+          const order = doc.data();
+          return sum + (order.totalAmount || 0);
+        }, 0);
+
+        // Count unique customers
+        const uniqueCustomers = new Set(orders.map(doc => doc.data().customerId)).size;
+
+        // Get top products from orders
+        const productSales: { [key: string]: { name: string; quantity: number; revenue: number } } = {};
+        orders.forEach(doc => {
+          const order = doc.data();
+          (order.items || []).forEach((item: any) => {
+            const key = item.productId || item.name;
+            if (!productSales[key]) {
+              productSales[key] = { name: item.name || 'Unknown', quantity: 0, revenue: 0 };
+            }
+            productSales[key].quantity += item.quantity || 0;
+            productSales[key].revenue += (item.price || 0) * (item.quantity || 0);
+          });
+        });
+
+        const topProducts = Object.values(productSales)
+          .sort((a, b) => b.revenue - a.revenue)
+          .slice(0, 5);
+
+        // Calculate total items sold
+        const totalItemsSold = Object.values(productSales).reduce((sum, p) => sum + p.quantity, 0);
+
+        // Fetch real low stock products
+        const productsSnapshot = await db.collection('products')
+          .where('userId', '==', userIdToUse)
+          .get();
+
+        const lowStockProducts = productsSnapshot.docs
+          .map(doc => {
+            const product = doc.data();
+            return {
+              name: product.name,
+              currentStock: product.stock || 0,
+              lowStockThreshold: product.lowStockThreshold || 10
+            };
+          })
+          .filter(p => p.currentStock <= p.lowStockThreshold)
+          .sort((a, b) => a.currentStock - b.currentStock)
+          .slice(0, 10);
+
+        // Get current date
+        const today = new Date().toLocaleDateString('en-US', { 
+          weekday: 'long', 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        });
+
+        // Send daily report with real data
+        success = await emailService.sendDailyReport(
+          email,
+          companyName,
+          {
+            date: today,
+            totalSales: totalItemsSold,
+            totalOrders: totalOrders || 0,
+            totalRevenue: totalRevenue || 0,
+            lowStockCount: lowStockProducts.length,
+            topProducts: topProducts.length > 0 ? topProducts : [
+              { name: 'No sales data yet', quantity: 0, revenue: 0 }
+            ],
+            lowStockProducts: lowStockProducts
+          }
+        );
+      } else if (type === 'weekly-summary') {
+        // Fetch real orders data (last 7 days or all if none)
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        
+        const ordersSnapshot = await db.collection('orders')
+          .where('userId', '==', userIdToUse)
+          .where('createdAt', '>=', sevenDaysAgo)
+          .get();
+
+        // If no orders in last 7 days, get recent orders
+        let orders = ordersSnapshot.docs;
+        if (orders.length === 0) {
+          const recentOrdersSnapshot = await db.collection('orders')
+            .where('userId', '==', userIdToUse)
+            .orderBy('createdAt', 'desc')
+            .limit(20)
+            .get();
+          orders = recentOrdersSnapshot.docs;
+        }
+
+        const totalOrders = orders.length;
+        const totalRevenue = orders.reduce((sum, doc) => {
+          const order = doc.data();
+          return sum + (order.totalAmount || 0);
+        }, 0);
+
+        const uniqueCustomers = new Set(orders.map(doc => doc.data().customerId)).size;
+
+        // Get top products from orders
+        const productSales: { [key: string]: { name: string; quantity: number; revenue: number } } = {};
+        orders.forEach(doc => {
+          const order = doc.data();
+          (order.items || []).forEach((item: any) => {
+            const key = item.productId || item.name;
+            if (!productSales[key]) {
+              productSales[key] = { name: item.name || 'Unknown', quantity: 0, revenue: 0 };
+            }
+            productSales[key].quantity += item.quantity || 0;
+            productSales[key].revenue += (item.price || 0) * (item.quantity || 0);
+          });
+        });
+
+        const topProducts = Object.values(productSales)
+          .sort((a, b) => b.revenue - a.revenue)
+          .slice(0, 5);
+
+        // Fetch inventory data
+        const productsSnapshot = await db.collection('products')
+          .where('userId', '==', userIdToUse)
+          .get();
+
+        const inventoryValue = productsSnapshot.docs.reduce((sum, doc) => {
+          const product = doc.data();
+          return sum + ((product.stock || 0) * (product.price || 0));
+        }, 0);
+
+        const lowStockProducts = productsSnapshot.docs
+          .map(doc => {
+            const product = doc.data();
+            return {
+              name: product.name,
+              currentStock: product.stock || 0,
+              lowStockThreshold: product.lowStockThreshold || 10
+            };
+          })
+          .filter(p => p.currentStock <= p.lowStockThreshold)
+          .sort((a, b) => a.currentStock - b.currentStock)
+          .slice(0, 10);
+
+        const lowStockCount = lowStockProducts.length;
+        const outOfStockCount = productsSnapshot.docs.filter(doc => (doc.data().stock || 0) === 0).length;
+
+        // Send weekly summary with real data
+        success = await emailService.sendWeeklySummary(
+          email,
+          companyName,
+          {
+            totalOrders: totalOrders || 0,
+            totalRevenue: totalRevenue || 0,
+            newCustomers: uniqueCustomers || 0,
+            inventoryValue: inventoryValue || 0,
+            lowStockCount: lowStockCount,
+            outOfStockCount: outOfStockCount,
+            topProducts: topProducts.length > 0 ? topProducts : [
+              { name: 'No sales data yet', quantity: 0, revenue: 0 }
+            ],
+            lowStockProducts: lowStockProducts
+          }
+        );
+      } else {
+        return res.status(400).json({ 
+          message: "Invalid email type. Use 'daily-report' or 'weekly-summary'" 
+        });
+      }
+
+      if (success) {
+        res.json({ 
+          message: 'Test email sent successfully!', 
+          email, 
+          type,
+          note: 'Check your email inbox (and spam folder)'
+        });
+      } else {
+        res.status(500).json({ 
+          message: 'Failed to send test email. Check server logs and email configuration.' 
+        });
+      }
+    } catch (error: any) {
+      console.error('[TEST-EMAIL] Error:', error);
+      res.status(500).json({ message: 'Failed to send test email: ' + error.message });
+    }
+  });
+
   app.delete("/api/notifications/:notificationId", async (req: any, res) => {
     try {
       const { notificationId } = req.params;

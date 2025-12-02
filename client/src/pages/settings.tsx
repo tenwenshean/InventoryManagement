@@ -79,7 +79,6 @@ export default function SettingsPage() {
 
   // Email Notification States
   const [notificationEmail, setNotificationEmail] = useState<string>("");
-  const [emailLowStock, setEmailLowStock] = useState<boolean>(true);
   const [emailDailyReports, setEmailDailyReports] = useState<boolean>(false);
   const [emailWeeklySummary, setEmailWeeklySummary] = useState<boolean>(true);
 
@@ -111,7 +110,6 @@ export default function SettingsPage() {
       setCurrency(settings.currency || "usd");
       // Load email notification settings
       setNotificationEmail(settings.notificationEmail || user?.email || "");
-      setEmailLowStock(settings.emailLowStock !== undefined ? settings.emailLowStock : true);
       setEmailDailyReports(settings.emailDailyReports !== undefined ? settings.emailDailyReports : false);
       setEmailWeeklySummary(settings.emailWeeklySummary !== undefined ? settings.emailWeeklySummary : true);
     }
@@ -241,7 +239,6 @@ export default function SettingsPage() {
       shopInstagram,
       shopTwitter,
       notificationEmail,
-      emailLowStock,
       emailDailyReports,
       emailWeeklySummary,
       updatedAt: new Date().toISOString(),
@@ -891,23 +888,6 @@ export default function SettingsPage() {
                       <div className="flex-1">
                         <div className="flex items-center space-x-2">
                           <Switch 
-                            id="email-low-stock" 
-                            checked={emailLowStock}
-                            onCheckedChange={setEmailLowStock}
-                            data-testid="switch-email-low-stock" 
-                          />
-                          <Label htmlFor="email-low-stock" className="font-medium">Low Stock Alerts</Label>
-                        </div>
-                        <p className="text-xs text-muted-foreground ml-6 mt-1">
-                          Receive instant email when products fall below their low stock threshold
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-start justify-between space-x-2">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2">
-                          <Switch 
                             id="email-daily-reports" 
                             checked={emailDailyReports}
                             onCheckedChange={setEmailDailyReports}
@@ -916,7 +896,7 @@ export default function SettingsPage() {
                           <Label htmlFor="email-daily-reports" className="font-medium">Daily Reports</Label>
                         </div>
                         <p className="text-xs text-muted-foreground ml-6 mt-1">
-                          Get a daily summary of sales, inventory changes, and key metrics (sent at 9 AM)
+                          Get a daily summary of sales, inventory changes, low stock alerts, and key metrics (sent at 9 AM)
                         </p>
                       </div>
                     </div>
@@ -933,7 +913,7 @@ export default function SettingsPage() {
                           <Label htmlFor="email-weekly-summary" className="font-medium">Weekly Summary</Label>
                         </div>
                         <p className="text-xs text-muted-foreground ml-6 mt-1">
-                          Receive comprehensive weekly business performance report (sent every Monday at 9 AM)
+                          Receive comprehensive weekly business performance and low stock report (sent every Monday at 9 AM)
                         </p>
                       </div>
                     </div>
