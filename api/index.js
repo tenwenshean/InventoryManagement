@@ -2236,19 +2236,39 @@ async function handleGetReportsData(req, res, user) {
 
     console.log(`[REPORTS] Found ${transactions.length} transactions`);
 
-    // Calculate metrics
-    const unitsSold = transactions
+    // Also get orders to supplement data (for Kaggle imports and historical data)
+    const ordersSnapshot = await db.collection('orders')
+      .where('sellerId', '==', userId)
+      .get();
+    const orders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    console.log(`[REPORTS] Found ${orders.length} orders for user`);
+
+    // Calculate metrics from both transactions and orders
+    let unitsSold = transactions
       .filter(t => t.type === 'out')
       .reduce((sum, t) => sum + (t.quantity || 0), 0);
 
     const productById = new Map(products.map(p => [p.id, p]));
-    const totalRevenueNumber = transactions
+    let totalRevenueNumber = transactions
       .filter(t => t.type === 'out')
       .reduce((sum, t) => {
         const product = productById.get(t.productId);
         const price = product ? parseFloat(product.price || 0) : 0;
         return sum + price * (t.quantity || 0);
       }, 0);
+
+    // Add order data if available
+    for (const order of orders) {
+      if (order.status === 'completed' || order.status === 'paid') {
+        const orderAmount = parseFloat(order.totalAmount || 0);
+        totalRevenueNumber += orderAmount;
+        
+        // Count items sold from order
+        if (order.items && Array.isArray(order.items)) {
+          unitsSold += order.items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+        }
+      }
+    }
 
     const keyMetrics = {
       totalRevenue: `$${totalRevenueNumber.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
@@ -2264,6 +2284,8 @@ async function handleGetReportsData(req, res, user) {
     };
 
     const byMonth = {};
+    
+    // Process inventory transactions
     for (const tx of transactions) {
       const key = monthKey(tx.createdAt);
       byMonth[key] = byMonth[key] || { sales: 0, returns: 0, inStock: 0, outStock: 0, revenue: 0 };
@@ -2275,6 +2297,24 @@ async function handleGetReportsData(req, res, user) {
         const product = productById.get(tx.productId);
         const price = product ? parseFloat(product.price || 0) : 0;
         byMonth[key].revenue += price * (tx.quantity || 0);
+      }
+    }
+
+    // Process orders to supplement transaction data (important for Kaggle data)
+    for (const order of orders) {
+      if (order.status === 'completed' || order.status === 'paid') {
+        const key = monthKey(order.createdAt);
+        byMonth[key] = byMonth[key] || { sales: 0, returns: 0, inStock: 0, outStock: 0, revenue: 0 };
+        
+        const orderAmount = parseFloat(order.totalAmount || 0);
+        byMonth[key].revenue += orderAmount;
+        
+        // Count items sold from order
+        if (order.items && Array.isArray(order.items)) {
+          const itemCount = order.items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+          byMonth[key].sales += itemCount;
+          byMonth[key].outStock += itemCount;
+        }
       }
     }
 
@@ -2419,8 +2459,10 @@ async function handleGetReportsData(req, res, user) {
     }
     const categoryData = Object.entries(categoryTotals).map(([name, value]) => ({ name, value }));
 
-    // Top products by current quantity sold (approx via transactions)
+    // Top products by current quantity sold (approx via transactions and orders)
     const soldByProduct = {};
+    
+    // Process inventory transactions
     for (const tx of transactions) {
       if (!soldByProduct[tx.productId]) {
         soldByProduct[tx.productId] = { sales: 0, returns: 0 };
@@ -2430,11 +2472,34 @@ async function handleGetReportsData(req, res, user) {
       }
     }
 
+    // Process orders to supplement transaction data (important for Kaggle data)
+    for (const order of orders) {
+      if ((order.status === 'completed' || order.status === 'paid') && order.items && Array.isArray(order.items)) {
+        for (const item of order.items) {
+          const productId = item.productId;
+          if (!soldByProduct[productId]) {
+            soldByProduct[productId] = { sales: 0, returns: 0 };
+          }
+          soldByProduct[productId].sales += (item.quantity || 0);
+        }
+      }
+    }
+
     // Get refunds from transactions or orders (returns)
     const returnsByProduct = {};
     for (const tx of transactions) {
       if (tx.type === 'in' && tx.reason?.toLowerCase().includes('return')) {
         returnsByProduct[tx.productId] = (returnsByProduct[tx.productId] || 0) + (tx.quantity || 0);
+      }
+    }
+    
+    // Process refunded orders
+    for (const order of orders) {
+      if (order.status === 'refunded' && order.items && Array.isArray(order.items)) {
+        for (const item of order.items) {
+          const productId = item.productId;
+          returnsByProduct[productId] = (returnsByProduct[productId] || 0) + (item.quantity || 0);
+        }
       }
     }
 

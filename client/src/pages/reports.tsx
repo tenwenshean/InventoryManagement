@@ -1048,7 +1048,7 @@ export default function Reports() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {topProducts && topProducts.length > 0 ? topProducts.map((product: TopProductItem, index: number) => (
+                    {topProducts && topProducts.length > 0 ? topProducts.slice(0, 3).map((product: TopProductItem, index: number) => (
                       <div key={index} className="border-b pb-3 last:border-b-0" data-testid={`product-${index}`}>
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center space-x-2">
@@ -1117,7 +1117,7 @@ export default function Reports() {
             </div>
 
             {/* Supplier Analysis Section */}
-            {supplierRefundStats.all.length > 0 && (
+            {topRefundedProducts && topRefundedProducts.length > 0 && supplierRefundStats.all.length > 0 ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
                 {/* Most Refunded Supplier */}
                 {supplierRefundStats.mostRefunded && (
@@ -1209,6 +1209,16 @@ export default function Reports() {
                   </Card>
                 )}
               </div>
+            ) : (
+              <Card className="mt-6">
+                <CardContent className="pt-6">
+                  <div className="text-center py-8">
+                    <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
+                    <p className="text-lg font-semibold text-gray-700">No Refunded Products</p>
+                    <p className="text-sm text-gray-500 mt-1">Great news! No product returns have been recorded in this period.</p>
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 

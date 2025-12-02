@@ -1098,19 +1098,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`[REPORTS] Found ${transactions.length} transactions for user's products`);
 
-      const unitsSold = transactions
+      // Also get orders to supplement data (for Kaggle imports and historical data)
+      const ordersSnapshot = await db.collection("orders")
+        .where("sellerId", "==", userId)
+        .get();
+      const orders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      console.log(`[REPORTS] Found ${orders.length} orders for user`);
+
+      const productById = new Map(products.map((p: any) => [p.id, p]));
+
+      // Calculate metrics from both transactions and orders
+      let unitsSold = transactions
         .filter((t) => (t as any).type === "out")
         .reduce((sum, t: any) => sum + (t.quantity || 0), 0);
 
-      // Approximate revenue using product price * quantity for 'out' transactions
-      const productById = new Map(products.map((p: any) => [p.id, p]));
-      const totalRevenueNumber = transactions
+      let totalRevenueNumber = transactions
         .filter((t: any) => t.type === "out")
         .reduce((sum, t: any) => {
           const product = productById.get(t.productId);
           const price = product ? parseFloat((product.price as any) ?? 0) : 0;
           return sum + price * (t.quantity || 0);
         }, 0);
+
+      // Add order data if available
+      for (const order of orders as any[]) {
+        if (order.status === 'completed' || order.status === 'paid') {
+          const orderAmount = parseFloat(order.totalAmount || 0);
+          totalRevenueNumber += orderAmount;
+          
+          // Count items sold from order
+          if (order.items && Array.isArray(order.items)) {
+            unitsSold += order.items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0);
+          }
+        }
+      }
 
       const keyMetrics = {
         totalRevenue: `$${totalRevenueNumber.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
@@ -1125,6 +1146,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
       const byMonth: Record<string, { sales: number; returns: number; inStock: number; outStock: number; revenue: number }> = {};
       
+      // Process inventory transactions
       for (const tx of transactions as any[]) {
         const created = (tx.createdAt as any)?.toDate?.() || tx.createdAt || new Date();
         const key = monthKey(new Date(created));
@@ -1139,6 +1161,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const product = productById.get(tx.productId);
           const price = product ? parseFloat((product.price as any) ?? 0) : 0;
           byMonth[key].revenue += price * (tx.quantity || 0);
+        }
+      }
+
+      // Process orders to supplement transaction data (important for Kaggle data)
+      for (const order of orders as any[]) {
+        if (order.status === 'completed' || order.status === 'paid') {
+          const created = (order.createdAt as any)?.toDate?.() || order.createdAt || new Date();
+          const key = monthKey(new Date(created));
+          byMonth[key] ||= { sales: 0, returns: 0, inStock: 0, outStock: 0, revenue: 0 };
+          
+          const orderAmount = parseFloat(order.totalAmount || 0);
+          byMonth[key].revenue += orderAmount;
+          
+          // Count items sold from order
+          if (order.items && Array.isArray(order.items)) {
+            const itemCount = order.items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0);
+            byMonth[key].sales += itemCount;
+            byMonth[key].outStock += itemCount;
+          }
         }
       }
       
@@ -1254,8 +1295,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`[REPORTS] Category distribution:`, categoryData.length, 'categories');
 
-      // Top products by current quantity sold (approx via transactions)
+      // Top products by current quantity sold (approx via transactions and orders)
       const soldByProduct: Record<string, { sales: number; returns: number }> = {};
+      
+      // Process inventory transactions
       for (const tx of transactions as any[]) {
         if (!soldByProduct[tx.productId]) {
           soldByProduct[tx.productId] = { sales: 0, returns: 0 };
@@ -1265,11 +1308,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Process orders to supplement transaction data (important for Kaggle data)
+      for (const order of orders as any[]) {
+        if ((order.status === 'completed' || order.status === 'paid') && order.items && Array.isArray(order.items)) {
+          for (const item of order.items) {
+            const productId = item.productId;
+            if (!soldByProduct[productId]) {
+              soldByProduct[productId] = { sales: 0, returns: 0 };
+            }
+            soldByProduct[productId].sales += (item.quantity || 0);
+          }
+        }
+      }
+
       // Get refunds from transactions or orders (returns)
       const returnsByProduct: Record<string, number> = {};
       for (const tx of transactions as any[]) {
         if (tx.type === "in" && tx.reason?.toLowerCase().includes('return')) {
           returnsByProduct[tx.productId] = (returnsByProduct[tx.productId] || 0) + (tx.quantity || 0);
+        }
+      }
+      
+      // Process refunded orders
+      for (const order of orders as any[]) {
+        if (order.status === 'refunded' && order.items && Array.isArray(order.items)) {
+          for (const item of order.items) {
+            const productId = item.productId;
+            returnsByProduct[productId] = (returnsByProduct[productId] || 0) + (item.quantity || 0);
+          }
         }
       }
 
