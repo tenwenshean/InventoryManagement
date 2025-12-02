@@ -659,7 +659,16 @@ async function handleUpdateUserSettings(req, res, user, userId) {
       shopWebsite,
       shopFacebook,
       shopInstagram,
-      shopTwitter
+      shopTwitter,
+      // Email notification settings
+      notificationEmail,
+      emailLowStock,
+      emailDailyReports,
+      emailWeeklySummary,
+      // Inventory settings
+      defaultLowStock,
+      defaultUnit,
+      currency
     } = req.body;
     
     const userRef = db.collection('users').doc(userId);
@@ -678,6 +687,15 @@ async function handleUpdateUserSettings(req, res, user, userId) {
         shopFacebook: shopFacebook || '',
         shopInstagram: shopInstagram || '',
         shopTwitter: shopTwitter || '',
+        // Email notification settings
+        notificationEmail: notificationEmail || '',
+        emailLowStock: emailLowStock !== undefined ? emailLowStock : true,
+        emailDailyReports: emailDailyReports !== undefined ? emailDailyReports : false,
+        emailWeeklySummary: emailWeeklySummary !== undefined ? emailWeeklySummary : true,
+        // Inventory settings
+        defaultLowStock: defaultLowStock !== undefined ? defaultLowStock : 10,
+        defaultUnit: defaultUnit || 'pieces',
+        currency: currency || 'usd',
         updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
       },
       // Also store key fields at top level for easier querying
