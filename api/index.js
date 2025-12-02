@@ -1577,12 +1577,33 @@ async function handleGetSalesSummary(req, res, user) {
       unitsSold += qty;
     }
 
+    // Calculate current inventory value (cost price * quantity on hand)
+    let totalInventoryValue = 0;
+    for (const product of products) {
+      const qty = product.quantity || 0;
+      const cost = product.costPrice ? parseFloat(product.costPrice) : 0;
+      totalInventoryValue += qty * cost;
+    }
+    
+    console.log('[SALES SUMMARY] Inventory calculation:', {
+      productsCount: products.length,
+      totalInventoryValue,
+      sampleProduct: products[0] ? {
+        name: products[0].name,
+        quantity: products[0].quantity,
+        costPrice: products[0].costPrice
+      } : 'none'
+    });
+
     const summary = {
       totalRevenue,
       totalCOGS,
       unitsSold,
-      grossProfit: totalRevenue - totalCOGS
+      grossProfit: totalRevenue - totalCOGS,
+      inventoryValue: totalInventoryValue
     };
+    
+    console.log('[SALES SUMMARY] Returning summary:', summary);
 
     return res.json(summary);
   } catch (error) {

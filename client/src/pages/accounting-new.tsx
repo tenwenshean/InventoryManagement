@@ -99,6 +99,7 @@ export default function AccountingNew() {
       return filteredData;
     },
     enabled: isAuthenticated && hasResolvedMonth && Boolean(selectedMonth),
+    gcTime: 0, // Don't keep in cache after component unmounts
   });
 
   const { data: allEntries, isLoading: allEntriesLoading } = useQuery<AccountingEntry[]>({
@@ -119,7 +120,6 @@ export default function AccountingNew() {
       return filteredData;
     },
     enabled: isAuthenticated,
-    staleTime: 1000 * 60 * 30,
   });
 
   // Fetch sales data (from products sold)
@@ -137,14 +137,25 @@ export default function AccountingNew() {
   // Create entry mutation
   const createEntryMutation = useMutation({
     mutationFn: async (data: typeof newEntry) => {
+      console.log('[CREATE ENTRY] Sending request:', data);
       const res = await apiRequest("POST", "/api/accounting/entries", data);
-      if (!res.ok) throw new Error("Failed to create entry");
-      return res.json();
+      const createdEntry = await res.json();
+      console.log('[CREATE ENTRY] Entry created successfully:', createdEntry);
+      return createdEntry;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounting.entriesRoot });
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounting.entries(selectedMonth) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounting.reportRoot });
+    onSuccess: async () => {
+      console.log('[CREATE ENTRY] onSuccess - clearing cache and refetching');
+      
+      // Clear ALL cache to bust server cache
+      queryClient.clear();
+      
+      // Wait a moment for server cache to clear
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Force refetch
+      await queryClient.refetchQueries({ queryKey: queryKeys.accounting.entries(selectedMonth), type: 'active' });
+      await queryClient.refetchQueries({ queryKey: queryKeys.accounting.entriesRoot, type: 'active' });
+      
       setOpenDialog(false);
       setNewEntry({
         accountType: "expense",
@@ -169,20 +180,44 @@ export default function AccountingNew() {
 
   const deleteEntryMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await apiRequest("DELETE", `/api/accounting/entries/${id}`);
-      if (!res.ok) throw new Error("Failed to delete entry");
+      console.log('[DELETE ENTRY] Attempting to delete entry:', id);
+      
+      try {
+        await apiRequest("DELETE", `/api/accounting/entries/${id}`);
+        console.log('[DELETE ENTRY] Successfully deleted');
+        return { id, alreadyDeleted: false };
+      } catch (error: any) {
+        // If it's a 404, the entry is already deleted - treat as success
+        if (error?.message?.includes('404')) {
+          console.log('[DELETE ENTRY] Entry already deleted (404), treating as success');
+          return { id, alreadyDeleted: true };
+        }
+        // For other errors, re-throw
+        console.error('[DELETE ENTRY] Error:', error);
+        throw error;
+      }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounting.entriesRoot });
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounting.entries(selectedMonth) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounting.reportRoot });
+    onSuccess: async (result) => {
+      console.log('[DELETE ENTRY] onSuccess - clearing cache and refetching');
+      
+      // Clear ALL cache for this user to bust server cache
+      queryClient.clear();
+      
+      // Wait a moment for server cache to clear
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Force refetch with cache busting
+      await queryClient.refetchQueries({ queryKey: queryKeys.accounting.entries(selectedMonth), type: 'active' });
+      await queryClient.refetchQueries({ queryKey: queryKeys.accounting.entriesRoot, type: 'active' });
+      
       toast({
         title: "Entry deleted",
-        description: "The journal entry has been removed",
+        description: result.alreadyDeleted ? "Entry was already removed" : "The journal entry has been removed",
       });
       setEntryToDelete(null);
     },
     onError: (error) => {
+      console.error('[DELETE ENTRY] onError triggered:', error);
       toast({
         title: "Failed to delete",
         description: error instanceof Error ? error.message : "Could not delete this entry",
@@ -223,8 +258,30 @@ export default function AccountingNew() {
   };
 
   const monthlyEntries = useMemo(() => {
-    if (!entries || !selectedMonth) return [] as AccountingEntry[];
-    return entries.filter((entry) => getEntryMonth(entry.createdAt) === selectedMonth);
+    console.log('[MONTHLY ENTRIES] Computing monthly entries');
+    console.log('[MONTHLY ENTRIES] entries:', entries?.length || 0);
+    console.log('[MONTHLY ENTRIES] selectedMonth:', selectedMonth);
+    
+    if (!entries || !selectedMonth) {
+      console.log('[MONTHLY ENTRIES] Returning empty - missing entries or selectedMonth');
+      return [] as AccountingEntry[];
+    }
+    
+    const filtered = entries.filter((entry) => {
+      const entryMonth = getEntryMonth(entry.createdAt);
+      const matches = entryMonth === selectedMonth;
+      if (!matches) {
+        console.log('[MONTHLY ENTRIES] Filtering out entry:', entry.id, 'month:', entryMonth, 'vs', selectedMonth);
+      }
+      return matches;
+    });
+    
+    console.log('[MONTHLY ENTRIES] Filtered result:', filtered.length, 'entries');
+    if (filtered.length > 0) {
+      console.log('[MONTHLY ENTRIES] Sample entries:', filtered.slice(0, 3).map(e => ({ id: e.id, account: e.accountName, createdAt: e.createdAt })));
+    }
+    
+    return filtered;
   }, [entries, selectedMonth]);
 
   const availableMonths = useMemo(() => {
@@ -286,11 +343,24 @@ export default function AccountingNew() {
     monthlyEntries.forEach(entry => {
       const debit = parseFloat(entry.debitAmount || "0");
       const credit = parseFloat(entry.creditAmount || "0");
+      
+      // For balance sheet items, use debit - credit
+      // For revenue: credits increase revenue (so use credit amount)
+      // For expenses: debits increase expenses (so use debit amount)
+      let balance;
+      if (entry.accountType === 'revenue') {
+        balance = credit - debit; // Revenue is a credit account
+      } else if (entry.accountType === 'expense') {
+        balance = debit - credit; // Expense is a debit account
+      } else {
+        balance = debit - credit; // Assets, liabilities, equity
+      }
+      
       const item = {
         name: entry.accountName,
         debit,
         credit,
-        balance: debit - credit,
+        balance,
         description: entry.description,
       };
 
@@ -303,6 +373,30 @@ export default function AccountingNew() {
       }
     });
 
+    // Separate COGS from other expenses for income statement presentation
+    const costOfSales: any[] = [];
+    const operatingExpenses: any[] = [];
+    
+    // Add inventory as a current asset
+    console.log('[FINANCIALS] Checking inventory:', { 
+      hasSalesData: !!salesData, 
+      inventoryValue: salesData?.inventoryValue,
+      assetsBeforeInventory: assets.length 
+    });
+    
+    if (salesData?.inventoryValue !== undefined && salesData.inventoryValue >= 0) {
+      console.log('[FINANCIALS] Adding inventory to assets:', salesData.inventoryValue);
+      assets.push({
+        name: "Inventory",
+        debit: salesData.inventoryValue,
+        credit: 0,
+        balance: salesData.inventoryValue,
+        description: "Current inventory on hand (at cost)",
+      });
+    } else {
+      console.log('[FINANCIALS] Inventory NOT added - salesData:', salesData);
+    }
+    
     if (salesData && salesData.totalRevenue > 0) {
       revenue.push({
         name: "Product Sales",
@@ -314,21 +408,33 @@ export default function AccountingNew() {
     }
 
     if (salesData && salesData.totalCOGS > 0) {
-      expenses.push({
-        name: "Cost of Goods Sold",
+      costOfSales.push({
+        name: "Purchases",
         debit: salesData.totalCOGS,
         credit: 0,
         balance: salesData.totalCOGS,
         description: "Cost of products sold",
       });
     }
+    
+    // Separate expenses into COGS and operating expenses
+    expenses.forEach(exp => {
+      if (exp.name === "Cost of Goods Sold" || exp.name === "COGS" || exp.name === "Purchases") {
+        costOfSales.push(exp);
+      } else {
+        operatingExpenses.push(exp);
+      }
+    });
 
     const totalAssets = assets.reduce((sum, a) => sum + a.balance, 0);
     const totalLiabilities = liabilities.reduce((sum, l) => sum + l.balance, 0);
     const totalEquity = equity.reduce((sum, e) => sum + e.balance, 0);
     const totalRevenue = revenue.reduce((sum, r) => sum + r.balance, 0);
+    const totalCostOfSales = costOfSales.reduce((sum, c) => sum + c.balance, 0);
+    const grossProfit = totalRevenue - totalCostOfSales;
+    const totalOperatingExpenses = operatingExpenses.reduce((sum, e) => sum + e.balance, 0);
     const totalExpenses = expenses.reduce((sum, e) => sum + e.balance, 0);
-    const netIncome = totalRevenue - totalExpenses;
+    const netIncome = grossProfit - totalOperatingExpenses;
 
     return {
       assets,
@@ -336,10 +442,15 @@ export default function AccountingNew() {
       equity,
       revenue,
       expenses,
+      costOfSales,
+      operatingExpenses,
       totalAssets,
       totalLiabilities,
       totalEquity,
       totalRevenue,
+      totalCostOfSales,
+      grossProfit,
+      totalOperatingExpenses,
       totalExpenses,
       netIncome,
     };
@@ -351,7 +462,10 @@ export default function AccountingNew() {
     allEntriesLoading, 
     hasResolvedMonth, 
     selectedMonth,
-    allEntriesCount: allEntries?.length 
+    allEntriesCount: allEntries?.length,
+    salesData,
+    inventoryValue: salesData?.inventoryValue,
+    assetsCount: financials.assets.length
   });
 
   if (isLoading || !isAuthenticated) {
@@ -635,71 +749,120 @@ export default function AccountingNew() {
                   <div className="date text-sm text-muted-foreground">As of {monthName}</div>
                 </div>
 
-                <div className="section-title text-lg font-semibold">ASSETS</div>
+                {/* ASSETS SECTION */}
                 <table className="w-full text-sm">
+                  <colgroup>
+                    <col style={{ width: '70%' }} />
+                    <col style={{ width: '30%' }} />
+                  </colgroup>
                   <tbody>
+                    <tr className="border-b-2 border-border">
+                      <td className="py-2 font-bold">ASSETS</td>
+                      <td className="amount py-2"></td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 font-semibold">CURRENT ASSETS</td>
+                      <td className="amount py-2"></td>
+                    </tr>
                     {financials.assets.map((asset, i) => (
-                      <tr key={i} className="border-b border-border/60">
-                        <td className="indent py-2">{asset.name}</td>
-                        <td className="amount py-2 font-medium">${asset.balance.toFixed(2)}</td>
+                      <tr key={i}>
+                        <td className="indent py-1">{asset.name}</td>
+                        <td className="amount py-1">{formatCurrency(asset.balance)}</td>
                       </tr>
                     ))}
                     {financials.assets.length === 0 && (
                       <tr>
-                        <td className="indent py-2 text-muted-foreground">No assets recorded</td>
-                        <td></td>
+                        <td className="indent py-1 text-muted-foreground">-</td>
+                        <td className="amount py-1 text-muted-foreground">-</td>
                       </tr>
                     )}
-                    <tr className="total-row">
-                      <td className="py-2">Total Assets</td>
-                      <td className="amount py-2">{formatCurrency(financials.totalAssets)}</td>
+                    <tr className="border-t-2 border-b-2 border-border">
+                      <td className="py-2 font-bold">TOTAL ASSETS</td>
+                      <td className="amount py-2 font-bold">{formatCurrency(financials.totalAssets)}</td>
                     </tr>
                   </tbody>
                 </table>
 
-                <div className="section-title text-lg font-semibold">LIABILITIES AND EQUITY</div>
-                <div className="text-sm font-semibold text-muted-foreground">Liabilities</div>
+                {/* EQUITY AND LIABILITIES SECTION */}
                 <table className="w-full text-sm">
+                  <colgroup>
+                    <col style={{ width: '70%' }} />
+                    <col style={{ width: '30%' }} />
+                  </colgroup>
                   <tbody>
+                    <tr className="border-b-2 border-border">
+                      <td className="py-2 pt-4 font-bold">EQUITY AND LIABILITIES</td>
+                      <td className="amount py-2 pt-4"></td>
+                    </tr>
+                    
+                    {/* CAPITAL AND RESERVES */}
+                    <tr>
+                      <td className="py-2 font-semibold">CAPITAL AND RESERVES</td>
+                      <td className="amount py-2"></td>
+                    </tr>
+                    {financials.equity.map((eq, i) => (
+                      <tr key={i}>
+                        <td className="indent py-1">{eq.name}</td>
+                        <td className="amount py-1">{formatCurrency(eq.balance)}</td>
+                      </tr>
+                    ))}
+                    {financials.equity.length === 0 && (
+                      <tr>
+                        <td className="indent py-1 text-muted-foreground">-</td>
+                        <td className="amount py-1 text-muted-foreground">-</td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td className="indent py-1">
+                        {financials.netIncome >= 0 ? "Retained earnings" : "(Accumulated losses)"}
+                      </td>
+                      <td className="amount py-1">
+                        {financials.netIncome >= 0 ? formatCurrency(financials.netIncome) : `(${formatCurrency(Math.abs(financials.netIncome))})`}
+                      </td>
+                    </tr>
+                    <tr className="border-t border-b-2 border-border">
+                      <td className="py-2 font-semibold">
+                        {(financials.totalEquity + financials.netIncome) >= 0 
+                          ? "SHAREHOLDERS' EQUITY" 
+                          : "SHAREHOLDERS' (CAPITAL DEFICIENCY)"}
+                      </td>
+                      <td className="amount py-2 font-semibold">
+                        {(financials.totalEquity + financials.netIncome) >= 0
+                          ? formatCurrency(financials.totalEquity + financials.netIncome)
+                          : `(${formatCurrency(Math.abs(financials.totalEquity + financials.netIncome))})`}
+                      </td>
+                    </tr>
+                    
+                    {/* CURRENT LIABILITIES */}
+                    <tr>
+                      <td className="py-2 pt-3 font-semibold">CURRENT LIABILITIES</td>
+                      <td className="amount py-2 pt-3"></td>
+                    </tr>
                     {financials.liabilities.map((liability, i) => (
-                      <tr key={i} className="border-b border-border/60">
-                        <td className="indent py-2">{liability.name}</td>
-                        <td className="amount py-2 font-medium">${liability.balance.toFixed(2)}</td>
+                      <tr key={i}>
+                        <td className="indent py-1">{liability.name}</td>
+                        <td className="amount py-1">{formatCurrency(liability.balance)}</td>
                       </tr>
                     ))}
                     {financials.liabilities.length === 0 && (
                       <tr>
-                        <td className="indent py-2 text-muted-foreground">No liabilities recorded</td>
-                        <td></td>
+                        <td className="indent py-1 text-muted-foreground">-</td>
+                        <td className="amount py-1 text-muted-foreground">-</td>
                       </tr>
                     )}
-                    <tr className="total-row">
-                      <td className="py-2">Total Liabilities</td>
-                      <td className="amount py-2">{formatCurrency(financials.totalLiabilities)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-
-                <div className="text-sm font-semibold text-muted-foreground">Equity</div>
-                <table className="w-full text-sm">
-                  <tbody>
-                    {financials.equity.map((eq, i) => (
-                      <tr key={i} className="border-b border-border/60">
-                        <td className="indent py-2">{eq.name}</td>
-                        <td className="amount py-2 font-medium">{formatCurrency(eq.balance)}</td>
-                      </tr>
-                    ))}
                     <tr>
-                      <td className="indent py-2">Retained Earnings (Net Income)</td>
-                      <td className="amount py-2 font-medium">{formatCurrency(financials.netIncome)}</td>
+                      <td className="indent py-1">Provision for taxation</td>
+                      <td className="amount py-1">-</td>
                     </tr>
-                    <tr className="total-row">
-                      <td className="py-2">Total Equity</td>
-                      <td className="amount py-2">{formatCurrency(financials.totalEquity + financials.netIncome)}</td>
+                    <tr className="border-t-2 border-b-2 border-border">
+                      <td className="py-2 font-bold">TOTAL LIABILITIES</td>
+                      <td className="amount py-2 font-bold">{formatCurrency(financials.totalLiabilities)}</td>
                     </tr>
+                    
+                    {/* TOTAL EQUITY AND LIABILITIES */}
                     <tr className="total-row" style={{ borderTop: "3px double #000" }}>
-                      <td className="py-2">Total Liabilities and Equity</td>
-                      <td className="amount py-2">
+                      <td className="py-2 font-bold">TOTAL EQUITY AND LIABILITIES</td>
+                      <td className="amount py-2 font-bold">
                         {formatCurrency(financials.totalLiabilities + financials.totalEquity + financials.netIncome)}
                       </td>
                     </tr>
@@ -719,19 +882,19 @@ export default function AccountingNew() {
             <CardContent className="space-y-6">
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="rounded-lg border bg-emerald-50 p-4 dark:bg-emerald-500/10">
-                  <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Total Revenue</p>
+                  <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Gross Profit</p>
                   <p className="text-2xl font-semibold text-emerald-600 dark:text-emerald-300">
-                    {formatCurrency(financials.totalRevenue)}
+                    {formatCurrency(financials.grossProfit)}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-rose-50 p-4 dark:bg-rose-500/10">
-                  <p className="text-sm font-medium text-rose-800 dark:text-rose-200">Total Expenses</p>
+                  <p className="text-sm font-medium text-rose-800 dark:text-rose-200">Total Operating Expenses</p>
                   <p className="text-2xl font-semibold text-rose-600 dark:text-rose-300">
-                    {formatCurrency(financials.totalExpenses)}
+                    {formatCurrency(financials.totalOperatingExpenses)}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-purple-50 p-4 dark:bg-purple-500/10">
-                  <p className="text-sm font-medium text-purple-800 dark:text-purple-200">Net Income</p>
+                  <p className="text-sm font-medium text-purple-800 dark:text-purple-200">Profit/(Loss) for the Year</p>
                   <p
                     className={`text-2xl font-semibold ${
                       financials.netIncome >= 0
@@ -751,52 +914,65 @@ export default function AccountingNew() {
                   <div className="date text-sm text-muted-foreground">For the month ended {monthName}</div>
                 </div>
 
-                <div className="section-title text-lg font-semibold">REVENUE</div>
                 <table className="w-full text-sm">
                   <tbody>
-                    {financials.revenue.map((rev, i) => (
-                      <tr key={i} className="border-b border-border/60">
-                        <td className="indent py-2">{rev.name}</td>
-                        <td className="amount py-2 font-medium">{formatCurrency(rev.balance)}</td>
-                      </tr>
-                    ))}
-                    {financials.revenue.length === 0 && (
-                      <tr>
-                        <td className="indent py-2 text-muted-foreground">No revenue recorded</td>
-                        <td></td>
-                      </tr>
-                    )}
-                    <tr className="total-row">
-                      <td className="py-2">Total Revenue</td>
-                      <td className="amount py-2">{formatCurrency(financials.totalRevenue)}</td>
+                    {/* REVENUE */}
+                    <tr className="border-b-2 border-border">
+                      <td className="py-2 font-semibold">REVENUE</td>
+                      <td className="amount py-2 font-semibold">{formatCurrency(financials.totalRevenue)}</td>
                     </tr>
-                  </tbody>
-                </table>
-
-                <div className="section-title text-lg font-semibold">EXPENSES</div>
-                <table className="w-full text-sm">
-                  <tbody>
-                    {financials.expenses.map((exp, i) => (
-                      <tr key={i} className="border-b border-border/60">
-                        <td className="indent py-2">{exp.name}</td>
-                        <td className="amount py-2 font-medium">{formatCurrency(exp.balance)}</td>
-                      </tr>
-                    ))}
-                    {financials.expenses.length === 0 && (
-                      <tr>
-                        <td className="indent py-2 text-muted-foreground">No expenses recorded</td>
-                        <td></td>
-                      </tr>
+                    
+                    {/* COST OF SALES */}
+                    {financials.costOfSales.length > 0 && (
+                      <>
+                        <tr>
+                          <td className="py-2 pt-3 font-semibold">COST OF SALES</td>
+                          <td></td>
+                        </tr>
+                        {financials.costOfSales.map((item: any, i: number) => (
+                          <tr key={i}>
+                            <td className="indent py-1">{item.name}</td>
+                            <td className="amount py-1">{formatCurrency(item.balance)}</td>
+                          </tr>
+                        ))}
+                      </>
                     )}
-                    <tr className="total-row">
-                      <td className="py-2">Total Expenses</td>
-                      <td className="amount py-2">{formatCurrency(financials.totalExpenses)}</td>
+                    
+                    {/* GROSS PROFIT */}
+                    <tr className="border-t border-b-2 border-border">
+                      <td className="py-2 font-semibold">GROSS PROFIT</td>
+                      <td className="amount py-2 font-semibold">{formatCurrency(financials.grossProfit)}</td>
                     </tr>
-                  </tbody>
-                </table>
-
-                <table className="w-full text-sm">
-                  <tbody>
+                    
+                    {/* OTHER INCOME */}
+                    <tr>
+                      <td className="py-2 pt-3">OTHER INCOME</td>
+                      <td className="amount py-2 pt-3">-</td>
+                    </tr>
+                    
+                    {/* LESS: EXPENSES */}
+                    {financials.operatingExpenses.length > 0 && (
+                      <>
+                        <tr>
+                          <td className="py-2 pt-3 font-semibold">LESS: EXPENSES</td>
+                          <td></td>
+                        </tr>
+                        {financials.operatingExpenses.map((exp: any, i: number) => (
+                          <tr key={i}>
+                            <td className="indent py-1">{exp.name}</td>
+                            <td className="amount py-1">{formatCurrency(exp.balance)}</td>
+                          </tr>
+                        ))}
+                      </>
+                    )}
+                    
+                    {/* TOTAL OPERATING EXPENSES */}
+                    <tr className="border-t border-b-2 border-border">
+                      <td className="py-2 font-semibold">TOTAL OPERATING EXPENSES</td>
+                      <td className="amount py-2 font-semibold">{formatCurrency(financials.totalOperatingExpenses)}</td>
+                    </tr>
+                    
+                    {/* PROFIT/LOSS FOR THE YEAR */}
                     <tr
                       className="total-row"
                       style={{
@@ -804,8 +980,8 @@ export default function AccountingNew() {
                         backgroundColor: financials.netIncome >= 0 ? "#d4edda" : "#f8d7da",
                       }}
                     >
-                      <td className="py-2">Net Income {financials.netIncome >= 0 ? "(Profit)" : "(Loss)"}</td>
-                      <td className="amount py-2">${financials.netIncome.toFixed(2)}</td>
+                      <td className="py-2 font-bold">{financials.netIncome >= 0 ? "PROFIT" : "(LOSS)"} FOR THE YEAR</td>
+                      <td className="amount py-2 font-bold">{formatCurrency(Math.abs(financials.netIncome))}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -840,46 +1016,44 @@ export default function AccountingNew() {
                         <th className="text-left p-3 font-medium">Date</th>
                         <th className="text-left p-3 font-medium">Account</th>
                         <th className="text-left p-3 font-medium">Type</th>
-                        <th className="text-right p-3 font-medium">Debit</th>
-                        <th className="text-right p-3 font-medium">Credit</th>
+                        <th className="text-right p-3 font-medium">Amount</th>
                         <th className="text-left p-3 font-medium">Description</th>
                         <th className="text-right p-3 font-medium">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {monthlyEntries.map((entry) => (
-                        <tr key={entry.id} className="border-t border-border/60 hover:bg-muted/40">
-                          <td className="p-3">{new Date(entry.createdAt as any).toLocaleDateString()}</td>
-                          <td className="p-3 font-medium">{entry.accountName}</td>
-                          <td className="p-3">
-                            <Badge variant="secondary" className="capitalize">
-                              {entry.accountType}
-                            </Badge>
-                          </td>
-                          <td className="p-3 text-right font-mono">
-                            {parseFloat(entry.debitAmount || "0") > 0
-                              ? formatCurrency(parseFloat(entry.debitAmount!))
-                              : "-"}
-                          </td>
-                          <td className="p-3 text-right font-mono">
-                            {parseFloat(entry.creditAmount || "0") > 0
-                              ? formatCurrency(parseFloat(entry.creditAmount!))
-                              : "-"}
-                          </td>
-                          <td className="p-3 text-muted-foreground">{entry.description || "-"}</td>
-                          <td className="p-3 text-right">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-muted-foreground hover:text-destructive"
-                              onClick={() => setEntryToDelete(entry)}
-                              disabled={deleteEntryMutation.isPending && entryToDelete?.id === entry.id}
-                            >
-                              <Trash2 size={16} />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
+                      {monthlyEntries.map((entry) => {
+                        const debit = parseFloat(entry.debitAmount || "0");
+                        const credit = parseFloat(entry.creditAmount || "0");
+                        const amount = debit > 0 ? debit : credit;
+                        
+                        return (
+                          <tr key={entry.id} className="border-t border-border/60 hover:bg-muted/40">
+                            <td className="p-3">{new Date(entry.createdAt as any).toLocaleDateString()}</td>
+                            <td className="p-3 font-medium">{entry.accountName}</td>
+                            <td className="p-3">
+                              <Badge variant="secondary" className="capitalize">
+                                {entry.accountType}
+                              </Badge>
+                            </td>
+                            <td className="p-3 text-right font-mono">
+                              {formatCurrency(amount)}
+                            </td>
+                            <td className="p-3 text-muted-foreground">{entry.description || "-"}</td>
+                            <td className="p-3 text-right">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-muted-foreground hover:text-destructive"
+                                onClick={() => setEntryToDelete(entry)}
+                                disabled={deleteEntryMutation.isPending && entryToDelete?.id === entry.id}
+                              >
+                                <Trash2 size={16} />
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

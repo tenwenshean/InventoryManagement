@@ -1635,7 +1635,7 @@ Remember: You're helping a business owner understand their operations better. Be
       const startDate = new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0));
       const endDate = new Date(Date.UTC(year, monthIndex + 1, 0, 23, 59, 59, 999));
 
-      const cacheKey = `sales:summary:${userId}:${month}`;
+      const cacheKey = `sales:summary:v2:${userId}:${month}`; // v2 to invalidate old cache
       const cached = cache.get(cacheKey);
       if (cached) {
         res.set("X-Cache", "HIT");
@@ -1644,7 +1644,7 @@ Remember: You're helping a business owner understand their operations better. Be
 
       const products = await storage.getProducts(undefined, userId);
       if (products.length === 0) {
-        return res.json({ totalRevenue: 0, totalCOGS: 0, unitsSold: 0, grossProfit: 0 });
+        return res.json({ totalRevenue: 0, totalCOGS: 0, unitsSold: 0, grossProfit: 0, inventoryValue: 0 });
       }
 
       const productIds = products.map((p: any) => p.id);
@@ -1675,12 +1675,38 @@ Remember: You're helping a business owner understand their operations better. Be
         unitsSold += qty;
       }
 
+      // Calculate current inventory value (cost price * quantity on hand)
+      // If costPrice is not available, use regular price as fallback
+      let totalInventoryValue = 0;
+      for (const product of products as any[]) {
+        const qty = product.quantity || 0;
+        const cost = product.costPrice 
+          ? parseFloat(product.costPrice as any) 
+          : (product.price ? parseFloat(product.price as any) : 0);
+        totalInventoryValue += qty * cost;
+      }
+
+      console.log('[SALES SUMMARY] Inventory calculation:', {
+        productsCount: products.length,
+        totalInventoryValue,
+        sampleProducts: products.slice(0, 2).map((p: any) => ({
+          name: p.name,
+          quantity: p.quantity,
+          costPrice: p.costPrice,
+          price: p.price,
+          calculatedValue: (p.quantity || 0) * (p.costPrice ? parseFloat(p.costPrice) : (p.price ? parseFloat(p.price) : 0))
+        }))
+      });
+
       const summary = {
         totalRevenue,
         totalCOGS,
         unitsSold,
         grossProfit: totalRevenue - totalCOGS,
+        inventoryValue: totalInventoryValue,
       };
+
+      console.log('[SALES SUMMARY] Returning summary with inventoryValue:', summary.inventoryValue);
 
       cache.set(cacheKey, summary, 300000);
       res.set("X-Cache", "MISS");
