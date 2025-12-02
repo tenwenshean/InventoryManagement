@@ -4892,11 +4892,16 @@ async function handleTestEmail(req, res, user) {
  */
 async function handleDailyReportCron(req, res) {
   try {
-    // Verify cron secret if configured
+    // Verify cron secret if configured (only check if CRON_SECRET is set)
+    // Vercel Cron automatically includes authorization, so we skip check if no CRON_SECRET
     const cronSecret = process.env.CRON_SECRET;
-    if (cronSecret && req.headers['x-cron-secret'] !== cronSecret) {
-      return res.status(401).json({ message: 'Unauthorized' });
+    if (cronSecret) {
+      // Only enforce secret if one is configured
+      if (req.headers['x-cron-secret'] !== cronSecret) {
+        return res.status(401).json({ message: 'Unauthorized - Invalid cron secret' });
+      }
     }
+    // If no CRON_SECRET is set, allow all requests (Vercel Cron handles auth internally)
 
     console.log('[CRON] Running daily report...');
     
@@ -5015,11 +5020,16 @@ async function handleDailyReportCron(req, res) {
  */
 async function handleWeeklySummaryCron(req, res) {
   try {
-    // Verify cron secret if configured
+    // Verify cron secret if configured (only check if CRON_SECRET is set)
+    // Vercel Cron automatically includes authorization, so we skip check if no CRON_SECRET
     const cronSecret = process.env.CRON_SECRET;
-    if (cronSecret && req.headers['x-cron-secret'] !== cronSecret) {
-      return res.status(401).json({ message: 'Unauthorized' });
+    if (cronSecret) {
+      // Only enforce secret if one is configured
+      if (req.headers['x-cron-secret'] !== cronSecret) {
+        return res.status(401).json({ message: 'Unauthorized - Invalid cron secret' });
+      }
     }
+    // If no CRON_SECRET is set, allow all requests (Vercel Cron handles auth internally)
 
     console.log('[CRON] Running weekly summary...');
     
