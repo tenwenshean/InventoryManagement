@@ -4930,16 +4930,32 @@ async function handleDailyReportCron(req, res) {
     
     const usersSnapshot = await db.collection('users').get();
     let emailsSent = 0;
+    
+    console.log(`[CRON] Found ${usersSnapshot.size} total users`);
 
     for (const userDoc of usersSnapshot.docs) {
       try {
         const user = userDoc.data();
         const settings = user.settings || {};
         
-        if (!settings.emailDailyReports) continue;
+        console.log(`[CRON] Checking user ${userDoc.id}:`, {
+          hasSettings: !!settings,
+          emailDailyReports: settings.emailDailyReports,
+          notificationEmail: settings.notificationEmail || user.email
+        });
+        
+        if (!settings.emailDailyReports) {
+          console.log(`[CRON] User ${userDoc.id} - emailDailyReports is ${settings.emailDailyReports}, skipping`);
+          continue;
+        }
 
         const notificationEmail = settings.notificationEmail || user.email;
-        if (!notificationEmail) continue;
+        if (!notificationEmail) {
+          console.log(`[CRON] User ${userDoc.id} - no email address, skipping`);
+          continue;
+        }
+        
+        console.log(`[CRON] User ${userDoc.id} - will send email to ${notificationEmail}`);
 
         // Get yesterday's date range
         const today = new Date();
