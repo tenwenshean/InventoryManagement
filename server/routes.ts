@@ -788,12 +788,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'Email address is required' });
       }
 
-      // In development, allow testing without auth if userId is provided
+      // In development OR if TEST_SECRET matches, allow testing without auth
+      const isDevMode = process.env.NODE_ENV === 'development';
+      const hasTestSecret = req.headers['x-test-secret'] === process.env.TEST_SECRET;
+      
       let userIdToUse = userId;
-      if (!userIdToUse) {
+      if (!userIdToUse && !isDevMode && !hasTestSecret) {
         // Require authentication
         if (!req.user || !req.user.uid) {
-          return res.status(401).json({ message: 'Unauthorized - Missing token' });
+          return res.status(401).json({ message: 'Unauthorized - Missing token or test secret' });
         }
         userIdToUse = req.user.uid;
       }
