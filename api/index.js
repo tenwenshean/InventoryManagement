@@ -5067,9 +5067,10 @@ async function handleWeeklySummaryCron(req, res) {
         lastWeek.setDate(lastWeek.getDate() - 7);
 
         // Fetch user's orders from last week
+        const userId = userDoc.id; // Use document ID as user ID
         const ordersSnapshot = await db
           .collection('orders')
-          .where('userId', '==', user.uid)
+          .where('userId', '==', userId)
           .where('createdAt', '>=', lastWeek.toISOString())
           .get();
 
@@ -5084,7 +5085,7 @@ async function handleWeeklySummaryCron(req, res) {
         // Get inventory status with low stock product details
         const productsSnapshot = await db
           .collection('products')
-          .where('userId', '==', user.uid)
+          .where('userId', '==', userId)
           .get();
         
         const totalProducts = productsSnapshot.size;
