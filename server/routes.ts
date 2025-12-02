@@ -1223,7 +1223,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? sortedAccountingMonths[sortedAccountingMonths.length - 1]
           : new Date().toISOString().slice(0, 7); // Use current year-month as fallback
         const [year, month] = lastMonth.split('-');
-        const nextDate = new Date(parseInt(year), parseInt(month) + index, 1);
+        // Add (index + 1) to get future months, not current month
+        const nextDate = new Date(parseInt(year), parseInt(month) - 1 + (index + 1), 1);
         
         return {
           period: `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`,
