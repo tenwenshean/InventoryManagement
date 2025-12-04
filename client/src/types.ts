@@ -5,17 +5,16 @@ import { Timestamp } from "firebase/firestore";
 // ===== PRODUCT TYPES =====
 export const insertProductSchema = z.object({
   name: z.string().min(1, "Product name is required"),
-  description: z.string().optional(),
+  description: z.string().min(1, "Description is required"),
   sku: z.string().min(1, "SKU is required"),
   categoryId: z.string().min(1, "Category is required"),
-  price: z.string().min(0, "Price must be positive"),
-  costPrice: z.string().optional(),
-  quantity: z.number().min(0, "Quantity cannot be negative").default(0),
-  minStockLevel: z.number().min(0).default(0),
-  maxStockLevel: z.number().min(0).optional(),
-  barcode: z.string().optional(),
-  location: z.string().optional(),
-  supplier: z.string().optional(),
+  price: z.string().refine((val) => parseFloat(val) > 0, "Selling price must be greater than 0"),
+  costPrice: z.string().refine((val) => parseFloat(val) > 0, "Cost price must be greater than 0"),
+  quantity: z.number().min(1, "Quantity must be at least 1"),
+  minStockLevel: z.number().min(0).optional().default(0),
+  maxStockLevel: z.number().min(0).optional().default(100),
+  location: z.string().min(1, "Storage location is required"),
+  supplier: z.string().min(1, "Supplier is required"),
   notes: z.string().optional(),
   imageUrl: z.string().optional(),
   isActive: z.boolean().default(true),
@@ -27,8 +26,7 @@ export interface Product extends InsertProduct {
   id: string;
   userId?: string; // Owner of the product
   imageUrl?: string;
-  location?: string;
-  supplier?: string;
+  qrCode?: string;
   notes?: string;
   createdAt: Date | Timestamp;
   updatedAt: Date | Timestamp;

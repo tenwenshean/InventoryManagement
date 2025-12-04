@@ -47,8 +47,8 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
       if (!response.ok) throw new Error("Failed to fetch products");
       return response.json();
     },
-    staleTime: 1000 * 30, // Consider data stale after 30 seconds
-    refetchOnMount: true,
+    staleTime: 1000 * 60 * 2, // Consider data stale after 2 minutes
+    refetchOnMount: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
@@ -61,8 +61,8 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
       if (!response.ok) throw new Error("Failed to fetch categories");
       return response.json();
     },
-    staleTime: 1000 * 60 * 5, // Categories change less frequently
-    refetchOnMount: true,
+    staleTime: 1000 * 60 * 10, // Categories change less frequently
+    refetchOnMount: false,
     refetchOnWindowFocus: true,
   });
 

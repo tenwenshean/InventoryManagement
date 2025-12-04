@@ -4,15 +4,27 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { QrCode, Download, RefreshCw, Package, Printer } from "lucide-react";
+import { QrCode, Download, RefreshCw, Package, Printer, ArrowRightLeft, PackageCheck, History, User, Building2, Trash2, Search, X, Settings } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import type { Product } from "@shared/schema";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
 import { useEffect, useMemo, useState } from "react";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - type defs may not be installed in this environment
 import QRCode from "qrcode";
+
+interface TransferRecord {
+  id: string;
+  type: 'transfer' | 'receive' | 'admin-update';
+  staffName: string;
+  fromBranch: string;
+  toBranch: string;
+  timestamp: string;
+  productId: string;
+}
 
 export default function QRCodes() {
   const { toast } = useToast();
@@ -20,6 +32,20 @@ export default function QRCodes() {
   const queryClient = useQueryClient();
   const [previewProduct, setPreviewProduct] = useState<Product | null>(null);
   const [qrUrls, setQrUrls] = useState<Record<string, string>>({});
+  const [transferHistory, setTransferHistory] = useState<TransferRecord[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const DISPLAY_LIMIT = 9;
+
+  // Load transfer history from localStorage
+  useEffect(() => {
+    try {
+      const history = JSON.parse(localStorage.getItem('product_transfers') || '[]');
+      setTransferHistory(history);
+    } catch (e) {
+      console.error('Failed to load transfer history:', e);
+    }
+  }, []);
 
   const {
     data: products,
@@ -33,8 +59,8 @@ export default function QRCodes() {
       return response.json();
     },
     enabled: isAuthenticated,
-    staleTime: 1000 * 30, // Consider data stale after 30 seconds
-    refetchOnMount: true,
+    staleTime: 1000 * 60 * 2, // Consider data stale after 2 minutes
+    refetchOnMount: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
@@ -47,6 +73,31 @@ export default function QRCodes() {
     () => (products || []).filter((product) => !product.qrCode),
     [products]
   );
+
+  // Filter products based on search query (name, SKU/ID, or category-like matching)
+  const filteredProductsWithQR = useMemo(() => {
+    if (!searchQuery.trim()) return productsWithQR;
+    
+    const query = searchQuery.toLowerCase().trim();
+    return productsWithQR.filter((product) => {
+      const nameMatch = product.name?.toLowerCase().includes(query);
+      const skuMatch = product.sku?.toLowerCase().includes(query);
+      const idMatch = product.id?.toLowerCase().includes(query);
+      const qrMatch = product.qrCode?.toLowerCase().includes(query);
+      return nameMatch || skuMatch || idMatch || qrMatch;
+    });
+  }, [productsWithQR, searchQuery]);
+
+  // Display limited or all products
+  const displayedProducts = useMemo(() => {
+    if (showAll || searchQuery.trim()) return filteredProductsWithQR;
+    return filteredProductsWithQR.slice(0, DISPLAY_LIMIT);
+  }, [filteredProductsWithQR, showAll, searchQuery]);
+
+  // Get transfer history for a specific product
+  const getProductTransferHistory = (productId: string) => {
+    return transferHistory.filter(t => t.productId === productId);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -420,17 +471,48 @@ export default function QRCodes() {
 
       {/* Products with QR Codes */}
       <Card className="mb-8">
-        <CardHeader>
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <CardTitle>Products with QR Codes</CardTitle>
+          {/* Search Bar */}
+          <div className="relative w-full sm:w-80">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+            <Input
+              placeholder="Search by name, SKU, or ID... (e.g. kagle-262)"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setShowAll(false); // Reset to limited view when searching
+              }}
+              className="pl-9 pr-9"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
+          {/* Search Results Info */}
+          {searchQuery && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800">
+                Found <strong>{filteredProductsWithQR.length}</strong> product(s) matching "<strong>{searchQuery}</strong>"
+              </p>
+            </div>
+          )}
+          
           {productsLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="text-muted-foreground">Loading products...</div>
             </div>
-          ) : productsWithQR.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {productsWithQR.map((product) => (
+          ) : filteredProductsWithQR.length > 0 ? (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {displayedProducts.map((product) => (
                 <Card
                   key={product.id}
                   className="hover:shadow-md transition-shadow"
@@ -484,6 +566,36 @@ export default function QRCodes() {
                   </CardContent>
                 </Card>
               ))}
+              </div>
+              
+              {/* Show More / Show Less Button */}
+              {!searchQuery && filteredProductsWithQR.length > DISPLAY_LIMIT && (
+                <div className="mt-6 text-center">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowAll(!showAll)}
+                    className="min-w-[200px]"
+                  >
+                    {showAll ? (
+                      <>Show Less (Display {DISPLAY_LIMIT})</>
+                    ) : (
+                      <>Show All ({filteredProductsWithQR.length} products)</>
+                    )}
+                  </Button>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Showing {displayedProducts.length} of {filteredProductsWithQR.length} products
+                  </p>
+                </div>
+              )}
+            </>
+          ) : searchQuery ? (
+            <div className="text-center py-8">
+              <Search className="mx-auto text-muted-foreground mb-4" size={48} />
+              <h3 className="text-lg font-semibold text-foreground mb-2">No products found</h3>
+              <p className="text-muted-foreground">No products match your search "<strong>{searchQuery}</strong>".</p>
+              <Button variant="outline" className="mt-4" onClick={() => setSearchQuery("")}>
+                Clear Search
+              </Button>
             </div>
           ) : (
             <div className="text-center py-8">
@@ -558,8 +670,112 @@ export default function QRCodes() {
         </Card>
       )}
 
+      {/* Transfer History Section */}
+      <Card className="mt-8">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <History className="w-5 h-5" />
+            Product Transfer History
+          </CardTitle>
+          {transferHistory.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              onClick={() => {
+                if (window.confirm('Are you sure you want to clear all transfer history? This cannot be undone.')) {
+                  localStorage.removeItem('product_transfers');
+                  setTransferHistory([]);
+                  toast({
+                    title: "History Cleared",
+                    description: "All transfer history has been removed.",
+                  });
+                }
+              }}
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              Clear History
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          {transferHistory.length === 0 ? (
+            <div className="text-center py-8">
+              <ArrowRightLeft className="w-12 h-12 mx-auto text-muted-foreground mb-3 opacity-50" />
+              <p className="text-muted-foreground">No transfer history yet</p>
+              <p className="text-sm text-muted-foreground mt-1">Transfer records will appear here when products are transferred between branches.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {transferHistory.slice().reverse().map((record) => {
+                const product = products?.find(p => p.id === record.productId);
+                return (
+                  <div
+                    key={record.id}
+                    className={`flex items-center justify-between p-4 border rounded-lg ${
+                      record.type === 'admin-update' 
+                        ? 'bg-blue-50 border-blue-200' 
+                        : record.type === 'transfer' 
+                          ? 'bg-orange-50 border-orange-200' 
+                          : 'bg-green-50 border-green-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                        record.type === 'admin-update'
+                          ? 'bg-blue-200'
+                          : record.type === 'transfer' 
+                            ? 'bg-orange-200' 
+                            : 'bg-green-200'
+                      }`}>
+                        {record.type === 'admin-update' ? (
+                          <Settings className={`w-5 h-5 text-blue-700`} />
+                        ) : record.type === 'transfer' ? (
+                          <ArrowRightLeft className={`w-5 h-5 text-orange-700`} />
+                        ) : (
+                          <PackageCheck className={`w-5 h-5 text-green-700`} />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={record.type === 'transfer' ? 'default' : 'secondary'} 
+                                 className={
+                                   record.type === 'admin-update'
+                                     ? 'bg-blue-500'
+                                     : record.type === 'transfer' 
+                                       ? 'bg-orange-500' 
+                                       : 'bg-green-500'
+                                 }>
+                            {record.type === 'admin-update' ? 'Admin Updated' : record.type === 'transfer' ? 'Transfer' : 'Received'}
+                          </Badge>
+                          <span className="font-medium">{product?.name || 'Unknown Product'}</span>
+                        </div>
+                        <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <User className="w-3 h-3" />
+                            {record.staffName}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Building2 className="w-3 h-3" />
+                            {record.fromBranch} → {record.toBranch}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right text-sm text-muted-foreground">
+                      {new Date(record.timestamp).toLocaleDateString()}<br/>
+                      {new Date(record.timestamp).toLocaleTimeString()}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Dialog open={!!previewProduct} onOpenChange={() => setPreviewProduct(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{previewProduct?.name}</DialogTitle>
           </DialogHeader>
@@ -576,6 +792,53 @@ export default function QRCodes() {
               </Button>
             </div>
           </div>
+          
+          {/* Transfer History for this product */}
+          {previewProduct && getProductTransferHistory(previewProduct.id).length > 0 && (
+            <>
+              <Separator className="my-4" />
+              <div>
+                <h4 className="font-medium flex items-center gap-2 mb-3">
+                  <History className="w-4 h-4" />
+                  Transfer History
+                </h4>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {getProductTransferHistory(previewProduct.id).slice().reverse().map((record) => (
+                    <div
+                      key={record.id}
+                      className={`p-3 rounded-lg text-sm ${
+                        record.type === 'transfer' ? 'bg-orange-50 border border-orange-200' : 'bg-green-50 border border-green-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {record.type === 'transfer' ? (
+                            <ArrowRightLeft className="w-4 h-4 text-orange-600" />
+                          ) : (
+                            <PackageCheck className="w-4 h-4 text-green-600" />
+                          )}
+                          <span className="font-medium">
+                            {record.type === 'transfer' ? 'Transferred' : 'Received'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(record.timestamp).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <User className="w-3 h-3" /> {record.staffName}
+                        </span>
+                        <span className="flex items-center gap-1 mt-0.5">
+                          <Building2 className="w-3 h-3" /> {record.fromBranch} → {record.toBranch}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </>

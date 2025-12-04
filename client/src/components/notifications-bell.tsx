@@ -36,7 +36,9 @@ export default function NotificationsBell() {
       return response.json();
     },
     enabled: !!user?.uid,
-    refetchInterval: 30000, // Refetch every 30 seconds
+    staleTime: 1000 * 60 * 2, // Cache for 2 minutes
+    refetchInterval: 60000, // Refetch every 60 seconds (reduced from 30s)
+    refetchOnWindowFocus: false,
   });
 
   // Count unread notifications

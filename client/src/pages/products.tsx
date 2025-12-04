@@ -36,7 +36,8 @@ export default function Products() {
 
   const deleteProductMutation = useMutation({
     mutationFn: async (productId: string) => {
-      await apiRequest("DELETE", `/api/products/${productId}`, {});
+      const response = await apiRequest("DELETE", `/api/products/${productId}`);
+      return response;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
@@ -86,8 +87,8 @@ export default function Products() {
       return res.json();
     },
     enabled: isAuthenticated,
-    staleTime: 1000 * 30, // Consider data stale after 30 seconds
-    refetchOnMount: true,
+    staleTime: 1000 * 60 * 2, // Consider data stale after 2 minutes
+    refetchOnMount: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });

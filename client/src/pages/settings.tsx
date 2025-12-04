@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { 
-  Settings,  User, Bell,  Mail,  Package,  DollarSign, Save, Clock, Store, Upload, Image as ImageIcon, Trash2} from "lucide-react";
+  Settings,  User, Bell,  Mail,  Package,  DollarSign, Save, Clock, Store, Upload, Image as ImageIcon, Trash2, Building2, Users, Key, Plus, Copy, RefreshCw, Pencil} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
@@ -21,6 +21,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
@@ -48,9 +56,11 @@ export default function SettingsPage() {
   const [timezone, setTimezone] = useState("UTC");
   const [currentTime, setCurrentTime] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [activeSection, setActiveSection] = useState<"general" | "shop" | "inventory" | "accounting" | "notifications">("general");
+  const [activeSection, setActiveSection] = useState<"general" | "branch" | "staff" | "shop" | "inventory" | "accounting" | "notifications">("general");
   const sections = {
     general: useRef<HTMLDivElement | null>(null),
+    branch: useRef<HTMLDivElement | null>(null),
+    staff: useRef<HTMLDivElement | null>(null),
     shop: useRef<HTMLDivElement | null>(null),
     inventory: useRef<HTMLDivElement | null>(null),
     accounting: useRef<HTMLDivElement | null>(null),
@@ -87,6 +97,27 @@ export default function SettingsPage() {
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Branch Management States
+  const [currentBranch, setCurrentBranch] = useState<string>("Warehouse A");
+  const [branches, setBranches] = useState<string[]>(["Warehouse A"]);
+  const [newBranchName, setNewBranchName] = useState("");
+  const [isAddingBranch, setIsAddingBranch] = useState(false);
+
+  // Staff Management States
+  interface Staff {
+    id: string;
+    name: string;
+    pin: string;
+    branch: string;
+    createdAt: string;
+  }
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [newStaffName, setNewStaffName] = useState("");
+  const [newStaffBranch, setNewStaffBranch] = useState("");
+  const [isAddingStaff, setIsAddingStaff] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
+  const [editStaffBranch, setEditStaffBranch] = useState("");
+
   // Load settings from localStorage
   useEffect(() => {
     const savedSettings = localStorage.getItem(`settings_${user?.uid}`);
@@ -112,6 +143,11 @@ export default function SettingsPage() {
       setNotificationEmail(settings.notificationEmail || user?.email || "");
       setEmailDailyReports(settings.emailDailyReports !== undefined ? settings.emailDailyReports : false);
       setEmailWeeklySummary(settings.emailWeeklySummary !== undefined ? settings.emailWeeklySummary : true);
+      // Load branch settings
+      setCurrentBranch(settings.currentBranch || "Warehouse A");
+      setBranches(settings.branches || ["Warehouse A"]);
+      // Load staff settings
+      setStaff(settings.staff || []);
     }
   }, [user]);
 
@@ -151,6 +187,179 @@ export default function SettingsPage() {
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '');
     setShopSlug(formatted);
+  };
+
+  // Generate 6-digit PIN for staff
+  const generatePin = (): string => {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  };
+
+  // Handle current branch change with auto-save
+  const handleCurrentBranchChange = (value: string) => {
+    setCurrentBranch(value);
+    localStorage.setItem('app_currentBranch', value);
+  };
+
+  // Add new branch
+  const handleAddBranch = () => {
+    if (!newBranchName.trim()) {
+      toast({
+        title: "Invalid Branch Name",
+        description: "Please enter a branch name.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (branches.includes(newBranchName.trim())) {
+      toast({
+        title: "Branch Exists",
+        description: "This branch name already exists.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const updatedBranches = [...branches, newBranchName.trim()];
+    setBranches(updatedBranches);
+    setNewBranchName("");
+    setIsAddingBranch(false);
+    
+    // Auto-save to localStorage for public scan page access
+    localStorage.setItem('app_branches', JSON.stringify(updatedBranches));
+    
+    toast({
+      title: "Branch Added",
+      description: `Branch "${newBranchName.trim()}" has been added.`,
+    });
+  };
+
+  // Delete branch
+  const handleDeleteBranch = (branchToDelete: string) => {
+    if (branches.length <= 1) {
+      toast({
+        title: "Cannot Delete",
+        description: "You must have at least one branch.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (currentBranch === branchToDelete) {
+      toast({
+        title: "Cannot Delete",
+        description: "Cannot delete the current branch. Switch to another branch first.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const updatedBranches = branches.filter(b => b !== branchToDelete);
+    setBranches(updatedBranches);
+    
+    // Auto-save to localStorage
+    localStorage.setItem('app_branches', JSON.stringify(updatedBranches));
+    
+    toast({
+      title: "Branch Deleted",
+      description: `Branch "${branchToDelete}" has been removed.`,
+    });
+  };
+
+  // Add new staff
+  const handleAddStaff = () => {
+    if (!newStaffName.trim()) {
+      toast({
+        title: "Invalid Staff Name",
+        description: "Please enter a staff name.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!newStaffBranch) {
+      toast({
+        title: "Select Branch",
+        description: "Please select a branch for this staff member.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const newStaff: Staff = {
+      id: `staff_${Date.now()}`,
+      name: newStaffName.trim(),
+      pin: generatePin(),
+      branch: newStaffBranch,
+      createdAt: new Date().toISOString(),
+    };
+    const updatedStaff = [...staff, newStaff];
+    setStaff(updatedStaff);
+    setNewStaffName("");
+    setNewStaffBranch("");
+    setIsAddingStaff(false);
+    
+    // Auto-save staff to localStorage immediately for public scan page access
+    localStorage.setItem('app_staff', JSON.stringify(updatedStaff));
+    console.log('Auto-saved staff to localStorage:', updatedStaff);
+    
+    toast({
+      title: "Staff Added",
+      description: `Staff "${newStaffName.trim()}" (${newStaffBranch}) has been added with PIN: ${newStaff.pin}`,
+    });
+  };
+
+  // Delete staff
+  const handleDeleteStaff = (staffId: string) => {
+    const updatedStaff = staff.filter(s => s.id !== staffId);
+    setStaff(updatedStaff);
+    
+    // Auto-save to localStorage
+    localStorage.setItem('app_staff', JSON.stringify(updatedStaff));
+    
+    toast({
+      title: "Staff Deleted",
+      description: "Staff member has been removed.",
+    });
+  };
+
+  // Edit staff branch
+  const handleEditStaffBranch = () => {
+    if (!editingStaff || !editStaffBranch) return;
+    
+    const updatedStaff = staff.map(s => 
+      s.id === editingStaff.id ? { ...s, branch: editStaffBranch } : s
+    );
+    setStaff(updatedStaff);
+    
+    // Auto-save to localStorage
+    localStorage.setItem('app_staff', JSON.stringify(updatedStaff));
+    
+    toast({
+      title: "Staff Updated",
+      description: `${editingStaff.name}'s branch has been updated to ${editStaffBranch}.`,
+    });
+    
+    setEditingStaff(null);
+    setEditStaffBranch("");
+  };
+
+  // Regenerate staff PIN
+  const handleRegeneratePin = (staffId: string) => {
+    const newPin = generatePin();
+    const updatedStaff = staff.map(s => s.id === staffId ? { ...s, pin: newPin } : s);
+    setStaff(updatedStaff);
+    
+    // Auto-save to localStorage
+    localStorage.setItem('app_staff', JSON.stringify(updatedStaff));
+    
+    toast({
+      title: "PIN Regenerated",
+      description: `New PIN: ${newPin}`,
+    });
+  };
+
+  // Copy PIN to clipboard
+  const handleCopyPin = (pin: string) => {
+    navigator.clipboard.writeText(pin);
+    toast({
+      title: "PIN Copied",
+      description: "PIN has been copied to clipboard.",
+    });
   };
 
   const handleDeleteAccountData = async () => {
@@ -241,6 +450,9 @@ export default function SettingsPage() {
       notificationEmail,
       emailDailyReports,
       emailWeeklySummary,
+      currentBranch,
+      branches,
+      staff,
       updatedAt: new Date().toISOString(),
     };
     
@@ -253,6 +465,10 @@ export default function SettingsPage() {
     localStorage.setItem('app_currency', currency);
     localStorage.setItem('app_defaultUnit', defaultUnit);
     localStorage.setItem('app_defaultLowStock', String(defaultLowStock));
+    localStorage.setItem('app_currentBranch', currentBranch);
+    // Save branches and staff globally for public scan page access
+    localStorage.setItem('app_branches', JSON.stringify(branches));
+    localStorage.setItem('app_staff', JSON.stringify(staff));
     
     // Also save to Firestore user document
     try {
@@ -370,6 +586,8 @@ export default function SettingsPage() {
 
     const nodes = [
       sections.general.current,
+      sections.branch.current,
+      sections.staff.current,
       sections.shop.current,
       sections.inventory.current,
       sections.accounting.current,
@@ -378,7 +596,7 @@ export default function SettingsPage() {
 
     nodes.forEach((n) => observer.observe(n));
     return () => observer.disconnect();
-  }, [sections.general, sections.shop, sections.inventory, sections.accounting, sections.notifications, activeSection]);
+  }, [sections.general, sections.branch, sections.staff, sections.shop, sections.inventory, sections.accounting, sections.notifications, activeSection]);
 
   const scrollTo = (key: keyof typeof sections) => {
     const el = sections[key].current;
@@ -417,10 +635,10 @@ export default function SettingsPage() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           {/* Settings Navigation */}
-          <div className="lg:col-span-1">
-            <Card data-testid="settings-navigation" className="sticky top-6">
+          <div className="lg:col-span-1 sticky top-6">
+            <Card data-testid="settings-navigation">
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Settings className="w-5 h-5 mr-2 text-red-600" />
@@ -436,6 +654,24 @@ export default function SettingsPage() {
                 >
                   <User className="w-4 h-4 mr-2" />
                   General
+                </Button>
+                <Button 
+                  variant={activeSection === 'branch' ? 'secondary' : 'ghost'} 
+                  className="w-full justify-start" 
+                  data-testid="nav-branch"
+                  onClick={() => scrollTo('branch')}
+                >
+                  <Building2 className="w-4 h-4 mr-2" />
+                  Branch Management
+                </Button>
+                <Button 
+                  variant={activeSection === 'staff' ? 'secondary' : 'ghost'} 
+                  className="w-full justify-start" 
+                  data-testid="nav-staff"
+                  onClick={() => scrollTo('staff')}
+                >
+                  <Users className="w-4 h-4 mr-2" />
+                  Staff Management
                 </Button>
                 <Button 
                   variant={activeSection === 'inventory' ? 'secondary' : 'ghost'} 
@@ -517,6 +753,292 @@ export default function SettingsPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Branch Management Settings */}
+            <Card data-testid="settings-branch" ref={sections.branch} data-section-id="branch">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Building2 className="w-5 h-5 mr-2 text-red-600" />
+                  Branch Management
+                </CardTitle>
+                <CardDescription>Manage your warehouse branches and set current location</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Current Branch Selection */}
+                <div className="space-y-2">
+                  <Label htmlFor="current-branch">Current Branch</Label>
+                  <Select value={currentBranch} onValueChange={handleCurrentBranchChange}>
+                    <SelectTrigger data-testid="select-current-branch">
+                      <SelectValue placeholder="Select your current branch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.map((branch) => (
+                        <SelectItem key={branch} value={branch}>
+                          {branch}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Products added will be assigned to this branch by default.
+                  </p>
+                </div>
+
+                <Separator />
+
+                {/* Branch List */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium">All Branches</h4>
+                    {!isAddingBranch && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsAddingBranch(true)}
+                      >
+                        <Plus className="w-4 h-4 mr-1" />
+                        Add Branch
+                      </Button>
+                    )}
+                  </div>
+
+                  {isAddingBranch && (
+                    <div className="flex gap-2 p-3 border rounded-lg bg-muted/50">
+                      <Input
+                        placeholder="Enter branch name"
+                        value={newBranchName}
+                        onChange={(e) => setNewBranchName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddBranch();
+                          }
+                          if (e.key === "Escape") {
+                            setIsAddingBranch(false);
+                            setNewBranchName("");
+                          }
+                        }}
+                        autoFocus
+                        className="flex-1"
+                      />
+                      <Button type="button" size="sm" onClick={handleAddBranch}>
+                        Add
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setIsAddingBranch(false);
+                          setNewBranchName("");
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    {branches.map((branch) => (
+                      <div
+                        key={branch}
+                        className={`flex items-center justify-between p-3 border rounded-lg ${
+                          currentBranch === branch ? 'border-red-500 bg-red-50' : 'bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-gray-500" />
+                          <span className="font-medium">{branch}</span>
+                          {currentBranch === branch && (
+                            <Badge variant="default" className="bg-red-600 text-xs">Current</Badge>
+                          )}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDeleteBranch(branch)}
+                          disabled={branches.length <= 1 || currentBranch === branch}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Staff Management Settings */}
+            <Card data-testid="settings-staff" ref={sections.staff} data-section-id="staff">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Users className="w-5 h-5 mr-2 text-red-600" />
+                  Staff Management
+                </CardTitle>
+                <CardDescription>Manage staff members and their unique PINs for product transfers</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Add Staff */}
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium">Staff Members</h4>
+                  {!isAddingStaff && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsAddingStaff(true)}
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Add Staff
+                    </Button>
+                  )}
+                </div>
+
+                {isAddingStaff && (
+                  <div className="p-3 border rounded-lg bg-muted/50 space-y-3">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Enter staff name"
+                        value={newStaffName}
+                        onChange={(e) => setNewStaffName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddStaff();
+                          }
+                          if (e.key === "Escape") {
+                            setIsAddingStaff(false);
+                            setNewStaffName("");
+                            setNewStaffBranch("");
+                          }
+                        }}
+                        autoFocus
+                        className="flex-1"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Select value={newStaffBranch} onValueChange={setNewStaffBranch}>
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="Select branch for this staff" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {branches.map((branch) => (
+                            <SelectItem key={branch} value={branch}>
+                              {branch}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setIsAddingStaff(false);
+                          setNewStaffName("");
+                          setNewStaffBranch("");
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button type="button" size="sm" onClick={handleAddStaff}>
+                        Add Staff
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Staff List */}
+                {staff.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Users className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>No staff members yet. Add staff to enable product transfers.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {staff.map((member) => (
+                      <div
+                        key={member.id}
+                        className="flex items-center justify-between p-3 border rounded-lg bg-white"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                            <User className="w-5 h-5 text-red-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium">{member.name}</p>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Badge variant="outline" className="text-xs">
+                                <Building2 className="w-3 h-3 mr-1" />
+                                {member.branch || 'No branch'}
+                              </Badge>
+                              <span>Added: {new Date(member.createdAt).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1 px-3 py-1 bg-gray-100 rounded-md">
+                            <Key className="w-3 h-3 text-gray-500" />
+                            <span className="font-mono font-bold text-lg tracking-wider">{member.pin}</span>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleCopyPin(member.pin)}
+                            title="Copy PIN"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRegeneratePin(member.id)}
+                            title="Regenerate PIN"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEditingStaff(member);
+                              setEditStaffBranch(member.branch || "");
+                            }}
+                            title="Edit Branch"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => handleDeleteStaff(member.id)}
+                            title="Delete Staff"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    <strong>Note:</strong> Staff PINs are used for product transfers. Each staff member needs to enter their 6-digit PIN when transferring or receiving products.
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -1022,6 +1544,62 @@ export default function SettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit Staff Branch Dialog */}
+      <Dialog open={!!editingStaff} onOpenChange={(open) => {
+        if (!open) {
+          setEditingStaff(null);
+          setEditStaffBranch("");
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="w-5 h-5 text-blue-500" />
+              Edit Staff Branch
+            </DialogTitle>
+            <DialogDescription>
+              Change the branch assignment for {editingStaff?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Staff Name</Label>
+              <Input value={editingStaff?.name || ""} disabled className="bg-muted" />
+            </div>
+            <div className="space-y-2">
+              <Label>Current Branch</Label>
+              <Input value={editingStaff?.branch || "No branch assigned"} disabled className="bg-muted" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-staff-branch">New Branch</Label>
+              <Select value={editStaffBranch} onValueChange={setEditStaffBranch}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select new branch" />
+                </SelectTrigger>
+                <SelectContent>
+                  {branches.map((branch) => (
+                    <SelectItem key={branch} value={branch}>
+                      {branch}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setEditingStaff(null);
+              setEditStaffBranch("");
+            }}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditStaffBranch} disabled={!editStaffBranch}>
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

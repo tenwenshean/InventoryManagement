@@ -32,7 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Loader2, Plus, Upload, X, Image as ImageIcon, Trash2 } from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 interface AddProductModalProps {
   isOpen: boolean;
@@ -49,6 +49,44 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Get branches from localStorage
+  const [branches, setBranches] = useState<string[]>(['Warehouse A']);
+  
+  useEffect(() => {
+    try {
+      // First try app_branches (auto-saved when branches change)
+      const appBranches = localStorage.getItem('app_branches');
+      if (appBranches) {
+        const parsed = JSON.parse(appBranches);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setBranches(parsed);
+          return;
+        }
+      }
+      
+      // Fallback to settings_* keys
+      const userIds = Object.keys(localStorage).filter(k => k.startsWith('settings_'));
+      if (userIds.length > 0) {
+        const settingsKey = userIds[0];
+        const settings = JSON.parse(localStorage.getItem(settingsKey) || '{}');
+        if (settings.branches && settings.branches.length > 0) {
+          setBranches(settings.branches);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load branches:', e);
+    }
+  }, [isOpen]);
+
+  // Get current branch from localStorage
+  const getCurrentBranch = () => {
+    try {
+      return localStorage.getItem('app_currentBranch') || 'Warehouse A';
+    } catch {
+      return 'Warehouse A';
+    }
+  };
+
   const form = useForm<InsertProduct>({
     resolver: zodResolver(insertProductSchema),
     defaultValues: {
@@ -56,13 +94,12 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
       description: "",
       sku: "",
       categoryId: "",
-      price: "0",
-      costPrice: "0",
-      quantity: 0,
+      price: "",
+      costPrice: "",
+      quantity: 1,
       minStockLevel: 0,
       maxStockLevel: 100,
-      barcode: "",
-      location: "",
+      location: getCurrentBranch(),
       supplier: "",
       notes: "",
       isActive: true,
@@ -153,6 +190,27 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
     },
     onSuccess: (data) => {
       console.log("✅ Product created successfully:", data);
+      
+      // Record initial location assignment in transfer history if location is set
+      if (data.location) {
+        try {
+          const transferRecord = {
+            id: `admin_${Date.now()}`,
+            type: 'admin-update',
+            staffName: 'Admin',
+            fromBranch: 'New Product',
+            toBranch: data.location,
+            timestamp: new Date().toISOString(),
+            productId: data.id,
+          };
+          const existingTransfers = JSON.parse(localStorage.getItem('product_transfers') || '[]');
+          existingTransfers.push(transferRecord);
+          localStorage.setItem('product_transfers', JSON.stringify(existingTransfers));
+          console.log('📝 Recorded initial location in transfer history');
+        } catch (e) {
+          console.error('Failed to record transfer history:', e);
+        }
+      }
       
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
@@ -463,9 +521,20 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Storage Location</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Warehouse A, Shelf 3" {...field} data-testid="input-product-location" />
-                    </FormControl>
+                    <Select onValueChange={field.onChange} value={field.value || getCurrentBranch()}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-product-location">
+                          <SelectValue placeholder="Select warehouse location" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {branches.map((branch) => (
+                          <SelectItem key={branch} value={branch}>
+                            {branch}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -486,28 +555,12 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="barcode"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Barcode (Optional)</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter barcode" {...field} data-testid="input-product-barcode" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
             <FormField
               control={form.control}
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notes / Remarks</FormLabel>
+                  <FormLabel>Notes / Remarks (Optional)</FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Additional notes or remarks about this product"
@@ -570,13 +623,14 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
                 name="quantity"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Initial Quantity</FormLabel>
+                    <FormLabel>Initial Quantity <span className="text-red-500">*</span></FormLabel>
                     <FormControl>
                       <Input
                         type="number"
-                        placeholder="0"
+                        placeholder="1"
+                        min={1}
                         {...field}
-                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                        onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
                         data-testid="input-product-quantity"
                       />
                     </FormControl>
@@ -590,7 +644,7 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
                 name="minStockLevel"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Min Stock Level</FormLabel>
+                    <FormLabel>Min Stock Level (Optional)</FormLabel>
                     <FormControl>
                       <Input
                         type="number"
@@ -610,7 +664,7 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
                 name="maxStockLevel"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Max Stock Level</FormLabel>
+                    <FormLabel>Max Stock Level (Optional)</FormLabel>
                     <FormControl>
                       <Input
                         type="number"

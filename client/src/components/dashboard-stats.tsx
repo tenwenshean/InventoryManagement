@@ -36,12 +36,14 @@ export default function DashboardStats() {
         throw err;
       }
     },
-    staleTime: 1000 * 60, // Consider data stale after 60 seconds
-    refetchInterval: false, // Disable automatic refetching to prevent loops
-    refetchOnMount: true,
-    refetchOnWindowFocus: false, // Disable refetch on window focus
-    refetchOnReconnect: true,
-    retry: 2, // Retry failed requests twice
+    staleTime: 1000 * 60 * 5, // 5 minutes - much longer caching
+    gcTime: 1000 * 60 * 10, // Keep in cache for 10 minutes
+    refetchInterval: false,
+    refetchOnMount: false, // Don't refetch on every mount
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 0, // Don't retry during quota issues
+    enabled: true, // But you can set to false to completely disable
   });
 
   console.log("Dashboard stats state:", { isLoading, error: error?.message, hasData: !!stats });
@@ -50,13 +52,20 @@ export default function DashboardStats() {
     console.error("Dashboard stats error:", error);
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <Card className="col-span-full">
+        <Card className="col-span-full bg-yellow-50 border-yellow-200">
           <CardContent className="p-6">
-            <p className="text-destructive">
-              Failed to load dashboard statistics. 
-              {error instanceof Error && <span className="block text-sm mt-2">{error.message}</span>}
+            <p className="text-yellow-800 font-semibold">
+              ⚠️ Firebase Quota Exceeded
             </p>
-            <p className="text-sm text-muted-foreground mt-2">Check the browser console for details.</p>
+            <p className="text-sm text-yellow-700 mt-2">
+              Your Firestore database has reached its daily quota limit. 
+            </p>
+            <p className="text-sm text-yellow-600 mt-2">
+              <strong>Solutions:</strong><br/>
+              1. Wait for quota reset (midnight Pacific Time)<br/>
+              2. Upgrade to Firebase Blaze Plan for unlimited usage<br/>
+              3. Dashboard will automatically resume when quota is available
+            </p>
           </CardContent>
         </Card>
       </div>

@@ -5,6 +5,7 @@ import { cache } from "./cache";
 import { auth, db } from "./db"; // ✅ fixed import
 import { mlService } from "./ml-service";
 import { emailService } from "./email-service";
+import { cacheMiddleware } from "./cache-middleware";
 import Stripe from "stripe";
 import {
   insertProductSchema,
@@ -94,7 +95,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===================== CATEGORY ROUTES =====================
-  app.get("/api/categories", isAuthenticated, async (req: any, res) => {
+  app.get("/api/categories", isAuthenticated, cacheMiddleware(300000), async (req: any, res) => {
     try {
       const categories = await storage.getCategories(req.user.uid);
       res.json(categories);
@@ -1069,7 +1070,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===================== PRODUCT ROUTES =====================
-  app.get("/api/products", isAuthenticated, async (req: any, res) => {
+  app.get("/api/products", isAuthenticated, cacheMiddleware(90000), async (req: any, res) => {
     try {
       const search = req.query.search as string;
       const products = await storage.getProducts(search, req.user.uid);
@@ -1129,6 +1130,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[public] Error fetching categories:", error);
       res.status(500).json({ error: (error as any)?.message || String(error) });
+    }
+  });
+
+  // Public endpoint to update product location during transfer (requires valid staff PIN)
+  app.post("/api/public/transfer-receive", async (req, res) => {
+    try {
+      const { productId, newLocation, staffPin, staffName } = req.body;
+      
+      if (!productId || !newLocation || !staffPin) {
+        return res.status(400).json({ message: "Missing required fields: productId, newLocation, staffPin" });
+      }
+      
+      // Verify the product exists
+      const product = await storage.getProduct(productId);
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      
+      // Update the product location
+      const updatedProduct = await storage.updateProduct(productId, { 
+        location: newLocation 
+      });
+      
+      console.log(`[transfer] Product ${productId} location updated to ${newLocation} by ${staffName || 'Unknown staff'}`);
+      
+      res.json({ 
+        success: true, 
+        message: "Product location updated successfully",
+        product: updatedProduct 
+      });
+    } catch (error) {
+      console.error("[transfer] Error updating product location:", error);
+      res.status(500).json({ message: "Failed to update product location" });
     }
   });
 
@@ -1261,9 +1295,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===================== DASHBOARD STATS ROUTE =====================
-  app.get("/api/dashboard/stats", isAuthenticated, async (req: any, res) => {
+  app.get("/api/dashboard/stats", isAuthenticated, cacheMiddleware(120000), async (req: any, res) => {
     try {
+      console.log(`[DASHBOARD] Fetching stats for user: ${req.user.uid}`);
       const products = await storage.getProducts(undefined, req.user.uid);
+      console.log(`[DASHBOARD] Retrieved ${products.length} products`);
       const totalProducts = products.length;
       
       // Count low stock items (quantity <= minStockLevel)
@@ -1287,9 +1323,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ordersToday: 0
       };
       
+      console.log(`[DASHBOARD] Stats calculated successfully:`, stats);
       res.json(stats);
     } catch (error) {
-      console.error("Error fetching dashboard stats:", error);
+      console.error("[DASHBOARD] Error fetching dashboard stats:", error);
+      console.error("[DASHBOARD] Error details:", {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        code: (error as any)?.code,
+        details: (error as any)?.details
+      });
       res.status(500).json({ 
         message: "Failed to fetch dashboard stats",
         error: error instanceof Error ? error.message : "Unknown error"
@@ -2185,17 +2227,79 @@ Remember: You're helping a business owner understand their operations better. Be
 
       // Generate AI response if message is from user
       if (isFromUser) {
-        // Get context for better responses
-        const [products, stats] = await Promise.all([
+        // Get comprehensive context for better responses
+        const [products, stats, categories, orders] = await Promise.all([
           storage.getProducts(),
-          storage.getDashboardStats()
+          storage.getDashboardStats(),
+          storage.getCategories(),
+          storage.getOrders()
         ]);
 
+        // Calculate financial data
+        let totalRevenue = 0;
+        let totalExpenses = 0;
+        let pendingOrders = 0;
+        let completedOrders = 0;
+
+        orders.forEach((order: any) => {
+          if (order.status === 'pending') pendingOrders++;
+          if (order.status === 'completed') {
+            completedOrders++;
+            totalRevenue += order.total || 0;
+          }
+        });
+
+        // Calculate expenses from cost prices
+        products.forEach((p: any) => {
+          totalExpenses += (p.costPrice || 0) * (p.quantity || 0);
+        });
+
+        // Count category products
+        const categoryData = categories.map((cat: any) => ({
+          name: cat.name,
+          productCount: products.filter((p: any) => p.category === cat.name).length
+        }));
+
         const context = {
+          // Products & Inventory
           totalProducts: products.length,
           lowStockItems: stats.lowStockItems || 0,
-          totalRevenue: 0, // Calculate from products if needed
-          recentSales: 0, // Calculate from transactions if needed
+          outOfStockItems: products.filter((p: any) => p.quantity === 0).length,
+          products: products.slice(0, 20).map((p: any) => ({
+            name: p.name,
+            sku: p.sku,
+            quantity: p.quantity,
+            price: p.price,
+            location: p.location || 'Warehouse A',
+            category: p.category || 'Uncategorized',
+            minStockLevel: p.minStockLevel || 10
+          })),
+          categories: categoryData,
+
+          // Orders
+          totalOrders: orders.length,
+          pendingOrders,
+          completedOrders,
+          recentOrders: orders.slice(0, 5).map((o: any) => ({
+            id: o.id,
+            status: o.status,
+            total: o.total,
+            date: o.createdAt
+          })),
+
+          // Financial
+          totalRevenue,
+          totalExpenses,
+          netProfit: totalRevenue - totalExpenses,
+
+          // Settings (these would typically come from user settings/localStorage on client)
+          // Providing defaults that match common setup
+          branches: ['Warehouse A', 'Warehouse B'],
+          currentBranch: 'Warehouse A',
+          staffMembers: [],
+          companyName: 'My Company',
+          currency: 'MYR',
+          defaultUnit: 'units',
         };
 
         // Generate ML-powered response

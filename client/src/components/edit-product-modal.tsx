@@ -55,6 +55,36 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Get branches from localStorage
+  const [branches, setBranches] = useState<string[]>(['Warehouse A']);
+  const [originalLocation, setOriginalLocation] = useState<string | null>(null);
+  
+  useEffect(() => {
+    try {
+      // First try app_branches (auto-saved when branches change)
+      const appBranches = localStorage.getItem('app_branches');
+      if (appBranches) {
+        const parsed = JSON.parse(appBranches);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setBranches(parsed);
+          return;
+        }
+      }
+      
+      // Fallback to settings_* keys
+      const userIds = Object.keys(localStorage).filter(k => k.startsWith('settings_'));
+      if (userIds.length > 0) {
+        const settingsKey = userIds[0];
+        const settings = JSON.parse(localStorage.getItem(settingsKey) || '{}');
+        if (settings.branches && settings.branches.length > 0) {
+          setBranches(settings.branches);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load branches:', e);
+    }
+  }, [isOpen]);
+
   // Fetch product data via API
   const { data: product, isLoading: productLoading } = useQuery<Product | null>({
     queryKey: [...queryKeys.products.detail(productId)],
@@ -153,17 +183,19 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
       quantity: 0,
       minStockLevel: 0,
       maxStockLevel: 0,
-      barcode: "",
       location: "",
       supplier: "",
       notes: "",
     },
   });
 
-  // Reset form when product data loads
+  // Update form when product data loads
   useEffect(() => {
     if (product) {
-      console.log("📝 Loading product data into form:", product);
+      console.log("Loading product data into form:", product);
+      // Track original location for transfer history
+      setOriginalLocation(product.location || null);
+      
       form.reset({
         name: product.name,
         description: product.description || "",
@@ -174,7 +206,6 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
         quantity: product.quantity || 0,
         minStockLevel: product.minStockLevel || 0,
         maxStockLevel: product.maxStockLevel || 0,
-        barcode: product.barcode || "",
         location: product.location || "",
         supplier: product.supplier || "",
         notes: product.notes || "",
@@ -198,10 +229,32 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
       console.log("🔄 Updating product:", productId, data);
       const response = await apiRequest("PUT", `/api/products/${productId}`, data);
       if (!response.ok) throw new Error("Failed to update product");
-      return response.json();
+      return { ...data, id: productId };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       console.log("✅ Product updated successfully");
+      
+      // Check if location changed and record in transfer history
+      if (data.location && data.location !== originalLocation) {
+        try {
+          const transferRecord = {
+            id: `admin_${Date.now()}`,
+            type: 'admin-update',
+            staffName: 'Admin',
+            fromBranch: originalLocation || 'Unknown',
+            toBranch: data.location,
+            timestamp: new Date().toISOString(),
+            productId: productId,
+          };
+          const existingTransfers = JSON.parse(localStorage.getItem('product_transfers') || '[]');
+          existingTransfers.push(transferRecord);
+          localStorage.setItem('product_transfers', JSON.stringify(existingTransfers));
+          console.log('📝 Recorded location change in transfer history');
+        } catch (e) {
+          console.error('Failed to record transfer history:', e);
+        }
+      }
+      
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.products.detail(productId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
@@ -547,9 +600,20 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Storage Location</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Warehouse A, Shelf 3" {...field} data-testid="input-edit-product-location" />
-                    </FormControl>
+                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-edit-product-location">
+                          <SelectValue placeholder="Select warehouse location" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {branches.map((branch) => (
+                          <SelectItem key={branch} value={branch}>
+                            {branch}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -572,24 +636,10 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
 
             <FormField
               control={form.control}
-              name="barcode"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Barcode</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Enter barcode" {...field} data-testid="input-edit-product-barcode" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notes / Remarks</FormLabel>
+                  <FormLabel>Notes / Remarks (Optional)</FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Additional notes or remarks"
@@ -652,13 +702,14 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
                 name="quantity"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Current Quantity</FormLabel>
+                    <FormLabel>Current Quantity <span className="text-red-500">*</span></FormLabel>
                     <FormControl>
                       <Input
                         type="number"
-                        placeholder="0"
+                        placeholder="1"
+                        min={1}
                         {...field}
-                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                        onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
                         data-testid="input-edit-product-quantity"
                       />
                     </FormControl>
@@ -672,7 +723,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
                 name="minStockLevel"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Min Stock Level</FormLabel>
+                    <FormLabel>Min Stock Level (Optional)</FormLabel>
                     <FormControl>
                       <Input
                         type="number"
@@ -692,7 +743,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
                 name="maxStockLevel"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Max Stock Level</FormLabel>
+                    <FormLabel>Max Stock Level (Optional)</FormLabel>
                     <FormControl>
                       <Input
                         type="number"

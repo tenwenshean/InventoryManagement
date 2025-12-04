@@ -1,0 +1,903 @@
+@startuml InventoryPro Enterprise System Architecture
+
+!define ENTITY_COLOR #E8F4F8
+!define SERVICE_COLOR #FFF4E6
+!define EXTERNAL_COLOR #FFE6E6
+!define UI_COLOR #E8F8E8
+
+title InventoryPro Enterprise - Complete System Architecture
+
+' ===== ACTORS =====
+actor "Admin" as admin
+actor "Manager" as manager
+actor "Staff" as staff
+actor "Customer" as customer
+
+' ===== FRONTEND LAYER =====
+package "Frontend - React SPA" #E8F8E8 {
+    component "Authentication" as auth_ui {
+        [Google OAuth Login]
+        [Phone OTP Login]
+        [Session Management]
+    }
+    
+    component "Dashboard" as dashboard {
+        [KPI Cards]
+        [Charts & Analytics]
+        [Quick Actions]
+    }
+    
+    component "Product Management" as product_ui {
+        [Product List]
+        [Product Form]
+        [Category Filter]
+        [Search & Filter]
+        [Image Upload]
+        [QR Code Display]
+    }
+    
+    component "Inventory Management" as inventory_ui {
+        [Stock Level View]
+        [Transaction History]
+        [Low Stock Alerts]
+        [Stock Adjustments]
+    }
+    
+    component "Branch Transfer System" as transfer_ui {
+        [Transfer Initiation]
+        [QR Scanner]
+        [Transfer History]
+        [Pending Transfers]
+        [Location Tracking]
+    }
+    
+    component "Accounting" as accounting_ui {
+        [Journal Entries]
+        [Trial Balance]
+        [P&L Statement]
+        [Account Ledgers]
+    }
+    
+    component "Reports" as reports_ui {
+        [Sales Reports]
+        [Inventory Reports]
+        [Financial Reports]
+        [PDF Export]
+    }
+    
+    component "E-Commerce Shop" as shop_ui {
+        [Product Catalog]
+        [Shopping Cart]
+        [Checkout]
+        [Order Management]
+    }
+    
+    component "AI Assistant" as ai_ui {
+        [Chat Interface]
+        [Business Insights]
+        [Query Processing]
+    }
+    
+    component "Settings" as settings_ui {
+        [Company Profile]
+        [Staff Management]
+        [Branch Management]
+        [Notifications]
+    }
+}
+
+' ===== BACKEND LAYER =====
+package "Backend - Express.js API" #FFF4E6 {
+    component "API Gateway" as api {
+        [Route Handler]
+        [Middleware Chain]
+        [Error Handler]
+    }
+    
+    component "Authentication Service" as auth_service {
+        [JWT Verification]
+        [Firebase Auth]
+        [Session Validation]
+    }
+    
+    component "Product Service" as product_service {
+        [CRUD Operations]
+        [SKU Management]
+        [Category Management]
+        [Image Processing]
+        [QR Generation]
+    }
+    
+    component "Inventory Service" as inventory_service {
+        [Stock Management]
+        [Transaction Logging]
+        [Stock Valuation]
+        [Alert System]
+    }
+    
+    component "Branch Transfer Service" as transfer_service {
+        [Transfer Initiation]
+        [PIN Verification]
+        [QR Slip Generation]
+        [Transfer Completion]
+        [Location Tracking]
+        [Audit Logging]
+    }
+    
+    component "Accounting Service" as accounting_service {
+        [Double-Entry System]
+        [Journal Entries]
+        [Account Management]
+        [Financial Calculations]
+    }
+    
+    component "Order Service" as order_service {
+        [Order Processing]
+        [Cart Management]
+        [Customer Management]
+    }
+    
+    component "Payment Service" as payment_service {
+        [Stripe Integration]
+        [Payment Processing]
+        [Refund Handling]
+    }
+    
+    component "Email Service" as email_service {
+        [Email Templates]
+        [SMTP Client]
+        [Notification Queue]
+        [Scheduled Reports]
+    }
+    
+    component "AI Service" as ai_service {
+        [Gemini API Client]
+        [Context Building]
+        [Response Processing]
+    }
+    
+    component "Report Service" as report_service {
+        [Data Aggregation]
+        [PDF Generation]
+        [Chart Data]
+    }
+    
+    component "Cache Service" as cache_service {
+        [Query Cache]
+        [Response Cache]
+        [Invalidation]
+    }
+}
+
+' ===== DATA LAYER =====
+package "Data Layer - Firebase" #E8F4F8 {
+    database "Firestore" as firestore {
+        collections "Core Collections" {
+            [users]
+            [products]
+            [categories]
+            [inventoryTransactions]
+            [accountingEntries]
+        }
+        
+        collections "Branch Transfer" {
+            [branches]
+            [staff]
+            [transferSlips]
+            [productLocationLogs]
+        }
+        
+        collections "E-Commerce" {
+            [orders]
+            [customerProfiles]
+            [coupons]
+            [subscriptions]
+        }
+        
+        collections "System" {
+            [notifications]
+            [chatMessages]
+        }
+    }
+    
+    storage "Firebase Storage" as storage {
+        [Product Images]
+        [QR Codes]
+        [Reports]
+    }
+    
+    component "Firebase Auth" as firebase_auth {
+        [User Management]
+        [OAuth Providers]
+        [Token Generation]
+    }
+}
+
+' ===== EXTERNAL SERVICES =====
+package "External Services" #FFE6E6 {
+    cloud "Stripe API" as stripe {
+        [Payment Gateway]
+        [Webhook Handler]
+    }
+    
+    cloud "Google Gemini AI" as gemini {
+        [Natural Language API]
+        [Business Intelligence]
+    }
+    
+    cloud "Email Service" as email_provider {
+        [SMTP Server]
+        [AWS SES]
+    }
+    
+    cloud "QR Code Library" as qr_lib {
+        [QR Generation]
+        [QR Parsing]
+    }
+}
+
+' ===== CONNECTIONS - USER TO UI =====
+admin --> dashboard
+admin --> product_ui
+admin --> inventory_ui
+admin --> transfer_ui
+admin --> accounting_ui
+admin --> reports_ui
+admin --> settings_ui
+admin --> ai_ui
+
+manager --> dashboard
+manager --> product_ui
+manager --> inventory_ui
+manager --> transfer_ui
+manager --> reports_ui
+manager --> ai_ui
+
+staff --> product_ui
+staff --> inventory_ui
+staff --> transfer_ui
+
+customer --> shop_ui
+
+' ===== CONNECTIONS - UI TO API =====
+auth_ui --> api : Authentication Requests
+dashboard --> api : GET /api/dashboard/stats
+product_ui --> api : Product CRUD
+inventory_ui --> api : Transaction APIs
+transfer_ui --> api : Transfer APIs
+accounting_ui --> api : Accounting APIs
+reports_ui --> api : Report APIs
+shop_ui --> api : Shop & Order APIs
+ai_ui --> api : Chat APIs
+settings_ui --> api : Settings APIs
+
+' ===== CONNECTIONS - API TO SERVICES =====
+api --> auth_service : Validate Token
+api --> cache_service : Check Cache
+api --> product_service
+api --> inventory_service
+api --> transfer_service
+api --> accounting_service
+api --> order_service
+api --> payment_service
+api --> email_service
+api --> ai_service
+api --> report_service
+
+' ===== CONNECTIONS - SERVICES TO DATA =====
+auth_service --> firebase_auth
+product_service --> firestore : CRUD users/products/categories
+inventory_service --> firestore : CRUD inventoryTransactions
+transfer_service --> firestore : CRUD branches/staff/transferSlips/logs
+accounting_service --> firestore : CRUD accountingEntries
+order_service --> firestore : CRUD orders/customers
+ai_service --> firestore : CRUD chatMessages
+email_service --> firestore : READ notifications
+
+product_service --> storage : Upload/Retrieve Images
+transfer_service --> storage : Store QR Codes
+
+' ===== CONNECTIONS - SERVICES TO EXTERNAL =====
+payment_service --> stripe : Process Payments
+ai_service --> gemini : AI Queries
+email_service --> email_provider : Send Emails
+transfer_service --> qr_lib : Generate QR Codes
+product_service --> qr_lib : Generate Product QR
+
+' ===== NOTES =====
+note right of transfer_service
+  **Branch Transfer Workflow:**
+  1. Staff initiates transfer with PIN
+  2. System validates inventory
+  3. Generates transfer slip + QR code
+  4. Deducts from source branch
+  5. Receiving staff scans QR
+  6. Confirms with PIN
+  7. Updates destination inventory
+  8. Logs complete audit trail
+end note
+
+note right of accounting_service
+  **Automated Double-Entry:**
+  - Purchase → Debit Inventory, Credit Cash
+  - Sale → Debit Cash, Credit Revenue
+  - Adjustment → Debit/Credit Inventory
+  All transactions auto-generate
+  proper journal entries
+end note
+
+note right of firestore
+  **Multi-tenant Isolation:**
+  All queries filtered by userId
+  Ensures data privacy
+  Supports unlimited businesses
+end note
+
+note bottom of cache_service
+  **Performance Optimization:**
+  - Client: React Query (2-10 min cache)
+  - Server: Response cache (90s-5min)
+  - Reduces DB reads by 60-80%
+end note
+
+@enduml
+
+' ===== SEQUENCE DIAGRAM: Branch Transfer Flow =====
+@startuml Branch Transfer Sequence
+
+title Branch Transfer - Complete Workflow
+
+actor "Staff A\n(Source Branch)" as staffA
+participant "Transfer UI" as ui
+participant "API Gateway" as api
+participant "Transfer Service" as service
+participant "Firestore" as db
+participant "QR Generator" as qr
+actor "Staff B\n(Destination)" as staffB
+
+== Initiate Transfer ==
+staffA -> ui : Click "Transfer Product"
+ui -> staffA : Show transfer form
+staffA -> ui : Select destination, qty, enter PIN
+ui -> api : POST /api/transfers/initiate\n{productId, qty, fromBranch, toBranch, pin}
+api -> service : initiateTransfer(data)
+
+service -> db : Verify staff & PIN
+db --> service : Staff validated
+
+service -> db : Check product quantity
+db --> service : Stock available
+
+service -> service : Generate transfer ID\n(TRF-TIMESTAMP-RANDOM)
+
+service -> db : Create transfer slip\nstatus: "in_transit"
+service -> db : Deduct quantity from source
+service -> db : Log location change\nreason: "transfer_initiated"
+
+service -> qr : Generate QR code\n{type: "transfer_slip", slipId, transferId}
+qr --> service : QR code image (base64)
+
+service -> db : Save QR to transfer slip
+db --> service : Transfer created
+
+service --> api : Transfer slip + QR code
+api --> ui : Success response
+ui --> staffA : Display QR code for printing
+
+== Receive Transfer ==
+staffB -> ui : Open QR Scanner
+staffB -> ui : Scan/paste transfer slip QR
+ui -> api : POST /api/transfers/scan\n{qrData}
+api -> service : getTransferSlipById(slipId)
+service -> db : Query transfer slip
+db --> service : Transfer details
+service --> api : Transfer data
+api --> ui : Transfer information
+ui --> staffB : Show transfer details
+
+staffB -> ui : Click "Receive Transfer"
+ui -> staffB : Request PIN
+staffB -> ui : Enter PIN
+
+ui -> api : POST /api/transfers/receive\n{slipId, receivedBy, pin}
+api -> service : receiveTransfer(data)
+
+service -> db : Verify staff & PIN
+db --> service : Staff validated
+
+service -> db : Verify staff.branchId == transfer.toBranch
+db --> service : Branch match confirmed
+
+service -> db : Update transfer slip\nstatus: "completed"\nreceivedBy, receivedTimestamp
+
+service -> db : Add quantity to destination
+service -> db : Update product.currentBranch
+service -> db : Log location change\nreason: "transfer_complete"
+
+db --> service : All updates successful
+service --> api : Transfer completed
+api --> ui : Success response
+ui --> staffB : "Transfer received successfully!"
+
+== Audit Trail ==
+note over db
+  **Logs Created:**
+  1. Transfer slip record
+  2. Stock deduction transaction
+  3. Location log (initiated)
+  4. Location log (completed)
+  5. Stock addition transaction
+  
+  **Complete traceability:**
+  - Who requested (Staff A)
+  - When requested
+  - Who received (Staff B)
+  - When received
+  - Previous & new locations
+end note
+
+@enduml
+
+' ===== CLASS DIAGRAM: Core Entities =====
+@startuml Core Data Model
+
+title InventoryPro Enterprise - Data Model
+
+' ===== USER & AUTH =====
+class User {
+  +id: string
+  +email: string
+  +firstName: string
+  +lastName: string
+  +profileImageUrl: string
+  +settings: UserSettings
+  +createdAt: Date
+  +updatedAt: Date
+}
+
+class UserSettings {
+  +companyName: string
+  +timezone: string
+  +currency: string
+  +shopSlug: string
+  +shopBanner: string
+  +shopLogo: string
+  +notificationEmail: string
+}
+
+' ===== PRODUCT & INVENTORY =====
+class Product {
+  +id: string
+  +userId: string
+  +name: string
+  +description: string
+  +sku: string
+  +barcode: string
+  +categoryId: string
+  +price: decimal
+  +costPrice: decimal
+  +quantity: number
+  +minStockLevel: number
+  +maxStockLevel: number
+  +qrCode: string
+  +imageUrl: string
+  +location: string
+  +currentBranch: string
+  +supplier: string
+  +notes: string
+  +isActive: boolean
+  +createdAt: Date
+  +updatedAt: Date
+}
+
+class Category {
+  +id: string
+  +userId: string
+  +name: string
+  +description: string
+  +createdAt: Date
+}
+
+class InventoryTransaction {
+  +id: string
+  +productId: string
+  +userId: string
+  +type: TransactionType
+  +quantity: number
+  +previousQuantity: number
+  +newQuantity: number
+  +unitPrice: decimal
+  +totalValue: decimal
+  +reason: string
+  +reference: string
+  +notes: string
+  +createdBy: string
+  +createdAt: Date
+}
+
+enum TransactionType {
+  PURCHASE
+  SALE
+  RETURN
+  ADJUSTMENT
+  TRANSFER
+}
+
+' ===== BRANCH TRANSFER =====
+class Branch {
+  +id: string
+  +name: string
+  +address: string
+  +city: string
+  +state: string
+  +postalCode: string
+  +contactNumber: string
+  +isActive: boolean
+  +createdAt: Date
+}
+
+class Staff {
+  +id: string
+  +userId: string
+  +staffName: string
+  +staffPin: string (hashed)
+  +role: StaffRole
+  +branchId: string
+  +isActive: boolean
+  +createdAt: Date
+}
+
+enum StaffRole {
+  STAFF
+  MANAGER
+  ADMIN
+}
+
+class TransferSlip {
+  +id: string
+  +transferId: string (TRF-XXX)
+  +productId: string
+  +productName: string
+  +quantity: number
+  +fromBranch: string
+  +toBranch: string
+  +requestedBy: string
+  +requestedTimestamp: Date
+  +status: TransferStatus
+  +receivedBy: string
+  +receivedTimestamp: Date
+  +qrCode: string (base64)
+  +notes: string
+  +createdAt: Date
+}
+
+enum TransferStatus {
+  IN_TRANSIT
+  COMPLETED
+  CANCELLED
+}
+
+class ProductLocationLog {
+  +id: string
+  +productId: string
+  +previousBranch: string
+  +newBranch: string
+  +quantity: number
+  +transferSlipId: string
+  +changedBy: string
+  +reason: string
+  +timestamp: Date
+}
+
+' ===== ACCOUNTING =====
+class AccountingEntry {
+  +id: string
+  +userId: string
+  +transactionId: string
+  +accountType: AccountType
+  +accountName: string
+  +debitAmount: decimal
+  +creditAmount: decimal
+  +description: string
+  +createdAt: Date
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+' ===== E-COMMERCE =====
+class Order {
+  +id: string
+  +customerId: string
+  +sellerId: string
+  +items: OrderItem[]
+  +subtotal: decimal
+  +tax: decimal
+  +total: decimal
+  +status: OrderStatus
+  +paymentStatus: string
+  +stripePaymentId: string
+  +shippingAddress: Address
+  +createdAt: Date
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+class OrderItem {
+  +productId: string
+  +productName: string
+  +quantity: number
+  +price: decimal
+  +subtotal: decimal
+}
+
+class CustomerProfile {
+  +id: string
+  +userId: string
+  +phoneNumber: string
+  +shippingAddresses: Address[]
+  +createdAt: Date
+}
+
+class Address {
+  +name: string
+  +phone: string
+  +addressLine1: string
+  +addressLine2: string
+  +city: string
+  +state: string
+  +postalCode: string
+  +country: string
+}
+
+' ===== RELATIONSHIPS =====
+User "1" -- "0..*" Product : owns
+User "1" -- "0..*" Category : owns
+User "1" -- "0..*" Branch : manages
+User "1" -- "0..1" Staff : has profile
+
+Product "1" -- "0..*" InventoryTransaction : has
+Product "1" -- "0..*" TransferSlip : transferred
+Product "1" -- "0..*" ProductLocationLog : tracked
+Product "*" -- "1" Category : belongs to
+Product "*" -- "0..1" Branch : located at
+
+Branch "1" -- "0..*" Staff : employs
+Branch "1" -- "0..*" TransferSlip : source/destination
+
+Staff "1" -- "0..*" TransferSlip : requests/receives
+
+TransferSlip "1" -- "0..*" ProductLocationLog : generates
+
+InventoryTransaction "1" -- "0..*" AccountingEntry : creates
+
+Order "1" -- "0..*" OrderItem : contains
+Order "*" -- "1" CustomerProfile : placed by
+
+@enduml
+
+' ===== DEPLOYMENT DIAGRAM =====
+@startuml Deployment Architecture
+
+title InventoryPro Enterprise - Deployment Architecture
+
+node "Client Browser" {
+    component "React SPA" as spa {
+        [React 18]
+        [TypeScript]
+        [Tailwind CSS]
+        [TanStack Query]
+    }
+}
+
+node "Vercel Edge Network" {
+    component "CDN" as cdn {
+        [Static Assets]
+        [Image Optimization]
+        [Caching]
+    }
+}
+
+node "Vercel Serverless" {
+    component "API Server" as api_server {
+        [Express.js]
+        [Node.js 20]
+        [TypeScript]
+    }
+}
+
+cloud "Firebase Platform" {
+    database "Firestore" as db {
+        [NoSQL Database]
+        [Real-time Sync]
+        [Auto-scaling]
+    }
+    
+    storage "Cloud Storage" as files {
+        [Product Images]
+        [QR Codes]
+        [Reports]
+    }
+    
+    component "Authentication" as auth {
+        [OAuth Providers]
+        [Token Management]
+    }
+}
+
+cloud "Third-Party APIs" {
+    component "Stripe" {
+        [Payment Processing]
+    }
+    
+    component "Google Gemini" {
+        [AI/ML API]
+    }
+    
+    component "Email Provider" {
+        [SMTP/AWS SES]
+    }
+}
+
+spa --> cdn : HTTPS
+cdn --> api_server : API Calls
+spa --> auth : Authentication
+api_server --> db : Database Queries
+api_server --> files : File Operations
+api_server --> Stripe : Payment Requests
+api_server --> "Google Gemini" : AI Queries
+api_server --> "Email Provider" : Send Emails
+
+note right of cdn
+  **CDN Benefits:**
+  - Global distribution
+  - Fast static assets
+  - Auto HTTPS
+  - DDoS protection
+end note
+
+note bottom of db
+  **Firestore Scaling:**
+  - Auto-scales reads/writes
+  - Multi-region replication
+  - Built-in caching
+  - Real-time listeners
+end note
+
+@enduml
+
+' ===== USE CASE DIAGRAM =====
+@startuml Use Cases
+
+title InventoryPro Enterprise - Use Cases
+
+left to right direction
+
+actor "Admin" as admin
+actor "Manager" as manager
+actor "Staff" as staff
+actor "Customer" as customer
+actor "Email System" as email
+
+rectangle "Inventory Management" {
+    usecase "Manage Products" as UC1
+    usecase "Track Inventory" as UC2
+    usecase "Generate QR Codes" as UC3
+    usecase "Scan Products" as UC4
+    usecase "Adjust Stock" as UC5
+    usecase "View Low Stock" as UC6
+}
+
+rectangle "Branch Transfer System" {
+    usecase "Create Branch" as UC7
+    usecase "Register Staff" as UC8
+    usecase "Initiate Transfer" as UC9
+    usecase "Generate Transfer QR" as UC10
+    usecase "Scan Transfer Slip" as UC11
+    usecase "Receive Transfer" as UC12
+    usecase "View Transfer History" as UC13
+    usecase "Track Product Location" as UC14
+}
+
+rectangle "Accounting" {
+    usecase "View Journal Entries" as UC15
+    usecase "Generate Financial Reports" as UC16
+    usecase "View Trial Balance" as UC17
+    usecase "Calculate P&L" as UC18
+}
+
+rectangle "E-Commerce" {
+    usecase "Browse Products" as UC19
+    usecase "Add to Cart" as UC20
+    usecase "Checkout" as UC21
+    usecase "Process Payment" as UC22
+    usecase "Manage Orders" as UC23
+}
+
+rectangle "Analytics & Reporting" {
+    usecase "View Dashboard" as UC24
+    usecase "Generate Reports" as UC25
+    usecase "Export PDF" as UC26
+    usecase "Chat with AI" as UC27
+}
+
+rectangle "Notifications" {
+    usecase "Send Low Stock Alert" as UC28
+    usecase "Send Order Confirmation" as UC29
+    usecase "Send Daily Reports" as UC30
+}
+
+' Admin can do everything
+admin --> UC1
+admin --> UC2
+admin --> UC3
+admin --> UC5
+admin --> UC6
+admin --> UC7
+admin --> UC8
+admin --> UC9
+admin --> UC12
+admin --> UC13
+admin --> UC14
+admin --> UC15
+admin --> UC16
+admin --> UC17
+admin --> UC18
+admin --> UC23
+admin --> UC24
+admin --> UC25
+admin --> UC26
+admin --> UC27
+
+' Manager can do most things
+manager --> UC1
+manager --> UC2
+manager --> UC4
+manager --> UC5
+manager --> UC6
+manager --> UC9
+manager --> UC12
+manager --> UC13
+manager --> UC16
+manager --> UC24
+manager --> UC25
+manager --> UC27
+
+' Staff can do basic operations
+staff --> UC2
+staff --> UC4
+staff --> UC9
+staff --> UC11
+staff --> UC12
+
+' Customer interactions
+customer --> UC19
+customer --> UC20
+customer --> UC21
+
+' System interactions
+UC22 ..> UC29 : triggers
+UC5 ..> UC15 : creates
+UC9 ..> UC10 : generates
+UC12 ..> UC14 : updates
+UC6 ..> UC28 : triggers
+
+' Email system
+email --> UC28
+email --> UC29
+email --> UC30
+
+@enduml
+
+@enduml
