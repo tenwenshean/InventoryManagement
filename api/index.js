@@ -372,6 +372,11 @@ export default async function handler(req, res) {
       }
     }
 
+    // ===== PUBLIC TRANSFER RECEIVE ROUTE (no auth - uses staff PIN) =====
+    if (pathParts[0] === 'public' && pathParts[1] === 'transfer-receive' && req.method === 'POST') {
+      return await handlePublicTransferReceive(req, res);
+    }
+
     // ===== CHECKOUT ROUTE (public - no auth required) =====
     if (pathParts[0] === 'checkout' && req.method === 'POST') {
       return await handleCheckout(req, res);
@@ -5294,6 +5299,47 @@ async function handlePostChatMessage(req, res, user) {
   } catch (error) {
     console.error('[CHAT] Error sending message:', error);
     return res.status(500).json({ message: 'Failed to send message' });
+  }
+}
+
+// ===== PUBLIC TRANSFER RECEIVE HANDLER =====
+async function handlePublicTransferReceive(req, res) {
+  try {
+    const { db } = await initializeFirebase();
+    const { productId, newLocation, staffPin, staffName } = req.body;
+
+    if (!productId || !newLocation || !staffPin) {
+      return res.status(400).json({ message: 'Missing required fields: productId, newLocation, staffPin' });
+    }
+
+    // Get the product
+    const productRef = db.collection('products').doc(productId);
+    const productDoc = await productRef.get();
+
+    if (!productDoc.exists) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    // Update the product location
+    await productRef.update({
+      location: newLocation,
+      updatedAt: new Date()
+    });
+
+    console.log(`[transfer] Product ${productId} location updated to ${newLocation} by ${staffName || 'Unknown staff'}`);
+
+    // Get updated product
+    const updatedDoc = await productRef.get();
+    const updatedProduct = { id: updatedDoc.id, ...updatedDoc.data() };
+
+    return res.json({
+      success: true,
+      message: 'Product location updated successfully',
+      product: updatedProduct
+    });
+  } catch (error) {
+    console.error('[transfer] Error updating product location:', error);
+    return res.status(500).json({ message: 'Failed to update product location' });
   }
 }
 
