@@ -3203,19 +3203,51 @@ async function handleGetCoupons(req, res) {
       return res.status(400).json({ message: 'sellerId is required' });
     }
 
+    // Query without orderBy to avoid requiring composite index
     const couponsSnapshot = await db.collection('coupons')
       .where('sellerId', '==', sellerId)
-      .orderBy('createdAt', 'desc')
       .get();
 
-    const coupons = couponsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || doc.data().createdAt,
-      expiresAt: doc.data().expiresAt?.toDate?.()?.toISOString() || doc.data().expiresAt
-    }));
+    const now = new Date();
+    const validCoupons = [];
+    const expiredCouponIds = [];
 
-    return res.json(coupons);
+    couponsSnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      const expiresAt = data.expiresAt?.toDate?.() || (data.expiresAt ? new Date(data.expiresAt) : null);
+      
+      // Check if coupon is expired
+      if (expiresAt && expiresAt < now) {
+        // Mark for deletion
+        expiredCouponIds.push(doc.id);
+      } else {
+        validCoupons.push({
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
+          expiresAt: expiresAt?.toISOString() || null
+        });
+      }
+    });
+
+    // Delete expired coupons in background (don't await to speed up response)
+    if (expiredCouponIds.length > 0) {
+      console.log(`[COUPONS] Deleting ${expiredCouponIds.length} expired coupons`);
+      const batch = db.batch();
+      expiredCouponIds.forEach(id => {
+        batch.delete(db.collection('coupons').doc(id));
+      });
+      batch.commit().catch(err => console.error('Error deleting expired coupons:', err));
+    }
+
+    // Sort by createdAt descending (client-side since we removed orderBy)
+    validCoupons.sort((a, b) => {
+      const dateA = new Date(a.createdAt || 0);
+      const dateB = new Date(b.createdAt || 0);
+      return dateB.getTime() - dateA.getTime();
+    });
+
+    return res.json(validCoupons);
   } catch (error) {
     console.error('Error fetching coupons:', error);
     return res.status(500).json({ message: 'Failed to fetch coupons' });

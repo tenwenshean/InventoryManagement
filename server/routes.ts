@@ -566,12 +566,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where('sellerId', '==', sellerId as string)
         .get();
 
-      const coupons = couponsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const now = new Date();
+      const validCoupons: any[] = [];
+      const expiredCouponIds: string[] = [];
 
-      res.json(coupons);
+      couponsSnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        const expiresAt = data.expiresAt?.toDate?.() || (data.expiresAt ? new Date(data.expiresAt) : null);
+        
+        // Check if coupon is expired
+        if (expiresAt && expiresAt < now) {
+          // Mark for deletion
+          expiredCouponIds.push(doc.id);
+        } else {
+          validCoupons.push({
+            id: doc.id,
+            ...data,
+            createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
+            expiresAt: expiresAt?.toISOString() || null
+          });
+        }
+      });
+
+      // Delete expired coupons in background
+      if (expiredCouponIds.length > 0) {
+        console.log(`[COUPONS] Deleting ${expiredCouponIds.length} expired coupons`);
+        const batch = db.batch();
+        expiredCouponIds.forEach(id => {
+          batch.delete(db.collection('coupons').doc(id));
+        });
+        batch.commit().catch((err: any) => console.error('Error deleting expired coupons:', err));
+      }
+
+      // Sort by createdAt descending
+      validCoupons.sort((a, b) => {
+        const dateA = new Date(a.createdAt || 0);
+        const dateB = new Date(b.createdAt || 0);
+        return dateB.getTime() - dateA.getTime();
+      });
+
+      res.json(validCoupons);
     } catch (error: any) {
       console.error('Error fetching coupons:', error);
       res.status(500).json({ message: 'Failed to fetch coupons' });
@@ -1943,8 +1977,7 @@ Remember: You're helping a business owner understand their operations better. Be
 
       const cached = cache.get(cacheKey);
       if (cached) {
-        // Use no-store to prevent browser caching issues with mutable data
-        res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+        res.set("Cache-Control", "private, max-age=300");
         res.set("X-Cache", "HIT");
         return res.json(cached);
       }
@@ -1970,8 +2003,7 @@ Remember: You're helping a business owner understand their operations better. Be
 
       cache.set(cacheKey, serializedEntries, 300000);
 
-      // Use no-store to prevent browser caching issues with mutable data
-      res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.set("Cache-Control", "private, max-age=300");
       res.set("X-Cache", "MISS");
       res.json(serializedEntries);
     } catch (error) {
