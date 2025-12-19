@@ -3,7 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useCurrency } from '@/hooks/useCurrency';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar, Download, Filter, TrendingUp, TrendingDown, Package, DollarSign, Loader2, Brain, AlertTriangle, CheckCircle, MessageCircle } from "lucide-react";
+import { Calendar, TrendingUp, TrendingDown, Package, DollarSign, Loader2, Brain, AlertTriangle, CheckCircle, MessageCircle, Filter } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -868,14 +868,6 @@ export default function Reports() {
                 <SelectItem value="1year">Last year</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" data-testid="button-filter">
-              <Filter className="w-4 h-4 mr-2" />
-              Filters
-            </Button>
-            <Button className="bg-red-600 hover:bg-red-700" data-testid="button-export">
-              <Download className="w-4 h-4 mr-2" />
-              Export
-            </Button>
           </div>
         </div>
 

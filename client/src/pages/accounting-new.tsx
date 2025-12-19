@@ -144,17 +144,23 @@ export default function AccountingNew() {
       return createdEntry;
     },
     onSuccess: async () => {
-      console.log('[CREATE ENTRY] onSuccess - clearing cache and refetching');
+      console.log('[CREATE ENTRY] onSuccess - invalidating and refetching queries');
       
-      // Clear ALL cache to bust server cache
-      queryClient.clear();
+      // Invalidate all accounting-related queries
+      await queryClient.invalidateQueries({ queryKey: ['accounting'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/accounting'] });
       
-      // Wait a moment for server cache to clear
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Force immediate refetch with fresh data
+      await queryClient.refetchQueries({ 
+        queryKey: queryKeys.accounting.entries(selectedMonth),
+        type: 'active'
+      });
+      await queryClient.refetchQueries({ 
+        queryKey: queryKeys.accounting.entriesRoot,
+        type: 'active' 
+      });
       
-      // Force refetch
-      await queryClient.refetchQueries({ queryKey: queryKeys.accounting.entries(selectedMonth), type: 'active' });
-      await queryClient.refetchQueries({ queryKey: queryKeys.accounting.entriesRoot, type: 'active' });
+      console.log('[CREATE ENTRY] Queries refetched');
       
       setOpenDialog(false);
       setNewEntry({
@@ -345,13 +351,15 @@ export default function AccountingNew() {
       const credit = parseFloat(entry.creditAmount || "0");
       
       // For balance sheet items, use debit - credit
-      // For revenue: credits increase revenue (so use credit amount)
-      // For expenses: debits increase expenses (so use debit amount)
+      // For revenue: always positive (user may enter in either field)
+      // For expenses: always positive (user may enter in either field)
       let balance;
       if (entry.accountType === 'revenue') {
-        balance = credit - debit; // Revenue is a credit account
+        // Revenue should always be positive - take the larger of credit or debit
+        balance = Math.max(credit, debit);
       } else if (entry.accountType === 'expense') {
-        balance = debit - credit; // Expense is a debit account
+        // Expense should always be positive - take the larger of debit or credit
+        balance = Math.max(debit, credit);
       } else {
         balance = debit - credit; // Assets, liabilities, equity
       }
@@ -884,7 +892,7 @@ export default function AccountingNew() {
                 <div className="rounded-lg border bg-emerald-50 p-4 dark:bg-emerald-500/10">
                   <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Gross Profit</p>
                   <p className="text-2xl font-semibold text-emerald-600 dark:text-emerald-300">
-                    {formatCurrency(financials.grossProfit)}
+                    {formatCurrency(Math.abs(financials.grossProfit))}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-rose-50 p-4 dark:bg-rose-500/10">
@@ -894,15 +902,17 @@ export default function AccountingNew() {
                   </p>
                 </div>
                 <div className="rounded-lg border bg-purple-50 p-4 dark:bg-purple-500/10">
-                  <p className="text-sm font-medium text-purple-800 dark:text-purple-200">Profit/(Loss) for the Year</p>
+                  <p className="text-sm font-medium text-purple-800 dark:text-purple-200">
+                    {financials.netIncome >= 0 ? "Profit for the Year" : "(Loss) for the Year"}
+                  </p>
                   <p
                     className={`text-2xl font-semibold ${
                       financials.netIncome >= 0
-                        ? "text-purple-600 dark:text-purple-300"
+                        ? "text-emerald-600 dark:text-emerald-300"
                         : "text-rose-600 dark:text-rose-300"
                     }`}
                   >
-                    {formatCurrency(financials.netIncome)}
+                    {formatCurrency(Math.abs(financials.netIncome))}
                   </p>
                 </div>
               </div>
@@ -919,7 +929,7 @@ export default function AccountingNew() {
                     {/* REVENUE */}
                     <tr className="border-b-2 border-border">
                       <td className="py-2 font-semibold">REVENUE</td>
-                      <td className="amount py-2 font-semibold">{formatCurrency(financials.totalRevenue)}</td>
+                      <td className="amount py-2 font-semibold">{formatCurrency(Math.abs(financials.totalRevenue))}</td>
                     </tr>
                     
                     {/* COST OF SALES */}
@@ -939,9 +949,12 @@ export default function AccountingNew() {
                     )}
                     
                     {/* GROSS PROFIT */}
-                    <tr className="border-t border-b-2 border-border">
+                    <tr 
+                      className="border-t border-b-2 border-border"
+                      style={{ backgroundColor: "#d4edda" }}
+                    >
                       <td className="py-2 font-semibold">GROSS PROFIT</td>
-                      <td className="amount py-2 font-semibold">{formatCurrency(financials.grossProfit)}</td>
+                      <td className="amount py-2 font-semibold">{formatCurrency(Math.abs(financials.grossProfit))}</td>
                     </tr>
                     
                     {/* OTHER INCOME */}

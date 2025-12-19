@@ -170,39 +170,182 @@ export class MLService {
   }
 
   /**
-   * Forecast revenue for next N periods
+   * Calculate R² (coefficient of determination) for model accuracy
+   * R² = 1 - (SS_res / SS_tot)
+   */
+  private calculateRSquared(actual: number[], predicted: number[]): number {
+    if (actual.length !== predicted.length || actual.length === 0) return 0;
+    
+    const mean = actual.reduce((a, b) => a + b, 0) / actual.length;
+    
+    // Total sum of squares
+    const ssTot = actual.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0);
+    
+    // Residual sum of squares
+    const ssRes = actual.reduce((sum, val, i) => sum + Math.pow(val - predicted[i], 2), 0);
+    
+    if (ssTot === 0) return 1; // Perfect prediction when all values are the same
+    
+    return Math.max(0, 1 - (ssRes / ssTot));
+  }
+
+  /**
+   * Calculate MAE (Mean Absolute Error)
+   */
+  private calculateMAE(actual: number[], predicted: number[]): number {
+    if (actual.length !== predicted.length || actual.length === 0) return 0;
+    const sum = actual.reduce((acc, val, i) => acc + Math.abs(val - predicted[i]), 0);
+    return sum / actual.length;
+  }
+
+  /**
+   * Calculate MAPE (Mean Absolute Percentage Error)
+   */
+  private calculateMAPE(actual: number[], predicted: number[]): number {
+    if (actual.length !== predicted.length || actual.length === 0) return 0;
+    const sum = actual.reduce((acc, val, i) => {
+      if (val === 0) return acc;
+      return acc + Math.abs((val - predicted[i]) / val);
+    }, 0);
+    return (sum / actual.length) * 100;
+  }
+
+  /**
+   * Forecast revenue for next N periods with train/test split validation
+   * Uses walk-forward validation: Train on earlier months, test on later months
    */
   forecastRevenue(historicalRevenue: DataPoint[], periodsAhead: number = 3): {
-    forecasts: Array<{ period: number; value: number; confidence: number }>;
+    forecasts: Array<{ 
+      period: number; 
+      value: number; 
+      confidence: number;
+      calculation?: {
+        formula: string;
+        slope: number;
+        intercept: number;
+        rSquared: number;
+        dataPoints: number;
+        method: string;
+        xValue: number;
+        calculation: string;
+      };
+    }>;
     totalPredicted: number;
+    modelMetrics: {
+      rSquared: number;
+      mae: number;
+      mape: number;
+      trainSize: number;
+      testSize: number;
+      splitRatio: string;
+    };
   } {
-    const forecasts: Array<{ period: number; value: number; confidence: number }> = [];
+    const forecasts: Array<{ 
+      period: number; 
+      value: number; 
+      confidence: number;
+      calculation?: {
+        formula: string;
+        slope: number;
+        intercept: number;
+        rSquared: number;
+        dataPoints: number;
+        method: string;
+        xValue: number;
+        calculation: string;
+      };
+    }> = [];
     let totalPredicted = 0;
 
-    const { slope, intercept } = this.linearRegression(historicalRevenue);
+    const n = historicalRevenue.length;
     const values = historicalRevenue.map(d => d.value);
+    
+    // ============= TRAIN/TEST SPLIT =============
+    // For time series: use first N-1 months for training, last month for testing
+    // This simulates predicting the most recent month from historical data
+    let trainSize = Math.max(2, n - 1); // At least 2 points for training
+    let testSize = n - trainSize;
+    
+    // If we only have 3 data points, use 2 for training, 1 for testing (67%/33% split)
+    if (n === 3) {
+      trainSize = 2;
+      testSize = 1;
+    } else if (n > 3) {
+      // For more data, use 80/20 split
+      trainSize = Math.floor(n * 0.8);
+      testSize = n - trainSize;
+    }
+    
+    const trainData = historicalRevenue.slice(0, trainSize);
+    const testData = historicalRevenue.slice(trainSize);
+    
+    // Train on training set
+    const { slope, intercept } = this.linearRegression(trainData);
+    
+    // Calculate predictions for test set to get R²
+    const testActual = testData.map(d => d.value);
+    const testPredicted = testData.map((_, i) => {
+      const xValue = trainSize + i;
+      return Math.max(0, slope * xValue + intercept);
+    });
+    
+    // Calculate model metrics
+    const rSquared = testSize > 0 ? this.calculateRSquared(testActual, testPredicted) : 0;
+    const mae = testSize > 0 ? this.calculateMAE(testActual, testPredicted) : 0;
+    const mape = testSize > 0 ? this.calculateMAPE(testActual, testPredicted) : 0;
+    
+    // Now retrain on ALL data for final predictions
+    const { slope: finalSlope, intercept: finalIntercept } = this.linearRegression(historicalRevenue);
+    
+    // Calculate confidence based on R² and data consistency
     const stdDev = this.standardDeviation(values);
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    const cv = stdDev / avg;
+    
+    // Base confidence combines R² (model fit) and CV (data consistency)
+    // R² weight: 60%, CV weight: 40%
+    const rSquaredConfidence = rSquared * 100;
+    const cvConfidence = Math.max(0, Math.min(100, 100 - (cv * 100)));
+    const baseConfidence = (rSquaredConfidence * 0.6) + (cvConfidence * 0.4);
 
     for (let i = 1; i <= periodsAhead; i++) {
-      const nextIndex = historicalRevenue.length + i - 1;
-      const predictedValue = Math.max(0, slope * nextIndex + intercept);
+      const nextIndex = n + i - 1;
+      const predictedValue = Math.max(0, finalSlope * nextIndex + finalIntercept);
       
-      // Confidence decreases with distance from known data
-      const cv = stdDev / avg;
-      const baseConfidence = Math.max(0, Math.min(100, 100 - (cv * 100)));
+      // Confidence decreases with distance from known data (10% decay per period)
       const confidence = Math.round(baseConfidence * Math.pow(0.9, i - 1));
 
       forecasts.push({
         period: i,
         value: Math.round(predictedValue * 100) / 100,
-        confidence
+        confidence,
+        calculation: {
+          formula: `y = ${finalSlope.toFixed(2)}x + ${finalIntercept.toFixed(2)}`,
+          slope: Math.round(finalSlope * 100) / 100,
+          intercept: Math.round(finalIntercept * 100) / 100,
+          rSquared: Math.round(rSquared * 1000) / 1000,
+          dataPoints: n,
+          method: 'Linear Regression (Least Squares)',
+          xValue: nextIndex,
+          calculation: `y = ${finalSlope.toFixed(2)} × ${nextIndex} + ${finalIntercept.toFixed(2)} = ${predictedValue.toFixed(2)}`
+        }
       });
 
       totalPredicted += predictedValue;
     }
 
-    return { forecasts, totalPredicted: Math.round(totalPredicted * 100) / 100 };
+    return { 
+      forecasts, 
+      totalPredicted: Math.round(totalPredicted * 100) / 100,
+      modelMetrics: {
+        rSquared: Math.round(rSquared * 1000) / 1000,
+        mae: Math.round(mae * 100) / 100,
+        mape: Math.round(mape * 100) / 100,
+        trainSize,
+        testSize,
+        splitRatio: `${Math.round((trainSize/n)*100)}/${Math.round((testSize/n)*100)}`
+      }
+    };
   }
 
   /**

@@ -209,24 +209,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await Promise.all(customerOrderDeletes);
       console.log(`[DELETE USER DATA] Deleted ${customerOrdersSnapshot.size} orders as customer`);
 
-      // Delete all orders where user is the seller (check all orders for items with sellerId)
-      const allOrdersSnapshot = await db.collection("orders").get();
-      const sellerOrderDeletes: Promise<any>[] = [];
-      
-      for (const doc of allOrdersSnapshot.docs) {
-        const order = doc.data();
-        // Delete if user is seller in any item and not already deleted
-        if (order.items?.some((item: any) => item.sellerId === userId)) {
-          // Check if not already deleted by customer query
-          const alreadyDeleted = customerOrdersSnapshot.docs.some(customerDoc => customerDoc.id === doc.id);
-          if (!alreadyDeleted) {
-            sellerOrderDeletes.push(doc.ref.delete());
-          }
-        }
+      // Delete all orders where user is the seller
+      // Query by sellerId field directly instead of fetching all orders
+      let sellerOrderDeletes: Promise<any>[] = [];
+      try {
+        const sellerOrdersSnapshot = await db.collection("orders")
+          .where("sellerId", "==", userId)
+          .get();
+        
+        // Filter out orders already deleted as customer to avoid duplicates
+        const customerOrderIds = new Set(customerOrdersSnapshot.docs.map(doc => doc.id));
+        sellerOrderDeletes = sellerOrdersSnapshot.docs
+          .filter(doc => !customerOrderIds.has(doc.id))
+          .map(doc => doc.ref.delete());
+        
+        await Promise.all(sellerOrderDeletes);
+        console.log(`[DELETE USER DATA] Deleted ${sellerOrderDeletes.length} orders as seller`);
+      } catch (error: any) {
+        console.log(`[DELETE USER DATA] No seller orders found (index may not exist):`, error.message);
       }
-      
-      await Promise.all(sellerOrderDeletes);
-      console.log(`[DELETE USER DATA] Deleted ${sellerOrderDeletes.length} orders as seller`);
 
       // Delete all accounting entries
       const accountingSnapshot = await db.collection("accountingEntries").where("userId", "==", userId).get();
@@ -977,21 +978,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const lowStockCount = lowStockProducts.length;
         const outOfStockCount = productsSnapshot.docs.filter(doc => (doc.data().stock || 0) === 0).length;
 
+        // Calculate week range and average order value for weekly summary
+        const now = new Date();
+        const lastWeekStart = new Date(now);
+        lastWeekStart.setDate(now.getDate() - 7);
+        const weekRange = `${lastWeekStart.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+        })} - ${now.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        })}`;
+        const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+        // Calculate total sales (quantity of items sold)
+        const totalSales = topProducts.reduce((sum, p) => sum + p.quantity, 0);
+
         // Send weekly summary with real data
         success = await emailService.sendWeeklySummary(
           email,
           companyName,
           {
+            weekRange,
+            totalSales: totalSales || 0,
             totalOrders: totalOrders || 0,
             totalRevenue: totalRevenue || 0,
-            newCustomers: uniqueCustomers || 0,
-            inventoryValue: inventoryValue || 0,
-            lowStockCount: lowStockCount,
-            outOfStockCount: outOfStockCount,
+            averageOrderValue: averageOrderValue || 0,
             topProducts: topProducts.length > 0 ? topProducts : [
               { name: 'No sales data yet', quantity: 0, revenue: 0 }
             ],
-            lowStockProducts: lowStockProducts
+            inventoryStatus: {
+              totalProducts: productsSnapshot.docs.length,
+              lowStockCount: lowStockCount,
+              outOfStockCount: outOfStockCount
+            }
           }
         );
       } else {
@@ -1084,7 +1105,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Temporary public endpoint to verify server -> Firestore connectivity (no auth)
   app.get("/api/public/products", async (_req, res) => {
     try {
-      const products: any[] = await storage.getProducts();
+      // Limit to 500 products to prevent quota exhaustion
+      const products: any[] = await storage.getProducts(undefined, undefined, 500);
       
       // Fetch user settings to get company names for each product
       const productsWithCompanyNames = await Promise.all(
@@ -1360,7 +1382,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get accounting entries for financial data (already filtered by userId)
       let accountingEntries: any[] = [];
       try {
-        accountingEntries = await storage.getAccountingEntries(userId);
+        accountingEntries = await storage.getAccountingEntries(userId, {
+          limit: 10000
+        });
         console.log(`[REPORTS] Fetched ${accountingEntries.length} accounting entries`);
       } catch (error: any) {
         console.error(`[REPORTS] Error fetching accounting entries:`, error.message);
@@ -1372,18 +1396,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get transactions only for user's products
       const productIds = products.map(p => p.id);
-      const transactions = productIds.length > 0 
-        ? await storage.getInventoryTransactionsByProducts(productIds)
-        : [];
+      
+      let transactions: any[] = [];
+      if (productIds.length > 0) {
+        try {
+          transactions = await storage.getInventoryTransactionsByProducts(productIds);
+        } catch (txError: any) {
+          console.error(`[REPORTS] Error fetching transactions:`, txError.message);
+          // Continue without transactions if there's an error
+          transactions = [];
+        }
+      }
       
       console.log(`[REPORTS] Found ${transactions.length} transactions for user's products`);
 
       // Also get orders to supplement data (for Kaggle imports and historical data)
-      const ordersSnapshot = await db.collection("orders")
-        .where("sellerId", "==", userId)
-        .get();
-      const orders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      console.log(`[REPORTS] Found ${orders.length} orders for user`);
+      let orders: any[] = [];
+      try {
+        const ordersSnapshot = await db.collection("orders")
+          .where("sellerId", "==", userId)
+          .get();
+        orders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        console.log(`[REPORTS] Found ${orders.length} orders for user`);
+      } catch (orderError: any) {
+        console.error(`[REPORTS] Error fetching orders:`, orderError.message);
+        // Continue without orders if there's an error
+        orders = [];
+      }
 
       const productById = new Map(products.map((p: any) => [p.id, p]));
 
@@ -1537,8 +1576,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         value: accountingByMonth[m].revenue
       }));
       
-      // Generate predictions for next 3 periods
-      const { forecasts, totalPredicted } = mlService.forecastRevenue(revenueHistory, 3);
+      // Generate predictions for next 3 periods with train/test split validation
+      const { forecasts, totalPredicted, modelMetrics } = mlService.forecastRevenue(revenueHistory, 3);
+      
+      console.log(`[REPORTS] ML Model Metrics:`, {
+        rSquared: modelMetrics.rSquared,
+        mae: modelMetrics.mae,
+        mape: modelMetrics.mape,
+        split: modelMetrics.splitRatio,
+        trainSize: modelMetrics.trainSize,
+        testSize: modelMetrics.testSize
+      });
+      
       const predictions = forecasts.map((f, index) => {
         const lastMonth = sortedAccountingMonths.length > 0 
           ? sortedAccountingMonths[sortedAccountingMonths.length - 1]
@@ -1550,7 +1599,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return {
           period: `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`,
           predicted: f.value,
-          confidence: f.confidence
+          confidence: f.confidence,
+          calculation: f.calculation
         };
       });
       
@@ -1562,6 +1612,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         trend: prediction.trend,
         recommendation: prediction.recommendation,
         anomalies: anomalyDetection.anomalies.length,
+        modelMetrics: {
+          rSquared: modelMetrics.rSquared,
+          mae: modelMetrics.mae,
+          mape: modelMetrics.mape,
+          trainTestSplit: modelMetrics.splitRatio,
+          trainMonths: modelMetrics.trainSize,
+          testMonths: modelMetrics.testSize
+        }
       };
 
       // Category distribution by summing quantities of products per category
@@ -1885,7 +1943,8 @@ Remember: You're helping a business owner understand their operations better. Be
 
       const cached = cache.get(cacheKey);
       if (cached) {
-        res.set("Cache-Control", "private, max-age=300");
+        // Use no-store to prevent browser caching issues with mutable data
+        res.set("Cache-Control", "no-store, no-cache, must-revalidate");
         res.set("X-Cache", "HIT");
         return res.json(cached);
       }
@@ -1911,7 +1970,8 @@ Remember: You're helping a business owner understand their operations better. Be
 
       cache.set(cacheKey, serializedEntries, 300000);
 
-      res.set("Cache-Control", "private, max-age=300");
+      // Use no-store to prevent browser caching issues with mutable data
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate");
       res.set("X-Cache", "MISS");
       res.json(serializedEntries);
     } catch (error) {
@@ -2227,13 +2287,19 @@ Remember: You're helping a business owner understand their operations better. Be
 
       // Generate AI response if message is from user
       if (isFromUser) {
-        // Get comprehensive context for better responses
-        const [products, stats, categories, orders] = await Promise.all([
-          storage.getProducts(),
+        // Get comprehensive context for better responses (limited to prevent quota exhaustion)
+        const [products, stats, categories] = await Promise.all([
+          storage.getProducts(undefined, undefined, 100),
           storage.getDashboardStats(),
-          storage.getCategories(),
-          storage.getOrders()
+          storage.getCategories()
         ]);
+
+        // Get orders from Firestore directly
+        const ordersSnapshot = await db.collection('orders')
+          .orderBy('createdAt', 'desc')
+          .limit(100)
+          .get();
+        const orders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
         // Calculate financial data
         let totalRevenue = 0;

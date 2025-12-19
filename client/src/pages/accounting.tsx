@@ -9,7 +9,7 @@ import Sidebar from "@/components/sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DollarSign, TrendingUp, TrendingDown, Calculator, Printer, RefreshCw } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Calculator, Printer, RefreshCw, Trash2 } from "lucide-react";
 import type { AccountingEntry } from "@shared/schema";
 import { isUnauthorizedError } from "@/lib/authUtils";
 
@@ -18,6 +18,7 @@ export default function Accounting() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -41,10 +42,10 @@ export default function Accounting() {
       return res.json();
     },
     enabled: isAuthenticated,
-    staleTime: 1000 * 60 * 10, // Data stays fresh for 10 minutes
-    gcTime: 1000 * 60 * 30, // Keep in cache for 30 minutes
-    refetchOnMount: false, // Don't refetch on mount if data is still fresh
-    refetchOnWindowFocus: false, // Don't refetch when window regains focus
+    staleTime: 0, // Always fetch fresh data
+    gcTime: 0, // Don't cache
+    refetchOnMount: true, // Always refetch on mount
+    refetchOnWindowFocus: true, // Refetch when window regains focus
     refetchOnReconnect: true,
   });
 
@@ -56,14 +57,49 @@ export default function Accounting() {
       return res.json();
     },
     enabled: isAuthenticated,
-    staleTime: 1000 * 60 * 10, // Data stays fresh for 10 minutes
-    gcTime: 1000 * 60 * 30, // Keep in cache for 30 minutes
-    refetchOnMount: false, // Don't refetch on mount if data is still fresh
-    refetchOnWindowFocus: false, // Don't refetch when window regains focus
+    staleTime: 0, // Always fetch fresh data
+    gcTime: 0, // Don't cache
+    refetchOnMount: true, // Always refetch on mount
+    refetchOnWindowFocus: true, // Refetch when window regains focus
     refetchOnReconnect: true,
   });
 
   const reportRef = useRef<HTMLDivElement | null>(null);
+
+  const handleDeleteAllEntries = async () => {
+    if (!window.confirm('⚠️ WARNING: This will permanently delete ALL your accounting entries. This action cannot be undone. Are you sure you want to continue?')) {
+      return;
+    }
+
+    if (!window.confirm('This is your last chance. Permanently delete ALL accounting entries?')) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const response = await apiRequest('DELETE', '/api/accounting/entries/all');
+      if (!response.ok) {
+        throw new Error('Failed to delete entries');
+      }
+
+      const data = await response.json();
+      toast({
+        title: "Success",
+        description: `Successfully deleted ${data.deletedCount || 0} accounting entries`,
+      });
+
+      // Refresh the page to show updated data
+      window.location.reload();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete entries",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const handlePrintReport = () => {
     if (!reportRef.current) return;
@@ -392,10 +428,22 @@ export default function Accounting() {
         {/* Accounting Entries Table */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Calculator size={20} />
-              <span>Accounting Entries</span>
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center space-x-2">
+                <Calculator size={20} />
+                <span>Accounting Entries</span>
+              </CardTitle>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDeleteAllEntries}
+                disabled={isDeleting || !entries || entries.length === 0}
+                data-testid="button-delete-all-entries"
+              >
+                <Trash2 size={16} className="mr-2" />
+                {isDeleting ? "Deleting..." : "Delete All Entries"}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {entriesLoading ? (

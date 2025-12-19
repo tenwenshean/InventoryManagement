@@ -338,6 +338,16 @@ export default async function handler(req, res) {
         return await handleCreateAccountingEntry(req, res, user);
       }
 
+      // DELETE /api/accounting/entries/all
+      if (pathParts[1] === 'entries' && pathParts[2] === 'all' && pathParts.length === 3 && req.method === 'DELETE') {
+        return await handleDeleteAllAccountingEntries(req, res, user);
+      }
+
+      // DELETE /api/accounting/entries/all
+      if (pathParts[1] === 'entries' && pathParts[2] === 'all' && pathParts.length === 3 && req.method === 'DELETE') {
+        return await handleDeleteAllAccountingEntries(req, res, user);
+      }
+
       // DELETE /api/accounting/entries/:id
       if (pathParts[1] === 'entries' && pathParts.length === 3 && req.method === 'DELETE') {
         return await handleDeleteAccountingEntry(req, res, user, pathParts[2]);
@@ -1437,22 +1447,35 @@ async function handleGetAccountingEntries(req, res, user) {
     }
 
     const snapshot = await query.get();
+    console.log('[handleGetAccountingEntries] Query returned', snapshot.size, 'documents');
+    
     const entries = snapshot.docs.map(doc => {
       const data = doc.data();
-      return {
+      const entry = {
         id: doc.id,
         ...data,
         createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt
       };
+      
+      // Verify userId matches
+      if (entry.userId !== userId) {
+        console.error('[handleGetAccountingEntries] SECURITY ISSUE: Entry', entry.id, 'has userId', entry.userId, 'but requested by', userId);
+      }
+      
+      return entry;
     });
 
-    console.log('[handleGetAccountingEntries] Found', entries.length, 'entries for user', userId);
+    console.log('[handleGetAccountingEntries] Returning', entries.length, 'entries for user', userId);
     // Log first entry for debugging
     if (entries.length > 0) {
-      console.log('[handleGetAccountingEntries] Sample entry:', {
+      console.log('[handleGetAccountingEntries] First entry:', {
         id: entries[0].id,
         userId: entries[0].userId,
-        accountName: entries[0].accountName
+        accountName: entries[0].accountName,
+        accountType: entries[0].accountType,
+        debit: entries[0].debitAmount,
+        credit: entries[0].creditAmount,
+        createdAt: entries[0].createdAt
       });
     }
 
@@ -1468,7 +1491,6 @@ async function handleGetAccountingEntries(req, res, user) {
 
 async function handleCreateAccountingEntry(req, res, user) {
   const { db } = await initializeFirebase();
-  const adminModule = await import('firebase-admin');
   
   try {
     const entryData = req.body;
@@ -1480,28 +1502,39 @@ async function handleCreateAccountingEntry(req, res, user) {
       });
     }
 
+    console.log('[CREATE ENTRY] Creating entry for user:', user.uid, 'account:', entryData.accountName);
+
     const ref = db.collection('accountingEntries').doc();
+    const now = new Date();
+    
     const newEntry = {
       ...entryData,
       id: ref.id,
       userId: user.uid,
       debitAmount: entryData.debitAmount || '0',
       creditAmount: entryData.creditAmount || '0',
-      createdAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+      createdAt: now // Use regular Date for immediate query availability
     };
 
-    await ref.set(newEntry);
+    console.log('[CREATE ENTRY] Entry data:', {
+      id: newEntry.id,
+      userId: newEntry.userId,
+      accountName: newEntry.accountName,
+      debitAmount: newEntry.debitAmount,
+      creditAmount: newEntry.creditAmount,
+      createdAt: now.toISOString()
+    });
 
-    // Fetch the created document to get actual timestamp
-    const createdDoc = await ref.get();
-    const createdData = createdDoc.data();
+    await ref.set(newEntry);
+    console.log('[CREATE ENTRY] Entry saved to Firestore');
 
     const responseData = {
       id: ref.id,
-      ...createdData,
-      createdAt: createdData.createdAt?.toDate?.()?.toISOString() || createdData.createdAt
+      ...newEntry,
+      createdAt: now.toISOString()
     };
 
+    console.log('[CREATE ENTRY] Returning response');
     return res.status(201).json(responseData);
   } catch (error) {
     console.error('Error creating accounting entry:', error);
@@ -1534,6 +1567,55 @@ async function handleDeleteAccountingEntry(req, res, user, entryId) {
     console.error('Error deleting accounting entry:', error);
     return res.status(500).json({ 
       message: 'Failed to delete accounting entry',
+      error: error.message 
+    });
+  }
+}
+
+async function handleDeleteAllAccountingEntries(req, res, user) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    console.log(`[DELETE ALL ENTRIES] User ${user.uid} requesting to delete all accounting entries`);
+    
+    // Get all entries for this user
+    const entriesSnapshot = await db.collection('accountingEntries')
+      .where('userId', '==', user.uid)
+      .get();
+    
+    const entryCount = entriesSnapshot.size;
+    console.log(`[DELETE ALL ENTRIES] Found ${entryCount} entries to delete`);
+    
+    if (entryCount === 0) {
+      return res.json({ message: 'No entries to delete', deletedCount: 0 });
+    }
+    
+    // Delete in batches
+    const batchSize = 500;
+    let deletedCount = 0;
+    
+    for (let i = 0; i < entriesSnapshot.docs.length; i += batchSize) {
+      const batch = db.batch();
+      const batchDocs = entriesSnapshot.docs.slice(i, i + batchSize);
+      
+      batchDocs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      
+      await batch.commit();
+      deletedCount += batchDocs.length;
+      console.log(`[DELETE ALL ENTRIES] Deleted batch: ${deletedCount}/${entryCount}`);
+    }
+    
+    console.log(`[DELETE ALL ENTRIES] Successfully deleted ${deletedCount} entries`);
+    return res.json({ 
+      message: 'All accounting entries deleted successfully', 
+      deletedCount 
+    });
+  } catch (error) {
+    console.error('[DELETE ALL ENTRIES] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to delete entries', 
       error: error.message 
     });
   }
@@ -2302,13 +2384,25 @@ async function handleGetReportsData(req, res, user) {
       returnRate: '0%'
     };
 
-    // Group by month
+    // Group by month - Use current dates, not historical data dates
     const monthKey = (date) => {
       const d = date.toDate ? date.toDate() : new Date(date);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     };
 
+    // Generate last 12 months of dates (current period)
+    const currentDate = new Date();
+    const last12Months = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
+      last12Months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+
     const byMonth = {};
+    // Initialize all months with zeros
+    last12Months.forEach(month => {
+      byMonth[month] = { sales: 0, returns: 0, inStock: 0, outStock: 0, revenue: 0 };
+    });
     
     // Process inventory transactions
     for (const tx of transactions) {

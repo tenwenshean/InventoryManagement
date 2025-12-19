@@ -82,18 +82,23 @@ export class DatabaseStorage {
   // PRODUCTS
   // ===============================
   // Wrapper to support optional search parameter expected by routes
-  async getProducts(search?: string, userId?: string): Promise<Product[]> {
-    return this.getProductsBySearch(search, userId);
+  async getProducts(search?: string, userId?: string, limit?: number): Promise<Product[]> {
+    return this.getProductsBySearch(search, userId, limit);
   }
 
   // Support optional search parameter
-  async getProductsBySearch(search?: string, userId?: string): Promise<Product[]> {
+  async getProductsBySearch(search?: string, userId?: string, limit?: number): Promise<Product[]> {
     let query: FirebaseFirestore.Query = db.collection("products");
     
     if (userId) {
       query = query.where("userId", "==", userId);
     }
     query = query.orderBy("createdAt", "desc");
+    
+    // Add limit to prevent quota exhaustion (default 1000)
+    if (limit !== undefined && limit > 0) {
+      query = query.limit(limit);
+    }
     
     const snapshot = await query.get();
     
