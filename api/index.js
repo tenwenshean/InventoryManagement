@@ -435,6 +435,12 @@ export default async function handler(req, res) {
       return await handleAcceptOrder(req, res, user, orderId);
     }
 
+    // ===== ORDER COMPLETE (RECEIVED) ROUTE - Customer marks order as received =====
+    if (pathParts[0] === 'orders' && pathParts[2] === 'complete' && req.method === 'POST') {
+      const orderId = pathParts[1];
+      return await handleCompleteOrder(req, res, orderId);
+    }
+
     // ===== EASY PARCEL / SHIPPING ROUTES =====
     // POST /api/shipping/create - Create shipment and get waybill
     if (pathParts[0] === 'shipping' && pathParts[1] === 'create' && req.method === 'POST') {
@@ -2285,6 +2291,59 @@ async function handleAcceptOrder(req, res, user, orderId) {
     console.error('[ACCEPT ORDER] Error:', error);
     return res.status(500).json({ 
       message: 'Failed to accept order',
+      error: error.message 
+    });
+  }
+}
+
+// ===== COMPLETE ORDER HANDLER (Customer marks order as received) =====
+async function handleCompleteOrder(req, res, orderId) {
+  const { db, adminModule } = await initializeFirebase();
+  
+  try {
+    console.log('[COMPLETE ORDER] Marking order as completed:', orderId);
+
+    // Get the order
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    
+    if (!orderDoc.exists) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    const orderData = orderDoc.data();
+
+    // Only shipped orders can be marked as completed
+    if (orderData.status !== 'processing' || !orderData.shipmentId) {
+      return res.status(400).json({ 
+        message: 'Only shipped orders can be marked as received' 
+      });
+    }
+
+    // Update order to completed
+    await db.collection('orders').doc(orderId).update({
+      status: 'completed',
+      completedAt: adminModule.default.firestore.FieldValue.serverTimestamp(),
+      receivedByCustomer: true,
+      updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log('[COMPLETE ORDER] Order completed:', orderData.orderNumber);
+
+    return res.json({
+      success: true,
+      message: 'Order marked as received',
+      order: {
+        ...orderData,
+        id: orderId,
+        status: 'completed',
+        receivedByCustomer: true
+      }
+    });
+
+  } catch (error) {
+    console.error('[COMPLETE ORDER] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to complete order',
       error: error.message 
     });
   }

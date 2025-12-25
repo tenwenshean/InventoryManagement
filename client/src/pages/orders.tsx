@@ -99,8 +99,25 @@ export default function Orders() {
       if (!response.ok) throw new Error('Failed to fetch orders');
       return response.json();
     },
+    enabled: !!user?.uid,
+    staleTime: 0, // Always consider data stale to get fresh data
+    refetchOnMount: 'always', // Always refetch when component mounts
+  });
+
+  // Fetch available products to check if order items still exist
+  const { data: availableProducts } = useQuery({
+    queryKey: ['seller-products', user?.uid],
+    queryFn: async () => {
+      if (!user?.uid) return [];
+      const response = await apiRequest('GET', '/api/products');
+      if (!response.ok) throw new Error('Failed to fetch products');
+      return response.json();
+    },
     enabled: !!user?.uid
   });
+
+  // Create a set of available product IDs for quick lookup
+  const availableProductIds = new Set(availableProducts?.map((p: any) => p.id) || []);
 
   // Handle refund approval/rejection
   const refundMutation = useMutation({
@@ -324,6 +341,8 @@ export default function Orders() {
               <SelectContent>
                 <SelectItem value="all">All Orders</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="processing">In Shipment</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="refund-requested">Refund Requested</SelectItem>
                 <SelectItem value="refunded">Refunded</SelectItem>
               </SelectContent>
@@ -352,12 +371,22 @@ export default function Orders() {
                             className={
                               order.status === 'pending' 
                                 ? 'bg-yellow-100 text-yellow-800' 
+                                : order.status === 'completed'
+                                ? 'bg-green-100 text-green-800'
+                                : order.status === 'processing'
+                                ? 'bg-blue-100 text-blue-800'
                                 : order.refundApproved
                                 ? 'bg-green-100 text-green-800'
                                 : ''
                             }
                           >
-                            {order.refundApproved ? 'Refunded' : order.status}
+                            {order.status === 'completed' 
+                              ? 'Completed' 
+                              : order.status === 'processing'
+                              ? 'In Shipment'
+                              : order.refundApproved 
+                              ? 'Refunded' 
+                              : order.status}
                           </Badge>
                           {order.refundRequested && !order.refundApproved && !order.refundRejected && (
                             <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300">
@@ -412,21 +441,36 @@ export default function Orders() {
                       <div>
                         <p className="text-sm font-medium text-gray-700 mb-2">Items:</p>
                         <div className="space-y-2">
-                          {order.items?.map((item: any, idx: number) => (
-                            <div key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
-                              <div className="flex items-center space-x-2">
-                                <Package className="w-4 h-4 text-gray-400" />
-                                <span className="font-medium">{item.productName}</span>
-                                <span className="text-gray-500">× {item.quantity}</span>
+                          {order.items?.map((item: any, idx: number) => {
+                            const isProductAvailable = availableProductIds.has(item.productId);
+                            return (
+                              <div 
+                                key={idx} 
+                                className={`flex items-center justify-between text-sm p-2 rounded border ${
+                                  isProductAvailable ? 'bg-white' : 'bg-red-50 border-red-200'
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2">
+                                  <Package className={`w-4 h-4 ${isProductAvailable ? 'text-gray-400' : 'text-red-400'}`} />
+                                  <span className={`font-medium ${!isProductAvailable ? 'line-through text-red-600' : ''}`}>
+                                    {item.productName}
+                                  </span>
+                                  {!isProductAvailable && (
+                                    <Badge variant="destructive" className="text-xs">
+                                      Product Deleted
+                                    </Badge>
+                                  )}
+                                  <span className="text-gray-500">× {item.quantity}</span>
+                                </div>
+                                <div className="flex items-center space-x-3">
+                                  <span className="text-gray-600">{formatCurrency(item.unitPrice)} each</span>
+                                  <span className={`font-semibold ${!isProductAvailable ? 'text-red-600' : 'text-red-600'}`}>
+                                    {formatCurrency(item.totalPrice || 0)}
+                                  </span>
+                                </div>
                               </div>
-                              <div className="flex items-center space-x-3">
-                                <span className="text-gray-600">{formatCurrency(item.unitPrice)} each</span>
-                                <span className="font-semibold text-red-600">
-                                  {formatCurrency(item.totalPrice || 0)}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                         <div className="flex justify-between items-center mt-3 pt-3 border-t">
                           <span className="font-semibold">Total Amount:</span>

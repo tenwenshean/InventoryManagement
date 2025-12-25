@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged } from "firebase/auth";
 import type { Product } from "@/types";
@@ -16,6 +16,8 @@ interface CartContextType {
   clearCart: () => void;
   cartTotal: number;
   cartCount: number;
+  validateAndCleanCart: () => Promise<{ removedProducts: string[] }>;
+  isValidating: boolean;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -23,6 +25,60 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 export function CartProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+
+  // Validate cart items against existing products
+  const validateAndCleanCart = useCallback(async (): Promise<{ removedProducts: string[] }> => {
+    if (cart.length === 0) {
+      return { removedProducts: [] };
+    }
+
+    setIsValidating(true);
+    const removedProducts: string[] = [];
+
+    try {
+      // Fetch all available products - use direct fetch to avoid apiRequest throwing on error
+      const API_BASE = (import.meta as any)?.env?.VITE_API_BASE || "";
+      const response = await fetch(`${API_BASE}/api/public/products`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        console.error("Failed to fetch products for cart validation:", response.status);
+        setIsValidating(false);
+        return { removedProducts: [] };
+      }
+
+      const availableProducts: Product[] = await response.json();
+      const availableProductIds = new Set(availableProducts.map(p => p.id));
+
+      // Filter out products that no longer exist
+      const validCart = cart.filter(item => {
+        const exists = availableProductIds.has(item.product.id);
+        if (!exists) {
+          removedProducts.push(item.product.name);
+          console.log(`Removing non-existent product from cart: ${item.product.name} (ID: ${item.product.id})`);
+        }
+        return exists;
+      });
+
+      // Update cart if any products were removed
+      if (removedProducts.length > 0) {
+        setCart(validCart);
+        // Update localStorage
+        if (currentUserId) {
+          localStorage.setItem(`shoppingCart_${currentUserId}`, JSON.stringify(validCart));
+        }
+      }
+    } catch (error) {
+      console.error("Error validating cart:", error);
+    } finally {
+      setIsValidating(false);
+    }
+
+    return { removedProducts };
+  }, [cart, currentUserId]);
 
   // Listen to auth state changes
   useEffect(() => {
@@ -104,7 +160,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
         removeFromCart,
         clearCart,
         cartTotal,
-        cartCount
+        cartCount,
+        validateAndCleanCart,
+        isValidating
       }}
     >
       {children}

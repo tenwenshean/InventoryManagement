@@ -29,10 +29,34 @@ export default function CartPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [cartValidated, setCartValidated] = useState(false);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const { cart, updateCartQuantity, removeFromCart, clearCart, cartTotal, cartCount } = useCart();
+  const { cart, updateCartQuantity, removeFromCart, clearCart, cartTotal, cartCount, validateAndCleanCart, isValidating } = useCart();
   const queryClient = useQueryClient();
+
+  // Validate cart when page loads - remove products that no longer exist
+  useEffect(() => {
+    const validateCart = async () => {
+      if (cartValidated || isValidating) return;
+      
+      const { removedProducts } = await validateAndCleanCart();
+      setCartValidated(true);
+      
+      if (removedProducts.length > 0) {
+        toast({
+          title: "Cart Updated",
+          description: `Removed ${removedProducts.length} unavailable item(s): ${removedProducts.join(", ")}`,
+          variant: "destructive",
+        });
+      }
+    };
+    
+    // Only validate after auth is checked and user is logged in
+    if (authChecked && currentUser && cart.length > 0) {
+      validateCart();
+    }
+  }, [authChecked, currentUser, cart.length, cartValidated, isValidating, validateAndCleanCart, toast]);
 
   // Helper function to get display name
   const getDisplayName = (user: any): string => {

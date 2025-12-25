@@ -26,7 +26,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useCart } from "@/contexts/CartContext";
 import { apiRequest } from "@/lib/queryClient";
 import CustomerLoginModal from "@/components/customer-login-modal";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Coupon } from "@/types";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
@@ -115,6 +115,7 @@ export default function CheckoutPage() {
   const [stockErrors, setStockErrors] = useState<Record<string, string>>({});
   const [clientSecret, setClientSecret] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'cod'>('card');
+  const [cartValidated, setCartValidated] = useState(false);
   
   // Coupon state
   const [couponCode, setCouponCode] = useState("");
@@ -131,7 +132,33 @@ export default function CheckoutPage() {
   
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const { cart, clearCart, cartTotal, cartCount } = useCart();
+  const { cart, clearCart, cartTotal, cartCount, validateAndCleanCart, isValidating } = useCart();
+  const queryClient = useQueryClient();
+
+  // Validate cart when checkout page loads - remove products that no longer exist
+  useEffect(() => {
+    const validateCart = async () => {
+      if (cartValidated || isValidating) return;
+      
+      const { removedProducts } = await validateAndCleanCart();
+      setCartValidated(true);
+      
+      if (removedProducts.length > 0) {
+        toast({
+          title: "Cart Updated",
+          description: `Removed ${removedProducts.length} unavailable item(s): ${removedProducts.join(", ")}. Please review your cart.`,
+          variant: "destructive",
+        });
+      }
+    };
+    
+    // Only validate after we have cart items
+    if (cart.length > 0) {
+      validateCart();
+    } else {
+      setCartValidated(true);
+    }
+  }, [cart.length, cartValidated, isValidating, validateAndCleanCart, toast]);
 
   // Fetch customer profile
   const { data: customerProfile } = useQuery({
@@ -189,8 +216,8 @@ export default function CheckoutPage() {
   };
 
   const discount = calculateDiscount();
-  const shippingFee = 10;
-  const finalTotal = Math.max(0, cartTotal - discount + shippingFee);
+  // Total is just cart total minus any discounts (no shipping fee)
+  const finalTotal = Math.max(0, cartTotal - discount);
 
   // Create payment intent when payment method is card
   useEffect(() => {
@@ -273,7 +300,20 @@ export default function CheckoutPage() {
     for (const item of cart) {
       try {
         const response = await apiRequest('GET', `/api/products/${item.product.id}`);
+        
+        // If product doesn't exist (404 or error), mark it as unavailable
+        if (!response.ok) {
+          errors[item.product.id] = `${item.product.name} is no longer available`;
+          continue;
+        }
+        
         const product = await response.json();
+        
+        // Check if product was actually returned (could be null or empty)
+        if (!product || !product.id) {
+          errors[item.product.id] = `${item.product.name} is no longer available`;
+          continue;
+        }
         
         const availableStock = product.quantity || 0;
         
@@ -284,7 +324,7 @@ export default function CheckoutPage() {
         }
       } catch (error) {
         console.error(`Error checking stock for ${item.product.id}:`, error);
-        errors[item.product.id] = `Unable to verify stock for ${item.product.name}`;
+        errors[item.product.id] = `${item.product.name} is no longer available`;
       }
     }
     
@@ -411,7 +451,6 @@ export default function CheckoutPage() {
         })),
         subtotal: cartTotal,
         discount,
-        shippingFee,
         couponCode: appliedCoupon?.code,
         totalAmount: finalTotal
       };
@@ -428,6 +467,11 @@ export default function CheckoutPage() {
       clearCart();
       setAppliedCoupon(null);
       setCouponCode("");
+
+      // Invalidate customer orders cache so the orders page shows the new order
+      queryClient.invalidateQueries({ queryKey: ['customer-orders'] });
+      // Also invalidate seller orders for the enterprise side
+      queryClient.invalidateQueries({ queryKey: ['seller-orders'] });
 
       toast({
         title: "Order Placed Successfully!",
@@ -837,14 +881,6 @@ export default function CheckoutPage() {
                       </span>
                     </div>
                   )}
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Shipping</span>
-                    <span className="font-semibold">$10.00</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Tax</span>
-                    <span className="font-semibold">$0.00</span>
-                  </div>
                   <div className="border-t pt-2 mt-2">
                     <div className="flex justify-between">
                       <span className="font-bold text-lg">Total</span>

@@ -43,9 +43,10 @@ export default function CustomerPortal() {
   const [customerUser, setCustomerUser] = useState<any>(null);
   const [pendingProduct, setPendingProduct] = useState<(Product & { companyName?: string }) | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [cartValidated, setCartValidated] = useState(false);
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
-  const { addToCart, cartCount } = useCart();
+  const { addToCart, cartCount, validateAndCleanCart, isValidating } = useCart();
   const queryClient = useQueryClient();
 
   // Debounce search input for better performance
@@ -62,6 +63,28 @@ export default function CustomerPortal() {
     console.log("Customer portal mounted - invalidating products cache");
     queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
   }, [queryClient]);
+
+  // Validate cart when user logs in - remove products that no longer exist
+  useEffect(() => {
+    const validateCart = async () => {
+      if (cartValidated || isValidating || !customerUser) return;
+      
+      const { removedProducts } = await validateAndCleanCart();
+      setCartValidated(true);
+      
+      if (removedProducts.length > 0) {
+        toast({
+          title: "Cart Updated",
+          description: `Removed ${removedProducts.length} unavailable item(s): ${removedProducts.join(", ")}`,
+          variant: "destructive",
+        });
+      }
+    };
+    
+    if (customerUser && cartCount > 0) {
+      validateCart();
+    }
+  }, [customerUser, cartCount, cartValidated, isValidating, validateAndCleanCart, toast]);
 
   // Helper function to get display name
   const getDisplayName = (user: any): string => {

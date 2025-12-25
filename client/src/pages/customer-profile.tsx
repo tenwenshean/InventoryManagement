@@ -30,13 +30,14 @@ import {
   Store,
   RotateCcw,
   Truck,
-  XCircle
+  XCircle,
+  CheckCircle
 } from "lucide-react";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, updateProfile } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { TrackingDialog } from "@/components/tracking-dialog";
 
 export default function CustomerProfile() {
@@ -46,6 +47,7 @@ export default function CustomerProfile() {
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
+  const queryClient = useQueryClient();
 
   // Refund request state
   const [refundDialogOpen, setRefundDialogOpen] = useState(false);
@@ -57,6 +59,7 @@ export default function CustomerProfile() {
   const [trackingNumber, setTrackingNumber] = useState("");
   const [trackingOrderNumber, setTrackingOrderNumber] = useState("");
   const [isSubmittingRefund, setIsSubmittingRefund] = useState(false);
+  const [completingOrderId, setCompletingOrderId] = useState<string | null>(null);
 
   // Profile form state
   const [formData, setFormData] = useState({
@@ -95,8 +98,23 @@ export default function CustomerProfile() {
       if (!response.ok) throw new Error('Failed to fetch orders');
       return response.json();
     },
-    enabled: !!customerUser?.uid
+    enabled: !!customerUser?.uid,
+    staleTime: 0, // Always consider data stale to get fresh data
+    refetchOnMount: 'always', // Always refetch when component mounts
   });
+
+  // Fetch available products to check if order items still exist
+  const { data: availableProducts } = useQuery({
+    queryKey: ['available-products'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/public/products');
+      if (!response.ok) throw new Error('Failed to fetch products');
+      return response.json();
+    },
+  });
+
+  // Create a set of available product IDs for quick lookup
+  const availableProductIds = new Set(availableProducts?.map((p: any) => p.id) || []);
 
   // Fetch customer profile
   const { data: customerProfile, isLoading: profileLoading } = useQuery({
@@ -109,6 +127,41 @@ export default function CustomerProfile() {
     },
     enabled: !!customerUser?.uid
   });
+
+  // Complete order mutation - Customer marks order as received
+  const completeOrderMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const response = await apiRequest('POST', `/api/orders/${orderId}/complete`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to complete order');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['seller-orders'] });
+      setCompletingOrderId(null);
+      toast({
+        title: "Order Completed!",
+        description: "Thank you for confirming receipt of your order.",
+      });
+    },
+    onError: (error: any) => {
+      setCompletingOrderId(null);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to complete order",
+        variant: "destructive",
+      });
+    }
+  });
+
+  // Handle marking order as received
+  const handleMarkAsReceived = (orderId: string) => {
+    setCompletingOrderId(orderId);
+    completeOrderMutation.mutate(orderId);
+  };
 
   // Load profile data into form when fetched
   useEffect(() => {
@@ -487,6 +540,8 @@ export default function CustomerProfile() {
                                 className={
                                   order.status === 'pending' 
                                     ? 'bg-yellow-100 text-yellow-800' 
+                                    : order.status === 'completed'
+                                    ? 'bg-green-100 text-green-800'
                                     : order.status === 'processing' && order.shipmentId
                                     ? 'bg-blue-100 text-blue-800'
                                     : order.refundApproved
@@ -494,7 +549,9 @@ export default function CustomerProfile() {
                                     : ''
                                 }
                               >
-                                {order.status === 'processing' && order.shipmentId 
+                                {order.status === 'completed'
+                                  ? 'Completed'
+                                  : order.status === 'processing' && order.shipmentId 
                                   ? 'In Shipment' 
                                   : order.refundApproved 
                                   ? 'Refunded' 
@@ -522,26 +579,41 @@ export default function CustomerProfile() {
                             {/* Order Items */}
                             <div className="mt-3 space-y-2">
                               <p className="text-sm font-medium text-gray-700">Items:</p>
-                              {order.items?.map((item: any, idx: number) => (
-                                <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 p-2 rounded">
-                                  <div className="flex items-center space-x-2">
-                                    <Package className="w-4 h-4 text-gray-400" />
-                                    <span className="font-medium">{item.productName}</span>
-                                    <span className="text-gray-500">× {item.quantity}</span>
+                              {order.items?.map((item: any, idx: number) => {
+                                const isProductAvailable = availableProductIds.has(item.productId);
+                                return (
+                                  <div 
+                                    key={idx} 
+                                    className={`flex items-center justify-between text-sm p-2 rounded ${
+                                      isProductAvailable ? 'bg-gray-50' : 'bg-red-50 border border-red-200'
+                                    }`}
+                                  >
+                                    <div className="flex items-center space-x-2">
+                                      <Package className={`w-4 h-4 ${isProductAvailable ? 'text-gray-400' : 'text-red-400'}`} />
+                                      <span className={`font-medium ${!isProductAvailable ? 'line-through text-red-600' : ''}`}>
+                                        {item.productName}
+                                      </span>
+                                      {!isProductAvailable && (
+                                        <Badge variant="destructive" className="text-xs">
+                                          Product Removed
+                                        </Badge>
+                                      )}
+                                      <span className="text-gray-500">× {item.quantity}</span>
+                                    </div>
+                                    <div className="flex items-center space-x-3">
+                                      {item.sellerName && (
+                                        <div className="flex items-center space-x-1 text-gray-600">
+                                          <Store className="w-3 h-3" />
+                                          <span className="text-xs">{item.sellerName}</span>
+                                        </div>
+                                      )}
+                                      <span className={`font-semibold ${!isProductAvailable ? 'text-red-600' : ''}`}>
+                                        {formatPrice(item.totalPrice || 0)}
+                                      </span>
+                                    </div>
                                   </div>
-                                  <div className="flex items-center space-x-3">
-                                    {item.sellerName && (
-                                      <div className="flex items-center space-x-1 text-gray-600">
-                                        <Store className="w-3 h-3" />
-                                        <span className="text-xs">{item.sellerName}</span>
-                                      </div>
-                                    )}
-                                    <span className="font-semibold">
-                                      {formatPrice(item.totalPrice || 0)}
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
 
                             {/* Shipment Tracking */}
@@ -639,7 +711,37 @@ export default function CustomerProfile() {
 
                           {/* Action Buttons */}
                           <div className="flex items-center space-x-2">
-                            {!order.refundRequested && order.status !== 'refunded' && (
+                            {/* Received Product Button - Only for shipped orders */}
+                            {order.status === 'processing' && order.shipmentId && !order.refundRequested && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleMarkAsReceived(order.id)}
+                                disabled={completingOrderId === order.id}
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                              >
+                                {completingOrderId === order.id ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                                    Confirming...
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle className="w-4 h-4 mr-1" />
+                                    Received Product
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                            
+                            {/* Completed Badge */}
+                            {order.status === 'completed' && (
+                              <Badge className="bg-green-100 text-green-800 border-green-300">
+                                <CheckCircle className="w-3 h-3 mr-1" />
+                                Completed
+                              </Badge>
+                            )}
+                            
+                            {!order.refundRequested && order.status !== 'refunded' && order.status !== 'completed' && (
                               <Button
                                 variant="outline"
                                 size="sm"

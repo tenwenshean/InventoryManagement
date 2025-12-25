@@ -3042,6 +3042,59 @@ Remember: You're helping a business owner understand their operations better. Be
     }
   });
 
+  // Complete order - Customer marks order as received
+  app.post("/api/orders/:id/complete", async (req: any, res) => {
+    try {
+      const orderId = req.params.id;
+      
+      console.log('[COMPLETE ORDER] Marking order as completed:', orderId);
+
+      // Get the order
+      const orderDoc = await db.collection('orders').doc(orderId).get();
+      
+      if (!orderDoc.exists) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+
+      const orderData = orderDoc.data();
+
+      // Only shipped orders can be marked as completed
+      if (orderData?.status !== 'processing' || !orderData?.shipmentId) {
+        return res.status(400).json({ 
+          message: 'Only shipped orders can be marked as received' 
+        });
+      }
+
+      // Update order to completed
+      await db.collection('orders').doc(orderId).update({
+        status: 'completed',
+        completedAt: new Date(),
+        receivedByCustomer: true,
+        updatedAt: new Date()
+      });
+
+      console.log('[COMPLETE ORDER] Order completed:', orderData.orderNumber);
+
+      res.json({
+        success: true,
+        message: 'Order marked as received',
+        order: {
+          ...orderData,
+          id: orderId,
+          status: 'completed',
+          receivedByCustomer: true
+        }
+      });
+
+    } catch (error: any) {
+      console.error('[COMPLETE ORDER] Error:', error);
+      res.status(500).json({ 
+        message: 'Failed to complete order',
+        error: error.message 
+      });
+    }
+  });
+
   // ===================== LOCAL / SANDBOX SHIPPING ROUTES =====================
   // These routes implement a simple, free, no-registration "virtual courier"
   // for demo purposes. No external API calls are made.

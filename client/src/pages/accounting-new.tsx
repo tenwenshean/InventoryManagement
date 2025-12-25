@@ -405,15 +405,10 @@ export default function AccountingNew() {
       console.log('[FINANCIALS] Inventory NOT added - salesData:', salesData);
     }
     
-    if (salesData && salesData.totalRevenue > 0) {
-      revenue.push({
-        name: "Product Sales",
-        debit: 0,
-        credit: salesData.totalRevenue,
-        balance: salesData.totalRevenue,
-        description: `Sales from ${salesData.unitsSold} units sold`,
-      });
-    }
+    // NOTE: Do NOT add Product Sales from salesData here because orders already 
+    // create journal entries for sales revenue. Adding both would double-count revenue.
+    // The revenue from sales is already included via the "Sales Revenue" journal entries
+    // created when orders are placed.
 
     if (salesData && salesData.totalCOGS > 0) {
       costOfSales.push({

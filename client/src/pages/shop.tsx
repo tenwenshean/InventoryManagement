@@ -46,8 +46,31 @@ export default function ShopPage() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
+  const [cartValidated, setCartValidated] = useState(false);
   const { toast } = useToast();
-  const { addToCart, cartCount } = useCart();
+  const { addToCart, cartCount, validateAndCleanCart, isValidating } = useCart();
+
+  // Validate cart when user is logged in - remove products that no longer exist
+  useEffect(() => {
+    const validateCart = async () => {
+      if (cartValidated || isValidating || !currentUser) return;
+      
+      const { removedProducts } = await validateAndCleanCart();
+      setCartValidated(true);
+      
+      if (removedProducts.length > 0) {
+        toast({
+          title: "Cart Updated",
+          description: `Removed ${removedProducts.length} unavailable item(s): ${removedProducts.join(", ")}`,
+          variant: "destructive",
+        });
+      }
+    };
+    
+    if (currentUser && cartCount > 0) {
+      validateCart();
+    }
+  }, [currentUser, cartCount, cartValidated, isValidating, validateAndCleanCart, toast]);
 
   // Helper function to get display name
   const getDisplayName = (user: any): string => {
