@@ -112,6 +112,7 @@ export default function CheckoutPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [orderComplete, setOrderComplete] = useState(false);
   const [orderNumber, setOrderNumber] = useState("");
+  const [confirmedTotal, setConfirmedTotal] = useState(0);
   const [stockErrors, setStockErrors] = useState<Record<string, string>>({});
   const [clientSecret, setClientSecret] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'cod'>('card');
@@ -466,6 +467,7 @@ export default function CheckoutPage() {
       console.log('Order result:', result);
 
       setOrderNumber(result.orderNumber);
+      setConfirmedTotal(finalTotal); // Save total before clearing cart
       setOrderComplete(true);
       clearCart();
       setAppliedCoupon(null);
@@ -531,7 +533,7 @@ export default function CheckoutPage() {
                 <DollarSign className="w-5 h-5 text-blue-600 mt-0.5" />
                 <div>
                   <p className="font-semibold">Total Amount</p>
-                  <p className="text-sm text-gray-600">${finalTotal.toFixed(2)}</p>
+                  <p className="text-sm text-gray-600">${confirmedTotal.toFixed(2)}</p>
                 </div>
               </div>
             </div>
