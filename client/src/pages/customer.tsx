@@ -155,13 +155,16 @@ export default function CustomerPortal() {
   };
 
   // Fetch all products (public access - no auth required) - only from users with company names
+  // Server now filters out inactive products automatically
   const { data: products, isLoading } = useQuery<(Product & { companyName?: string; sellerEmail?: string; sellerName?: string })[]>({
-    queryKey: queryKeys.products.all,
+    queryKey: queryKeys.publicProducts.all,
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/public/products");
       if (!response.ok) throw new Error("Failed to fetch products");
       return response.json();
     },
+    staleTime: 30 * 1000, // Cache for 30 seconds to reflect enterprise updates faster
+    refetchOnWindowFocus: true,
   });
 
   // Filter products based on search
@@ -476,7 +479,7 @@ export default function CustomerPortal() {
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between mb-2">
                         <p className="text-lg font-bold text-red-600">
-                        {formatPrice(parseFloat(product.price))}
+                        {formatPrice(product.price, (product as any).sellerCurrency)}
                         </p>
                         {product.quantity > 0 ? (
                           <Badge className="bg-green-500">In Stock</Badge>
@@ -639,7 +642,7 @@ export default function CustomerPortal() {
                         </div>
                         <div className="text-right">
                           <p className="text-3xl font-bold text-red-600">
-                            {formatPrice(parseFloat(product.price))}
+                            {formatPrice(product.price, (product as any).sellerCurrency)}
                           </p>
                         </div>
                       </div>
@@ -772,7 +775,7 @@ export default function CustomerPortal() {
                     </CardHeader>
                     <CardContent>
                       <p className="text-2xl font-bold text-red-600 mb-4">
-                        {formatPrice(parseFloat(product.price))}
+                        {formatPrice(product.price, (product as any).sellerCurrency)}
                       </p>
                       <div className="flex gap-2">
                         <Button

@@ -3,6 +3,7 @@ import { useRoute, Link } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 import { auth } from "@/lib/firebaseClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,10 +30,10 @@ import {
   Twitter
 } from "lucide-react";
 import type { Product } from "@/types";
-import { useCurrency } from "@/hooks/useCurrency";
+import { useCustomerCurrency } from "@/hooks/useCustomerCurrency";
 
 export default function ShopDetailsPage() {
-  const { formatCurrency } = useCurrency();
+  const { formatPrice } = useCustomerCurrency();
   const [, params] = useRoute("/shop/:shopSlug");
   const shopSlug = params?.shopSlug;
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -75,19 +76,19 @@ export default function ShopDetailsPage() {
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
 
-  // Fetch seller's products (only when sellerId is available)
+  // Fetch seller's products using dedicated endpoint (more efficient, server-side filtering)
   const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
-    queryKey: ['seller-products', sellerId],
+    queryKey: queryKeys.publicProducts.bySeller(sellerId || ''),
     queryFn: async () => {
       if (!sellerId) return [];
-      const response = await apiRequest('GET', `/api/public/products?sellerId=${sellerId}`);
+      // Use dedicated seller products endpoint for efficient server-side filtering
+      const response = await apiRequest('GET', `/api/public/products/seller/${sellerId}`);
       if (!response.ok) throw new Error('Failed to fetch products');
-      const allProducts = await response.json();
-      // Filter to only show products from this seller
-      return allProducts.filter((p: Product) => p.userId === sellerId);
+      return response.json();
     },
     enabled: !!sellerId,
-    staleTime: 2 * 60 * 1000 // Cache for 2 minutes
+    staleTime: 30 * 1000, // Cache for 30 seconds to show updates faster
+    refetchOnWindowFocus: true,
   });
 
   // Check subscription status
@@ -481,7 +482,7 @@ export default function ShopDetailsPage() {
                 <CardHeader>
                   <CardTitle className="text-lg line-clamp-2">{product.name}</CardTitle>
                   <p className="text-2xl font-bold text-red-600">
-                    {formatCurrency(product.price)}
+                    {formatPrice(product.price, (product as any).sellerCurrency)}
                   </p>
                 </CardHeader>
 

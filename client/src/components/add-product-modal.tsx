@@ -212,8 +212,9 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
         }
       }
       
-      // Invalidate queries to refresh data
+      // Invalidate queries to refresh data (both enterprise and public customer views)
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicProducts.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       
       toast({

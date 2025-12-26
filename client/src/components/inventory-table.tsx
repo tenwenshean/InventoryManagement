@@ -152,7 +152,9 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
       if (!response.ok) throw new Error("Failed to delete product");
     },
     onSuccess: () => {
+      // Invalidate both enterprise and public product queries
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicProducts.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       toast({
         title: "Success",
@@ -177,7 +179,9 @@ export default function InventoryTable({ showAll = false }: InventoryTableProps)
       return response.json();
     },
     onSuccess: () => {
+      // Invalidate both enterprise and public product queries
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicProducts.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       toast({
         title: "Success",

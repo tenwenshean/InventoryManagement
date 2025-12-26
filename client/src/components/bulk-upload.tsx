@@ -137,7 +137,9 @@ export default function BulkUploadModal({ isOpen, onClose }: BulkUploadModalProp
     },
     onSuccess: (results) => {
       setUploadResult(results);
+      // Invalidate both enterprise and public product queries
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicProducts.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       
       if (results.failed === 0) {

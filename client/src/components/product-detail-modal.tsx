@@ -88,7 +88,7 @@ export default function ProductDetailModal({ isOpen, onClose, product, onAddToCa
               <DollarSign className="w-5 h-5 text-green-600" />
               <div>
                 <p className="text-xs text-gray-500 uppercase">Price</p>
-                <p className="text-2xl font-bold text-green-600">{formatPrice(product.price)}</p>
+                <p className="text-2xl font-bold text-green-600">{formatPrice(product.price, (product as any).sellerCurrency)}</p>
               </div>
             </div>
 

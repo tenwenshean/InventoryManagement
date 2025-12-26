@@ -290,6 +290,10 @@ export default async function handler(req, res) {
 
     // ===== PUBLIC PRODUCTS ROUTE (no auth) =====
     if (pathParts[0] === 'public' && pathParts[1] === 'products' && req.method === 'GET') {
+      // Check if it's the seller-specific endpoint: /api/public/products/seller/:sellerId
+      if (pathParts[2] === 'seller' && pathParts[3]) {
+        return await handleGetPublicProductsBySeller(req, res, pathParts[3]);
+      }
       return await handleGetPublicProducts(req, res);
     }
 
@@ -1016,6 +1020,9 @@ async function handleGetPublicProducts(req, res) {
       ...doc.data() 
     }));
     
+    // Filter out inactive products (isActive: false) - these should not be shown to customers
+    products = products.filter(product => product.isActive !== false);
+    
     // Apply client-side search filter if provided
     if (search) {
       const s = search.toLowerCase();
@@ -1026,39 +1033,112 @@ async function handleGetPublicProducts(req, res) {
       );
     }
     
-    // Fetch user settings to get company names for each product
-    const productsWithCompanyNames = await Promise.all(
+    // Fetch user settings to get company names and currency for each product
+    // Cache user data to avoid repeated lookups
+    const userCache = new Map();
+    
+    const productsWithSellerInfo = await Promise.all(
       products.map(async (product) => {
         if (product.userId) {
           try {
-            const userDoc = await db.collection('users').doc(product.userId).get();
-            if (userDoc.exists) {
-              const userData = userDoc.data();
+            // Check cache first
+            let userData = userCache.get(product.userId);
+            if (!userData) {
+              const userDoc = await db.collection('users').doc(product.userId).get();
+              if (userDoc.exists) {
+                userData = userDoc.data();
+                userCache.set(product.userId, userData);
+              }
+            }
+            
+            if (userData) {
               // Priority: companyName > name > email > 'Unknown Seller'
               const companyName = userData?.companyName && userData.companyName.trim() !== '' 
                 ? userData.companyName 
                 : userData?.name && userData.name.trim() !== ''
                 ? userData.name
                 : userData?.email || 'Unknown Seller';
+              // Get seller's currency - default to USD if not set
+              const sellerCurrency = (userData?.currency || userData?.settings?.currency || 'usd').toLowerCase();
               return { 
                 ...product, 
                 companyName, 
                 sellerName: companyName,
-                shopSlug: userData?.shopSlug || userData?.settings?.shopSlug || ''
+                shopSlug: userData?.shopSlug || userData?.settings?.shopSlug || '',
+                sellerCurrency
               };
             }
           } catch (error) {
             console.error(`Error fetching user data for userId ${product.userId}:`, error);
           }
         }
-        return { ...product, companyName: 'Unknown Seller', sellerName: 'Unknown Seller', shopSlug: '' };
+        return { ...product, companyName: 'Unknown Seller', sellerName: 'Unknown Seller', shopSlug: '', sellerCurrency: 'usd' };
       })
     );
     
-    return res.json(productsWithCompanyNames);
+    return res.json(productsWithSellerInfo);
   } catch (error) {
     console.error('Error fetching public products:', error);
     return res.status(500).json({ message: 'Failed to fetch products', error: error.message });
+  }
+}
+
+// Dedicated endpoint for fetching products by seller ID - more efficient for shop pages
+async function handleGetPublicProductsBySeller(req, res, sellerId) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    if (!sellerId) {
+      return res.status(400).json({ message: 'Seller ID is required' });
+    }
+    
+    // Fetch products directly filtered by seller
+    const snapshot = await db.collection('products')
+      .where('userId', '==', sellerId)
+      .get();
+    
+    let products = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    }));
+    
+    // Filter out inactive products
+    products = products.filter(product => product.isActive !== false);
+    
+    // Fetch seller info once (since all products belong to the same seller)
+    let companyName = 'Unknown Seller';
+    let shopSlug = '';
+    let sellerCurrency = 'usd';
+    
+    try {
+      const userDoc = await db.collection('users').doc(sellerId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        companyName = userData?.companyName && userData.companyName.trim() !== '' 
+          ? userData.companyName 
+          : userData?.name && userData.name.trim() !== ''
+          ? userData.name
+          : userData?.email || 'Unknown Seller';
+        shopSlug = userData?.shopSlug || userData?.settings?.shopSlug || '';
+        sellerCurrency = (userData?.currency || userData?.settings?.currency || 'usd').toLowerCase();
+      }
+    } catch (error) {
+      console.error(`Error fetching seller data for ${sellerId}:`, error);
+    }
+    
+    // Add seller info to all products
+    const productsWithSellerInfo = products.map(product => ({
+      ...product,
+      companyName,
+      sellerName: companyName,
+      shopSlug,
+      sellerCurrency
+    }));
+    
+    return res.json(productsWithSellerInfo);
+  } catch (error) {
+    console.error('Error fetching seller products:', error);
+    return res.status(500).json({ message: 'Failed to fetch seller products', error: error.message });
   }
 }
 
@@ -1764,6 +1844,9 @@ async function handleCheckout(req, res) {
     const orderDate = new Date();
 
     // Create order document
+    // Get seller currency from first item (assuming single-seller cart)
+    const sellerCurrency = items[0]?.sellerCurrency || 'usd';
+    
     const orderData = {
       orderNumber,
       customerId: customerId || 'guest',
@@ -1779,12 +1862,14 @@ async function handleCheckout(req, res) {
         unitPrice: item.unitPrice,
         totalPrice: item.totalPrice,
         sellerId: item.userId,
-        sellerName: item.sellerName || 'Unknown Seller'
+        sellerName: item.sellerName || 'Unknown Seller',
+        sellerCurrency: item.sellerCurrency || 'usd'
       })),
       subtotal: subtotal || totalAmount,
       discount: discount || 0,
       couponCode: couponCode || null,
       totalAmount,
+      sellerCurrency, // Store seller's currency for display
       status: 'pending',
       createdAt: adminModule.default.firestore.FieldValue.serverTimestamp(),
       updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()

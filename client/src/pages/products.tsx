@@ -40,7 +40,9 @@ export default function Products() {
       return response;
     },
     onSuccess: () => {
+      // Invalidate both enterprise and public product queries
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicProducts.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       toast({
         title: "Success",
@@ -63,7 +65,9 @@ export default function Products() {
       return response.json();
     },
     onSuccess: () => {
+      // Invalidate both enterprise and public product queries
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicProducts.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       toast({
         title: "Success",

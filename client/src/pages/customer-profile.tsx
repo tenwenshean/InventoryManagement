@@ -37,6 +37,7 @@ import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, updateProfile } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { TrackingDialog } from "@/components/tracking-dialog";
 
@@ -105,12 +106,13 @@ export default function CustomerProfile() {
 
   // Fetch available products to check if order items still exist
   const { data: availableProducts } = useQuery({
-    queryKey: ['available-products'],
+    queryKey: queryKeys.publicProducts.all,
     queryFn: async () => {
       const response = await apiRequest('GET', '/api/public/products');
       if (!response.ok) throw new Error('Failed to fetch products');
       return response.json();
     },
+    staleTime: 30 * 1000, // Cache for 30 seconds
   });
 
   // Create a set of available product IDs for quick lookup
@@ -571,7 +573,7 @@ export default function CustomerProfile() {
                               <div className="flex items-center space-x-1">
                                 <DollarSign className="w-4 h-4" />
                                 <span className="font-semibold text-red-600">
-                                  {formatPrice(order.totalAmount || 0)}
+                                  {formatPrice(order.totalAmount || 0, (order as any).sellerCurrency || 'usd')}
                                 </span>
                               </div>
                             </div>
@@ -608,7 +610,7 @@ export default function CustomerProfile() {
                                         </div>
                                       )}
                                       <span className={`font-semibold ${!isProductAvailable ? 'text-red-600' : ''}`}>
-                                        {formatPrice(item.totalPrice || 0)}
+                                        {formatPrice(item.totalPrice || 0, (order as any).sellerCurrency || 'usd')}
                                       </span>
                                     </div>
                                   </div>
@@ -797,7 +799,7 @@ export default function CustomerProfile() {
                 <div className="flex justify-between">
                   <span className="text-gray-600">Total Amount:</span>
                   <span className="font-medium text-red-600">
-                    {formatPrice(selectedOrder?.totalAmount || 0)}
+                    {formatPrice(selectedOrder?.totalAmount || 0, (selectedOrder as any)?.sellerCurrency || 'usd')}
                   </span>
                 </div>
                 <div className="flex justify-between">

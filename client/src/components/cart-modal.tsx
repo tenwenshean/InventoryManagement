@@ -80,7 +80,7 @@ export default function CartModal({ isOpen, onClose, cart, onUpdateQuantity, onR
                       <p className="text-sm text-gray-500">by {item.product.companyName}</p>
                     )}
                     <p className="text-lg font-bold text-red-600 mt-1">
-                      {formatPrice(parseFloat(item.product.price))}
+                      {formatPrice(item.product.price, (item.product as any).sellerCurrency)}
                     </p>
                     
                     {/* Quantity Controls */}
@@ -119,7 +119,7 @@ export default function CartModal({ isOpen, onClose, cart, onUpdateQuantity, onR
                   <div className="text-right">
                     <p className="text-sm text-gray-500">Subtotal</p>
                     <p className="text-xl font-bold text-gray-900">
-                      {formatPrice(parseFloat(item.product.price) * item.quantity)}
+                      {formatPrice(parseFloat(item.product.price) * item.quantity, (item.product as any).sellerCurrency)}
                     </p>
                   </div>
                 </div>
@@ -130,28 +130,36 @@ export default function CartModal({ isOpen, onClose, cart, onUpdateQuantity, onR
 
             {/* Cart Summary */}
             <div className="space-y-2">
-              <div className="flex justify-between text-lg">
-                <span className="text-gray-600">Subtotal ({totalItems} {totalItems === 1 ? 'item' : 'items'})</span>
-                <span className="font-semibold">{formatPrice(cartTotal)}</span>
-              </div>
-              <div className="flex justify-between text-lg">
-                <span className="text-gray-600">Shipping</span>
-                <span className="font-semibold text-green-600">
-                  {cartTotal >= 50 ? 'FREE' : '$5.00'}
-                </span>
-              </div>
-              <Separator />
-              <div className="flex justify-between text-2xl font-bold">
-                <span>Total</span>
-                <span className="text-red-600">
-                  {formatPrice(cartTotal + (cartTotal >= 50 ? 0 : 5))}
-                </span>
-              </div>
-              {cartTotal < 50 && (
-                <p className="text-sm text-gray-600 text-center">
-                  Add {formatPrice(50 - cartTotal)} more for FREE shipping!
-                </p>
-              )}
+              {/* Use first item's currency for totals (assumes single-seller cart) */}
+              {(() => {
+                const cartCurrency = cart.length > 0 ? (cart[0].product as any).sellerCurrency : 'usd';
+                return (
+                  <>
+                    <div className="flex justify-between text-lg">
+                      <span className="text-gray-600">Subtotal ({totalItems} {totalItems === 1 ? 'item' : 'items'})</span>
+                      <span className="font-semibold">{formatPrice(cartTotal, cartCurrency)}</span>
+                    </div>
+                    <div className="flex justify-between text-lg">
+                      <span className="text-gray-600">Shipping</span>
+                      <span className="font-semibold text-green-600">
+                        {cartTotal >= 50 ? 'FREE' : formatPrice(5, cartCurrency)}
+                      </span>
+                    </div>
+                    <Separator />
+                    <div className="flex justify-between text-2xl font-bold">
+                      <span>Total</span>
+                      <span className="text-red-600">
+                        {formatPrice(cartTotal + (cartTotal >= 50 ? 0 : 5), cartCurrency)}
+                      </span>
+                    </div>
+                    {cartTotal < 50 && (
+                      <p className="text-sm text-gray-600 text-center">
+                        Add {formatPrice(50 - cartTotal, cartCurrency)} more for FREE shipping!
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             {/* Checkout Button */}

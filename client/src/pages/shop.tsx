@@ -139,24 +139,27 @@ export default function ShopPage() {
     }
   };
 
-  // Fetch all products
+  // Fetch all products - public endpoint now filters inactive products server-side
   const { data: products, isLoading } = useQuery<Product[]>({
-    queryKey: queryKeys.products.all,
+    queryKey: queryKeys.publicProducts.all,
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/public/products");
       if (!response.ok) throw new Error("Failed to fetch products");
       return response.json();
     },
+    staleTime: 30 * 1000, // Cache for 30 seconds to reflect enterprise updates faster
+    refetchOnWindowFocus: true,
   });
 
   // Fetch categories
   const { data: categories } = useQuery({
-    queryKey: queryKeys.categories.all,
+    queryKey: queryKeys.publicCategories.all,
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/public/categories");
       if (!response.ok) throw new Error("Failed to fetch categories");
       return response.json();
     },
+    staleTime: 5 * 60 * 1000, // Categories change less frequently
   });
 
   // Filter and sort products
@@ -451,7 +454,7 @@ export default function ShopPage() {
                       </div>
                       <div className="flex items-center justify-between">
                         <p className="text-2xl font-bold text-red-600">
-                          {formatPrice(product.price)}
+                          {formatPrice(product.price, (product as any).sellerCurrency)}
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -540,7 +543,7 @@ export default function ShopPage() {
                       </div>
                       <div className="flex flex-col items-end justify-between shrink-0">
                         <p className="text-3xl font-bold text-red-600">
-                          {formatPrice(product.price)}
+                          {formatPrice(product.price, (product as any).sellerCurrency)}
                         </p>
                         <div className="flex gap-2">
                           <Button

@@ -1136,44 +1136,123 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Temporary public endpoint to verify server -> Firestore connectivity (no auth)
-  app.get("/api/public/products", async (_req, res) => {
+  // Public endpoint for customer shop - supports filtering by seller
+  app.get("/api/public/products", async (req, res) => {
     try {
-      // Limit to 500 products to prevent quota exhaustion
-      const products: any[] = await storage.getProducts(undefined, undefined, 500);
+      const sellerId = req.query.sellerId as string | undefined;
       
-      // Fetch user settings to get company names for each product
-      const productsWithCompanyNames = await Promise.all(
+      // Fetch products - filter by sellerId at the server level if provided
+      let products: any[];
+      if (sellerId) {
+        // Efficient server-side filtering by seller
+        products = await storage.getProducts(undefined, sellerId, 500);
+      } else {
+        // Limit to 500 products to prevent quota exhaustion
+        products = await storage.getProducts(undefined, undefined, 500);
+      }
+      
+      // Filter out inactive products (isActive: false) - these should not be shown to customers
+      products = products.filter(product => product.isActive !== false);
+      
+      // Fetch user settings to get company names and currency for each product
+      // Cache user data to avoid repeated lookups for same seller
+      const userCache = new Map<string, any>();
+      
+      const productsWithSellerInfo = await Promise.all(
         products.map(async (product) => {
           if (product.userId) {
             try {
-              const userDoc = await db.collection('users').doc(product.userId).get();
-              if (userDoc.exists) {
-                const userData = userDoc.data();
+              // Check cache first
+              let userData = userCache.get(product.userId);
+              if (!userData) {
+                const userDoc = await db.collection('users').doc(product.userId).get();
+                if (userDoc.exists) {
+                  userData = userDoc.data();
+                  userCache.set(product.userId, userData);
+                }
+              }
+              
+              if (userData) {
                 // Priority: companyName > name > email > 'Unknown Seller'
                 const companyName = userData?.companyName && userData.companyName.trim() !== '' 
                   ? userData.companyName 
                   : userData?.name && userData.name.trim() !== ''
                   ? userData.name
                   : userData?.email || 'Unknown Seller';
+                // Get seller's currency - default to USD if not set
+                const sellerCurrency = userData?.currency || userData?.settings?.currency || 'usd';
                 return { 
                   ...product, 
                   companyName, 
                   sellerName: companyName,
-                  shopSlug: userData?.shopSlug || userData?.settings?.shopSlug || ''
+                  shopSlug: userData?.shopSlug || userData?.settings?.shopSlug || '',
+                  sellerCurrency: sellerCurrency.toLowerCase()
                 };
               }
             } catch (error) {
               console.error(`Error fetching user data for userId ${product.userId}:`, error);
             }
           }
-          return { ...product, companyName: 'Unknown Seller', sellerName: 'Unknown Seller' };
+          return { ...product, companyName: 'Unknown Seller', sellerName: 'Unknown Seller', sellerCurrency: 'usd' };
         })
       );
       
-      res.json(productsWithCompanyNames);
+      res.json(productsWithSellerInfo);
     } catch (error) {
       console.error("[public] Error fetching products:", error);
+      res.status(500).json({ error: (error as any)?.message || String(error) });
+    }
+  });
+  
+  // Dedicated endpoint for fetching products by seller ID - more efficient for shop pages
+  app.get("/api/public/products/seller/:sellerId", async (req, res) => {
+    try {
+      const { sellerId } = req.params;
+      
+      if (!sellerId) {
+        return res.status(400).json({ message: "Seller ID is required" });
+      }
+      
+      // Fetch products directly filtered by seller
+      const products: any[] = await storage.getProducts(undefined, sellerId, 500);
+      
+      // Filter out inactive products
+      const activeProducts = products.filter(product => product.isActive !== false);
+      
+      // Fetch seller info once (since all products belong to the same seller)
+      let companyName = 'Unknown Seller';
+      let shopSlug = '';
+      let sellerCurrency = 'usd';
+      
+      try {
+        const userDoc = await db.collection('users').doc(sellerId).get();
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          companyName = userData?.companyName && userData.companyName.trim() !== '' 
+            ? userData.companyName 
+            : userData?.name && userData.name.trim() !== ''
+            ? userData.name
+            : userData?.email || 'Unknown Seller';
+          shopSlug = userData?.shopSlug || userData?.settings?.shopSlug || '';
+          // Get seller's currency - default to USD if not set
+          sellerCurrency = (userData?.currency || userData?.settings?.currency || 'usd').toLowerCase();
+        }
+      } catch (error) {
+        console.error(`Error fetching seller data for ${sellerId}:`, error);
+      }
+      
+      // Add seller info to all products including currency
+      const productsWithSellerInfo = activeProducts.map(product => ({
+        ...product,
+        companyName,
+        sellerName: companyName,
+        shopSlug,
+        sellerCurrency
+      }));
+      
+      res.json(productsWithSellerInfo);
+    } catch (error) {
+      console.error("[public] Error fetching seller products:", error);
       res.status(500).json({ error: (error as any)?.message || String(error) });
     }
   });
@@ -2535,6 +2614,9 @@ Remember: You're helping a business owner understand their operations better. Be
       const orderDate = new Date();
 
       // Create order document
+      // Get seller currency from first item (assuming single-seller cart)
+      const sellerCurrency = items[0]?.sellerCurrency || 'usd';
+      
       const orderData = {
         orderNumber,
         customerId: customerId || 'guest',
@@ -2550,9 +2632,11 @@ Remember: You're helping a business owner understand their operations better. Be
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
           sellerId: item.userId,
-          sellerName: item.sellerName || 'Unknown Seller'
+          sellerName: item.sellerName || 'Unknown Seller',
+          sellerCurrency: item.sellerCurrency || 'usd'
         })),
         totalAmount,
+        sellerCurrency, // Store seller's currency for display
         status: 'pending',
         createdAt: orderDate,
         updatedAt: orderDate

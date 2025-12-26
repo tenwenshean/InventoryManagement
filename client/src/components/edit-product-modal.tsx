@@ -255,8 +255,10 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
         }
       }
       
+      // Invalidate both enterprise and public product queries
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.products.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicProducts.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       toast({
         title: "Success",
