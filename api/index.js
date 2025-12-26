@@ -1015,10 +1015,16 @@ async function handleGetPublicProducts(req, res) {
     
     const snapshot = await query.get();
     
-    let products = snapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data() 
-    }));
+    let products = snapshot.docs.map(doc => {
+      const data = doc.data();
+      // Normalize quantity field - some products use 'stock' instead of 'quantity'
+      const quantity = data.quantity ?? data.stock ?? 0;
+      return { 
+        id: doc.id, 
+        ...data,
+        quantity // Ensure quantity is always available
+      };
+    });
     
     // Filter out inactive products (isActive: false) - these should not be shown to customers
     products = products.filter(product => product.isActive !== false);
@@ -1097,10 +1103,16 @@ async function handleGetPublicProductsBySeller(req, res, sellerId) {
       .where('userId', '==', sellerId)
       .get();
     
-    let products = snapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data() 
-    }));
+    let products = snapshot.docs.map(doc => {
+      const data = doc.data();
+      // Normalize quantity field - some products use 'stock' instead of 'quantity'
+      const quantity = data.quantity ?? data.stock ?? 0;
+      return { 
+        id: doc.id, 
+        ...data,
+        quantity // Ensure quantity is always available
+      };
+    });
     
     // Filter out inactive products
     products = products.filter(product => product.isActive !== false);
@@ -1896,7 +1908,8 @@ async function handleCheckout(req, res) {
       }
 
       const product = productDoc.data();
-      const currentStock = product.quantity || 0;
+      // Support both 'quantity' and 'stock' field names (some imported products use 'stock')
+      const currentStock = product.quantity ?? product.stock ?? 0;
 
       // Check stock availability
       if (currentStock < quantity) {
@@ -1905,12 +1918,17 @@ async function handleCheckout(req, res) {
         });
       }
 
-      // Update product quantity (decrease)
+      // Update product quantity (decrease) - update both fields for compatibility
       const newQuantity = currentStock - quantity;
-      await db.collection('products').doc(productId).update({
+      const updateData = {
         quantity: newQuantity,
         updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
-      });
+      };
+      // Also update 'stock' field if the product was using it
+      if (product.stock !== undefined) {
+        updateData.stock = newQuantity;
+      }
+      await db.collection('products').doc(productId).update(updateData);
 
       console.log(`[CHECKOUT] Updated ${product.name}: ${currentStock} -> ${newQuantity}`);
 

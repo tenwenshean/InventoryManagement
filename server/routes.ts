@@ -1154,6 +1154,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Filter out inactive products (isActive: false) - these should not be shown to customers
       products = products.filter(product => product.isActive !== false);
       
+      // Normalize quantity field - some imported products use 'stock' instead of 'quantity'
+      products = products.map(product => ({
+        ...product,
+        quantity: product.quantity ?? product.stock ?? 0
+      }));
+      
       // Fetch user settings to get company names and currency for each product
       // Cache user data to avoid repeated lookups for same seller
       const userCache = new Map<string, any>();
@@ -1217,7 +1223,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const products: any[] = await storage.getProducts(undefined, sellerId, 500);
       
       // Filter out inactive products
-      const activeProducts = products.filter(product => product.isActive !== false);
+      let activeProducts = products.filter(product => product.isActive !== false);
+      
+      // Normalize quantity field - some imported products use 'stock' instead of 'quantity'
+      activeProducts = activeProducts.map(product => ({
+        ...product,
+        quantity: product.quantity ?? product.stock ?? 0
+      }));
       
       // Fetch seller info once (since all products belong to the same seller)
       let companyName = 'Unknown Seller';
@@ -2662,7 +2674,8 @@ Remember: You're helping a business owner understand their operations better. Be
           return res.status(404).json({ message: `Product ${productId} not found` });
         }
 
-        const currentStock = product.quantity || 0;
+        // Support both 'quantity' and 'stock' field names (some imported products use 'stock')
+        const currentStock = (product as any).quantity ?? (product as any).stock ?? 0;
 
         // Check stock availability
         if (currentStock < quantity) {
@@ -2671,9 +2684,14 @@ Remember: You're helping a business owner understand their operations better. Be
           });
         }
 
-        // Update product quantity (decrease)
+        // Update product quantity (decrease) - update both fields for compatibility
         const newQuantity = currentStock - quantity;
-        await storage.updateProduct(productId, { quantity: newQuantity });
+        const updateData: any = { quantity: newQuantity };
+        // Also update 'stock' field if the product was using it
+        if ((product as any).stock !== undefined) {
+          updateData.stock = newQuantity;
+        }
+        await storage.updateProduct(productId, updateData);
 
         console.log(`[CHECKOUT] Updated ${product.name}: ${currentStock} -> ${newQuantity}`);
 
