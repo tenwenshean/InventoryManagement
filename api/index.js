@@ -321,6 +321,10 @@ export default async function handler(req, res) {
 
     // ===== PUBLIC PRODUCTS ROUTE (no auth) =====
     if (pathParts[0] === 'public' && pathParts[1] === 'products' && req.method === 'GET') {
+      // Check if it's a single product by ID: /api/public/products/:id
+      if (pathParts.length === 3 && pathParts[2] !== 'seller') {
+        return await handleGetPublicProductById(req, res, pathParts[2]);
+      }
       // Check if it's the seller-specific endpoint: /api/public/products/seller/:sellerId
       if (pathParts[2] === 'seller' && pathParts[3]) {
         return await handleGetPublicProductsBySeller(req, res, pathParts[3]);
@@ -1208,6 +1212,71 @@ async function handleGetPublicProductsBySeller(req, res, sellerId) {
   } catch (error) {
     console.error('Error fetching seller products:', error);
     return res.status(500).json({ message: 'Failed to fetch seller products', error: error.message });
+  }
+}
+
+// Public endpoint to get a single product by ID (for checkout stock validation)
+async function handleGetPublicProductById(req, res, productId) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    console.log('[PUBLIC PRODUCT] Fetching product:', productId);
+    
+    const doc = await db.collection('products').doc(productId).get();
+    
+    if (!doc.exists) {
+      console.log('[PUBLIC PRODUCT] Product not found:', productId);
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    
+    const data = doc.data();
+    
+    // Check if product is active
+    if (data.isActive === false) {
+      console.log('[PUBLIC PRODUCT] Product is inactive:', productId);
+      return res.status(404).json({ message: 'Product not available' });
+    }
+    
+    // Normalize quantity field
+    const quantity = data.quantity ?? data.stock ?? 0;
+    
+    // Get seller info
+    let companyName = 'Unknown Seller';
+    let sellerCurrency = 'usd';
+    
+    if (data.userId) {
+      try {
+        const userDoc = await db.collection('users').doc(data.userId).get();
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          companyName = userData?.companyName || userData?.displayName || 'Unknown Seller';
+          sellerCurrency = (userData?.currency || userData?.settings?.currency || 'usd').toLowerCase();
+        }
+      } catch (err) {
+        console.error('[PUBLIC PRODUCT] Error fetching seller info:', err);
+      }
+    }
+    
+    const product = {
+      id: doc.id,
+      name: data.name,
+      description: data.description,
+      price: data.price,
+      quantity,
+      imageUrl: data.imageUrl,
+      category: data.category,
+      sku: data.sku,
+      companyName,
+      sellerCurrency,
+      userId: data.userId
+    };
+    
+    console.log('[PUBLIC PRODUCT] Returning product:', product.name, 'qty:', quantity);
+    return res.json(product);
+    
+  } catch (error) {
+    console.error('[PUBLIC PRODUCT] Error fetching product:', error);
+    return res.status(500).json({ message: 'Failed to fetch product', error: error.message });
   }
 }
 

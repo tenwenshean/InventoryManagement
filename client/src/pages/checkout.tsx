@@ -293,16 +293,18 @@ export default function CheckoutPage() {
     setCouponError("");
   };
 
-  // Check stock availability
+  // Check stock availability using public endpoint (no auth required)
   const checkStockAvailability = async () => {
     const errors: Record<string, string> = {};
     
     for (const item of cart) {
       try {
-        const response = await apiRequest('GET', `/api/products/${item.product.id}`);
+        // Use public endpoint that doesn't require authentication
+        const response = await fetch(`/api/public/products/${item.product.id}`);
         
         // If product doesn't exist (404 or error), mark it as unavailable
         if (!response.ok) {
+          console.log(`[CHECKOUT] Product ${item.product.id} check failed:`, response.status);
           errors[item.product.id] = `${item.product.name} is no longer available`;
           continue;
         }

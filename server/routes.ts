@@ -1269,6 +1269,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public endpoint to get a single product by ID (for checkout stock validation)
+  app.get("/api/public/products/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log('[PUBLIC PRODUCT] Fetching product:', id);
+      
+      const product = await storage.getProduct(id) as any;
+      
+      if (!product) {
+        console.log('[PUBLIC PRODUCT] Product not found:', id);
+        return res.status(404).json({ message: 'Product not found' });
+      }
+      
+      // Check if product is active
+      if (product.isActive === false) {
+        console.log('[PUBLIC PRODUCT] Product is inactive:', id);
+        return res.status(404).json({ message: 'Product not available' });
+      }
+      
+      // Normalize quantity field
+      const quantity = product.quantity ?? product.stock ?? 0;
+      
+      // Get seller info
+      let companyName = 'Unknown Seller';
+      let sellerCurrency = 'usd';
+      
+      const productUserId = product.userId;
+      if (productUserId) {
+        try {
+          const userDoc = await db.collection('users').doc(productUserId).get();
+          if (userDoc.exists) {
+            const userData = userDoc.data();
+            companyName = userData?.companyName || userData?.displayName || 'Unknown Seller';
+            sellerCurrency = (userData?.currency || userData?.settings?.currency || 'usd').toLowerCase();
+          }
+        } catch (err) {
+          console.error('[PUBLIC PRODUCT] Error fetching seller info:', err);
+        }
+      }
+      
+      const publicProduct = {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: product.price,
+        quantity,
+        imageUrl: product.imageUrl,
+        category: product.categoryId || product.category,
+        sku: product.sku,
+        companyName,
+        sellerCurrency,
+        userId: productUserId
+      };
+      
+      console.log('[PUBLIC PRODUCT] Returning product:', publicProduct.name, 'qty:', quantity);
+      res.json(publicProduct);
+    } catch (error) {
+      console.error("[public] Error fetching product by ID:", error);
+      res.status(500).json({ error: (error as any)?.message || String(error) });
+    }
+  });
+
   // Public categories endpoint (no auth required)
   app.get("/api/public/categories", async (_req, res) => {
     try {
