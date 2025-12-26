@@ -2510,14 +2510,43 @@ Remember: You're helping a business owner understand their operations better. Be
   });
 
   // ===================== STRIPE PAYMENT ENDPOINTS =====================
+  
+  // GET /api/payment/status - Check payment configuration status
+  app.get("/api/payment/status", async (req: any, res) => {
+    const hasStripeKey = !!process.env.STRIPE_SECRET_KEY;
+    const hasWebhookSecret = !!process.env.STRIPE_WEBHOOK_SECRET;
+    res.json({
+      configured: hasStripeKey,
+      stripeKeySet: hasStripeKey,
+      webhookSecretSet: hasWebhookSecret,
+      environment: process.env.NODE_ENV || 'development',
+      timestamp: new Date().toISOString()
+    });
+  });
+  
   app.post("/api/payment/create-intent", async (req: any, res) => {
     try {
       const { amount, currency = 'usd' } = req.body;
 
       console.log('[PAYMENT] Create intent request:', { amount, currency });
+      console.log('[PAYMENT] Request body:', JSON.stringify(req.body));
 
-      if (!amount || amount <= 0) {
-        return res.status(400).json({ message: 'Invalid amount' });
+      // Validate amount
+      if (amount === undefined || amount === null) {
+        console.error('[PAYMENT] Missing amount in request');
+        return res.status(400).json({ 
+          message: 'Missing amount in request body',
+          received: req.body 
+        });
+      }
+
+      const numericAmount = Number(amount);
+      if (isNaN(numericAmount) || numericAmount <= 0) {
+        console.error('[PAYMENT] Invalid amount:', amount);
+        return res.status(400).json({ 
+          message: 'Invalid amount - must be a positive number',
+          received: amount 
+        });
       }
 
       // Initialize Stripe
@@ -2528,18 +2557,19 @@ Remember: You're helping a business owner understand their operations better. Be
         // Return a mock response for development
         return res.json({
           clientSecret: `pi_mock_${Date.now()}_secret_${Math.random().toString(36).substr(2, 9)}`,
-          paymentIntentId: `pi_mock_${Date.now()}`
+          paymentIntentId: `pi_mock_${Date.now()}`,
+          mock: true
         });
       }
 
       console.log('[PAYMENT] Stripe secret key found, initializing Stripe...');
 
-      const stripe = new Stripe(stripeSecretKey, {} as any);
+      const stripe = new Stripe(stripeSecretKey);
 
-      console.log('[PAYMENT] Creating payment intent...');
+      console.log('[PAYMENT] Creating payment intent for amount (cents):', Math.round(numericAmount));
 
       const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount), // Amount in cents
+        amount: Math.round(numericAmount), // Amount in cents
         currency: currency.toLowerCase(),
         automatic_payment_methods: {
           enabled: true,
@@ -2554,10 +2584,15 @@ Remember: You're helping a business owner understand their operations better. Be
       });
     } catch (error: any) {
       console.error('[PAYMENT] Error creating payment intent:', error);
-      console.error('[PAYMENT] Error details:', error.message, error.stack);
+      console.error('[PAYMENT] Error name:', error.name);
+      console.error('[PAYMENT] Error message:', error.message);
+      console.error('[PAYMENT] Error type:', error.type);
+      console.error('[PAYMENT] Error code:', error.code);
       res.status(500).json({ 
         message: 'Failed to create payment intent',
-        error: error.message 
+        error: error.message,
+        type: error.type || 'unknown',
+        code: error.code || 'unknown'
       });
     }
   });
@@ -2568,7 +2603,7 @@ Remember: You're helping a business owner understand their operations better. Be
       const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
       if (!webhookSecret) {
-        console.log('[PAYMENT] Webhook secret not configured');
+        console.log('[PAYMENT WEBHOOK] Webhook secret not configured');
         return res.status(400).json({ message: 'Webhook not configured' });
       }
 
@@ -2577,13 +2612,15 @@ Remember: You're helping a business owner understand their operations better. Be
         return res.status(400).json({ message: 'Stripe not configured' });
       }
 
-      const stripe = new Stripe(stripeSecretKey, {} as any);
+      const stripe = new Stripe(stripeSecretKey);
       
       let event;
       try {
-        event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+        // Handle both raw body and string body
+        const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+        event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
       } catch (err: any) {
-        console.error('[PAYMENT] Webhook signature verification failed:', err.message);
+        console.error('[PAYMENT WEBHOOK] Webhook signature verification failed:', err.message);
         return res.status(400).json({ message: `Webhook Error: ${err.message}` });
       }
 

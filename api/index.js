@@ -94,19 +94,40 @@ function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
-// Parse request body
+// Parse request body - handles both Vercel pre-parsed and raw bodies
 async function parseBody(req) {
-  if (req.body) return req.body;
+  // Vercel serverless functions often pre-parse JSON bodies
+  if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
+    return req.body;
+  }
   
-  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
-    const chunks = [];
-    for await (const chunk of req) {
-      chunks.push(chunk);
-    }
-    const bodyText = Buffer.concat(chunks).toString();
+  // If body is a string (Vercel might pass raw string), try to parse it
+  if (req.body && typeof req.body === 'string') {
     try {
+      return JSON.parse(req.body);
+    } catch (e) {
+      console.log('[parseBody] Failed to parse string body:', e.message);
+      return {};
+    }
+  }
+  
+  // For methods that have a body, try to read from stream
+  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+    try {
+      const chunks = [];
+      for await (const chunk of req) {
+        chunks.push(chunk);
+      }
+      if (chunks.length === 0) {
+        return {};
+      }
+      const bodyText = Buffer.concat(chunks).toString();
+      if (!bodyText || bodyText.trim() === '') {
+        return {};
+      }
       return JSON.parse(bodyText);
     } catch (e) {
+      console.log('[parseBody] Failed to read/parse stream body:', e.message);
       return {};
     }
   }
@@ -186,12 +207,22 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Log incoming request for debugging
+    console.log('[API] Incoming request:', req.method, req.url);
+    
     // Initialize Firebase
     await initializeFirebase();
 
     // Parse body and query
     req.body = await parseBody(req);
     req.query = parseQuery(req.url);
+    
+    // Debug log for payment requests
+    if (req.url.includes('payment')) {
+      console.log('[API] Payment request detected');
+      console.log('[API] Raw body type:', typeof req.body);
+      console.log('[API] Parsed body:', JSON.stringify(req.body));
+    }
 
     // Parse the path after /api/
     const urlPath = req.url.split('?')[0];
@@ -543,8 +574,24 @@ export default async function handler(req, res) {
 
     // ===== PAYMENT ROUTES (public - no auth required) =====
     if (pathParts[0] === 'payment') {
+      console.log('[PAYMENT ROUTE] Matched payment path, action:', pathParts[1], 'method:', req.method);
+      
+      // GET /api/payment/status - Check if payment is properly configured
+      if (pathParts[1] === 'status' && req.method === 'GET') {
+        const hasStripeKey = !!process.env.STRIPE_SECRET_KEY;
+        const hasWebhookSecret = !!process.env.STRIPE_WEBHOOK_SECRET;
+        return res.json({
+          configured: hasStripeKey,
+          stripeKeySet: hasStripeKey,
+          webhookSecretSet: hasWebhookSecret,
+          environment: process.env.NODE_ENV || 'unknown',
+          timestamp: new Date().toISOString()
+        });
+      }
+      
       // POST /api/payment/create-intent
       if (pathParts[1] === 'create-intent' && req.method === 'POST') {
+        console.log('[PAYMENT ROUTE] Routing to handleCreatePaymentIntent');
         return await handleCreatePaymentIntent(req, res);
       }
 
@@ -552,6 +599,16 @@ export default async function handler(req, res) {
       if (pathParts[1] === 'webhook' && req.method === 'POST') {
         return await handlePaymentWebhook(req, res);
       }
+      
+      // If payment path matched but no specific route, return helpful error
+      return res.status(404).json({ 
+        message: 'Payment endpoint not found', 
+        availableEndpoints: [
+          'GET /api/payment/status',
+          'POST /api/payment/create-intent',
+          'POST /api/payment/webhook'
+        ]
+      });
     }
 
     // ===== EMAIL NOTIFICATION ROUTES (protected, or dev mode) =====
@@ -3905,44 +3962,72 @@ async function handleHealthCheck(req, res) {
 // ===== PAYMENT HANDLERS =====
 async function handleCreatePaymentIntent(req, res) {
   try {
-    const { amount, currency = 'usd' } = req.body;
+    // Ensure body is parsed
+    const body = req.body || {};
+    const { amount, currency = 'usd' } = body;
 
-    console.log('[PAYMENT] Creating payment intent - amount:', amount, 'currency:', currency);
+    console.log('[PAYMENT] Creating payment intent request received');
+    console.log('[PAYMENT] Body:', JSON.stringify(body));
+    console.log('[PAYMENT] Amount:', amount, 'Currency:', currency);
 
     // Validate amount
-    if (!amount || amount <= 0) {
+    if (amount === undefined || amount === null) {
+      console.error('[PAYMENT] Missing amount in request body');
+      return res.status(400).json({ 
+        message: 'Missing amount in request body',
+        received: body 
+      });
+    }
+
+    const numericAmount = Number(amount);
+    if (isNaN(numericAmount) || numericAmount <= 0) {
       console.error('[PAYMENT] Invalid amount:', amount);
-      return res.status(400).json({ message: 'Invalid amount' });
+      return res.status(400).json({ 
+        message: 'Invalid amount - must be a positive number',
+        received: amount 
+      });
     }
 
     // Check for Stripe secret key
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
     if (!stripeSecretKey) {
-      console.warn('[PAYMENT] Stripe not configured - returning mock payment intent');
-      // Return a mock payment intent for development
+      console.warn('[PAYMENT] STRIPE_SECRET_KEY not configured - returning mock payment intent for testing');
+      // Return a mock payment intent for development/testing
       const mockSecret = `pi_mock_${Date.now()}_secret_${Math.random().toString(36).substring(7)}`;
       const mockId = `pi_mock_${Date.now()}`;
       
       return res.json({
         clientSecret: mockSecret,
-        paymentIntentId: mockId
+        paymentIntentId: mockId,
+        mock: true
       });
     }
 
-    console.log('[PAYMENT] Initializing Stripe...');
+    console.log('[PAYMENT] Initializing Stripe with secret key...');
     
-    // Dynamically import Stripe
-    const Stripe = (await import('stripe')).default;
-    const stripe = new Stripe(stripeSecretKey, {
-      apiVersion: '2024-11-20.acacia'
-    });
+    // Import Stripe - use require-style for better Vercel compatibility
+    let Stripe;
+    try {
+      const stripeModule = await import('stripe');
+      Stripe = stripeModule.default || stripeModule;
+    } catch (importError) {
+      console.error('[PAYMENT] Failed to import Stripe:', importError);
+      return res.status(500).json({ 
+        message: 'Failed to load payment processor',
+        error: importError.message 
+      });
+    }
+
+    // Initialize Stripe without specifying API version to use the latest stable
+    const stripe = new Stripe(stripeSecretKey);
 
     console.log('[PAYMENT] Creating payment intent with Stripe API...');
+    console.log('[PAYMENT] Amount (cents):', Math.round(numericAmount));
 
     // Create payment intent
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount), // Amount should already be in cents from frontend
+      amount: Math.round(numericAmount), // Amount should already be in cents from frontend
       currency: currency.toLowerCase(),
       automatic_payment_methods: {
         enabled: true
@@ -3958,16 +4043,18 @@ async function handleCreatePaymentIntent(req, res) {
 
   } catch (error) {
     console.error('[PAYMENT] Error creating payment intent:', error);
-    console.error('[PAYMENT] Error details:', {
-      message: error.message,
-      type: error.type,
-      code: error.code
-    });
+    console.error('[PAYMENT] Error name:', error.name);
+    console.error('[PAYMENT] Error message:', error.message);
+    console.error('[PAYMENT] Error type:', error.type);
+    console.error('[PAYMENT] Error code:', error.code);
+    console.error('[PAYMENT] Error stack:', error.stack);
 
+    // Return more detailed error for debugging
     return res.status(500).json({ 
       message: 'Failed to create payment intent',
       error: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      type: error.type || 'unknown',
+      code: error.code || 'unknown'
     });
   }
 }
@@ -3984,15 +4071,23 @@ async function handlePaymentWebhook(req, res) {
 
     console.log('[PAYMENT WEBHOOK] Received webhook event');
 
-    // Dynamically import Stripe
-    const Stripe = (await import('stripe')).default;
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: '2024-11-20.acacia'
-    });
+    // Import Stripe
+    let Stripe;
+    try {
+      const stripeModule = await import('stripe');
+      Stripe = stripeModule.default || stripeModule;
+    } catch (importError) {
+      console.error('[PAYMENT WEBHOOK] Failed to import Stripe:', importError);
+      return res.status(500).json({ message: 'Failed to load payment processor' });
+    }
+
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
     let event;
     try {
-      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      // For Vercel, the body might be a string or object
+      const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
     } catch (err) {
       console.error('[PAYMENT WEBHOOK] Webhook signature verification failed:', err.message);
       return res.status(400).json({ message: `Webhook Error: ${err.message}` });
