@@ -991,7 +991,7 @@ export default function AccountingNew() {
             <CardContent className="space-y-6">
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="rounded-lg border bg-emerald-50 p-4 dark:bg-emerald-500/10">
-                  <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Gross Profit</p>
+                  <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Net Profit</p>
                   <p className="text-2xl font-semibold text-emerald-600 dark:text-emerald-300">
                     {formatCurrency(Math.abs(financials.grossProfit))}
                   </p>

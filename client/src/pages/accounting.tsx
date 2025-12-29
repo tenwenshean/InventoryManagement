@@ -407,7 +407,7 @@ export default function Accounting() {
                       </p>
                     </div>
                     <div className="p-4 border border-border rounded-lg bg-purple-50">
-                      <p className="text-sm text-muted-foreground mb-1">Gross Profit</p>
+                      <p className="text-sm text-muted-foreground mb-1">Net Profit</p>
                       <p className="text-xl font-bold text-purple-600">
                         {formatCurrency(report.totals.grossProfit || 0)}
                       </p>
