@@ -32,6 +32,17 @@ import {
 import type { Product } from "@/types";
 import { useCustomerCurrency } from "@/hooks/useCustomerCurrency";
 
+// Helper function to ensure URL has proper protocol for external links
+const ensureExternalUrl = (url: string): string => {
+  if (!url) return url;
+  // If URL already has a protocol, return as-is
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  // Add https:// prefix for external URLs
+  return `https://${url}`;
+};
+
 export default function ShopDetailsPage() {
   const { formatPrice } = useCustomerCurrency();
   const [, params] = useRoute("/shop/:shopSlug");
@@ -391,7 +402,7 @@ export default function ShopDetailsPage() {
                   <div className="flex items-center gap-2 text-sm">
                     <Globe className="w-4 h-4 text-gray-500" />
                     <a 
-                      href={seller.shopWebsite} 
+                      href={ensureExternalUrl(seller.shopWebsite)} 
                       target="_blank" 
                       rel="noopener noreferrer" 
                       className="text-blue-600 hover:underline"
@@ -409,7 +420,7 @@ export default function ShopDetailsPage() {
                       <div className="flex gap-3">
                         {seller.shopFacebook && (
                           <a 
-                            href={seller.shopFacebook} 
+                            href={ensureExternalUrl(seller.shopFacebook)} 
                             target="_blank" 
                             rel="noopener noreferrer"
                             className="text-blue-600 hover:text-blue-700"
@@ -419,7 +430,7 @@ export default function ShopDetailsPage() {
                         )}
                         {seller.shopInstagram && (
                           <a 
-                            href={seller.shopInstagram} 
+                            href={ensureExternalUrl(seller.shopInstagram)} 
                             target="_blank" 
                             rel="noopener noreferrer"
                             className="text-pink-600 hover:text-pink-700"
@@ -429,7 +440,7 @@ export default function ShopDetailsPage() {
                         )}
                         {seller.shopTwitter && (
                           <a 
-                            href={seller.shopTwitter} 
+                            href={ensureExternalUrl(seller.shopTwitter)} 
                             target="_blank" 
                             rel="noopener noreferrer"
                             className="text-sky-600 hover:text-sky-700"
