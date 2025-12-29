@@ -116,6 +116,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicCategories.all });
       toast({
         title: "Success",
         description: "Category deleted successfully",
@@ -147,6 +148,7 @@ export default function EditProductModal({ isOpen, onClose, productId }: EditPro
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicCategories.all });
       toast({
         title: "Success",
         description: "Category created successfully",

@@ -347,6 +347,11 @@ export default async function handler(req, res) {
       if (req.method === 'POST') {
         return await handleCreateCategory(req, res, user);
       }
+      // DELETE /api/categories/:id
+      if (req.method === 'DELETE' && pathParts.length === 2) {
+        const categoryId = pathParts[1];
+        return await handleDeleteCategory(req, res, user, categoryId);
+      }
     }
 
     // ===== QR ROUTES (public) =====
@@ -478,6 +483,28 @@ export default async function handler(req, res) {
     if (pathParts[0] === 'orders' && pathParts[2] === 'complete' && req.method === 'POST') {
       const orderId = pathParts[1];
       return await handleCompleteOrder(req, res, orderId);
+    }
+
+    // ===== DELETE ORDER ROUTE (requires auth) =====
+    if (pathParts[0] === 'orders' && pathParts.length === 2 && req.method === 'DELETE') {
+      const orderId = pathParts[1];
+      const user = await verifyAuth(req, res);
+      if (!user) return;
+      return await handleDeleteOrder(req, res, user, orderId);
+    }
+
+    // ===== DELETE ALL SELLER ORDERS ROUTE (requires auth) =====
+    if (pathParts[0] === 'seller' && pathParts[1] === 'orders' && req.method === 'DELETE') {
+      const user = await verifyAuth(req, res);
+      if (!user) return;
+      return await handleDeleteAllSellerOrders(req, res, user);
+    }
+
+    // ===== CLEANUP ORPHANED TRANSACTIONS ROUTE (requires auth) =====
+    if (pathParts[0] === 'cleanup' && pathParts[1] === 'orphaned-transactions' && req.method === 'DELETE') {
+      const user = await verifyAuth(req, res);
+      if (!user) return;
+      return await handleCleanupOrphanedTransactions(req, res, user);
     }
 
     // ===== EASY PARCEL / SHIPPING ROUTES =====
@@ -1564,6 +1591,31 @@ async function handleCreateCategory(req, res, user) {
   }
 }
 
+async function handleDeleteCategory(req, res, user, categoryId) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    // Verify the category belongs to the user before deleting
+    const categoryRef = db.collection('categories').doc(categoryId);
+    const categoryDoc = await categoryRef.get();
+    
+    if (!categoryDoc.exists) {
+      return res.status(404).json({ message: 'Category not found' });
+    }
+    
+    const categoryData = categoryDoc.data();
+    if (categoryData.userId !== user.uid) {
+      return res.status(403).json({ message: 'Not authorized to delete this category' });
+    }
+    
+    await categoryRef.delete();
+    return res.json({ message: 'Category deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting category:', error);
+    return res.status(500).json({ message: 'Failed to delete category' });
+  }
+}
+
 async function handleResolveQR(req, res, code) {
   const { db } = await initializeFirebase();
   
@@ -2573,6 +2625,243 @@ async function handleCompleteOrder(req, res, orderId) {
     console.error('[COMPLETE ORDER] Error:', error);
     return res.status(500).json({ 
       message: 'Failed to complete order',
+      error: error.message 
+    });
+  }
+}
+
+// ===== DELETE ORDER HANDLER =====
+async function handleDeleteOrder(req, res, user, orderId) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const userId = user.uid;
+    console.log('[DELETE ORDER] Deleting order:', orderId, 'for user:', userId);
+
+    // Get the order
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    
+    if (!orderDoc.exists) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    const orderData = orderDoc.data();
+
+    // Verify user has permission (is seller or customer)
+    const isSeller = orderData.items?.some(item => item.sellerId === userId) || orderData.sellerId === userId;
+    if (!isSeller && orderData.customerId !== userId) {
+      return res.status(403).json({ message: 'Not authorized to delete this order' });
+    }
+
+    const orderNumber = orderData.orderNumber;
+
+    // Delete associated inventory transactions (by order reference)
+    if (orderNumber) {
+      const txSnapshot = await db.collection('inventoryTransactions')
+        .where('reference', '==', orderNumber)
+        .get();
+      
+      const transactionIds = [];
+      for (const doc of txSnapshot.docs) {
+        transactionIds.push(doc.id);
+        await doc.ref.delete();
+      }
+      
+      if (txSnapshot.docs.length > 0) {
+        console.log('[DELETE ORDER] Deleted', txSnapshot.docs.length, 'inventory transactions for order:', orderNumber);
+      }
+
+      // Delete associated accounting entries (by transactionId)
+      for (const txId of transactionIds) {
+        const accSnapshot = await db.collection('accountingEntries')
+          .where('transactionId', '==', txId)
+          .get();
+        
+        for (const doc of accSnapshot.docs) {
+          await doc.ref.delete();
+        }
+        
+        if (accSnapshot.docs.length > 0) {
+          console.log('[DELETE ORDER] Deleted', accSnapshot.docs.length, 'accounting entries for transaction:', txId);
+        }
+      }
+    }
+
+    // Delete the order
+    await db.collection('orders').doc(orderId).delete();
+
+    console.log('[DELETE ORDER] Order deleted:', orderNumber || orderId);
+
+    return res.json({
+      success: true,
+      message: 'Order and associated records deleted successfully',
+      orderId
+    });
+
+  } catch (error) {
+    console.error('[DELETE ORDER] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to delete order',
+      error: error.message 
+    });
+  }
+}
+
+// ===== DELETE ALL SELLER ORDERS HANDLER =====
+async function handleDeleteAllSellerOrders(req, res, user) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const userId = user.uid;
+    console.log('[DELETE ALL ORDERS] Deleting all orders for seller:', userId);
+
+    // Get all orders where user is the seller
+    const ordersSnapshot = await db.collection('orders').get();
+    
+    const orderNumbers = [];
+    let deleteCount = 0;
+
+    for (const doc of ordersSnapshot.docs) {
+      const orderData = doc.data();
+      // Check if order belongs to this seller (items have sellerId)
+      const belongsToSeller = orderData.items?.some(item => item.sellerId === userId) ||
+                              orderData.sellerId === userId;
+      if (belongsToSeller) {
+        if (orderData.orderNumber) {
+          orderNumbers.push(orderData.orderNumber);
+        }
+        await doc.ref.delete();
+        deleteCount++;
+      }
+    }
+
+    console.log('[DELETE ALL ORDERS] Deleted', deleteCount, 'orders');
+
+    // Delete associated inventory transactions and accounting entries
+    let txDeleteCount = 0;
+    let accDeleteCount = 0;
+
+    for (const orderNumber of orderNumbers) {
+      // Delete inventory transactions
+      const txSnapshot = await db.collection('inventoryTransactions')
+        .where('reference', '==', orderNumber)
+        .get();
+      
+      for (const doc of txSnapshot.docs) {
+        const txId = doc.id;
+        
+        // Delete accounting entries for this transaction
+        const accSnapshot = await db.collection('accountingEntries')
+          .where('transactionId', '==', txId)
+          .get();
+        
+        for (const accDoc of accSnapshot.docs) {
+          await accDoc.ref.delete();
+          accDeleteCount++;
+        }
+        
+        await doc.ref.delete();
+        txDeleteCount++;
+      }
+    }
+
+    console.log('[DELETE ALL ORDERS] Deleted', txDeleteCount, 'inventory transactions and', accDeleteCount, 'accounting entries');
+
+    return res.json({
+      success: true,
+      message: `Successfully deleted ${deleteCount} orders, ${txDeleteCount} transactions, ${accDeleteCount} accounting entries`,
+      deletedCount: deleteCount,
+      transactionsDeleted: txDeleteCount,
+      accountingEntriesDeleted: accDeleteCount
+    });
+
+  } catch (error) {
+    console.error('[DELETE ALL ORDERS] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to delete orders',
+      error: error.message 
+    });
+  }
+}
+
+// ===== CLEANUP ORPHANED TRANSACTIONS HANDLER =====
+async function handleCleanupOrphanedTransactions(req, res, user) {
+  const { db } = await initializeFirebase();
+  
+  try {
+    const userId = user.uid;
+    console.log('[CLEANUP] Cleaning up orphaned transactions for user:', userId);
+
+    // Get all existing order numbers for this user
+    const ordersSnapshot = await db.collection('orders').get();
+    const validOrderNumbers = new Set();
+    
+    ordersSnapshot.docs.forEach(doc => {
+      const orderData = doc.data();
+      const belongsToUser = orderData.items?.some(item => item.sellerId === userId) ||
+                            orderData.sellerId === userId ||
+                            orderData.customerId === userId;
+      if (belongsToUser && orderData.orderNumber) {
+        validOrderNumbers.add(orderData.orderNumber);
+      }
+    });
+
+    console.log('[CLEANUP] Valid order numbers:', validOrderNumbers.size);
+
+    // Get user's products
+    const productsSnapshot = await db.collection('products')
+      .where('userId', '==', userId)
+      .get();
+    const productIds = productsSnapshot.docs.map(doc => doc.id);
+
+    // Get all inventory transactions for user's products
+    let orphanedTxCount = 0;
+    let orphanedAccCount = 0;
+
+    for (const productId of productIds) {
+      const txSnapshot = await db.collection('inventoryTransactions')
+        .where('productId', '==', productId)
+        .where('type', '==', 'out')
+        .get();
+
+      for (const doc of txSnapshot.docs) {
+        const txData = doc.data();
+        const reference = txData.reference;
+        
+        // Check if this transaction's order still exists
+        if (reference && reference.startsWith('ORD-') && !validOrderNumbers.has(reference)) {
+          console.log('[CLEANUP] Found orphaned transaction:', doc.id, 'reference:', reference);
+          
+          // Delete associated accounting entries
+          const accSnapshot = await db.collection('accountingEntries')
+            .where('transactionId', '==', doc.id)
+            .get();
+          
+          for (const accDoc of accSnapshot.docs) {
+            await accDoc.ref.delete();
+            orphanedAccCount++;
+          }
+          
+          // Delete the orphaned transaction
+          await doc.ref.delete();
+          orphanedTxCount++;
+        }
+      }
+    }
+
+    console.log('[CLEANUP] Deleted', orphanedTxCount, 'orphaned transactions and', orphanedAccCount, 'accounting entries');
+
+    return res.json({
+      success: true,
+      message: `Cleaned up ${orphanedTxCount} orphaned transactions and ${orphanedAccCount} accounting entries`,
+      orphanedTransactionsDeleted: orphanedTxCount,
+      orphanedAccountingEntriesDeleted: orphanedAccCount
+    });
+
+  } catch (error) {
+    console.error('[CLEANUP] Error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to clean up orphaned transactions',
       error: error.message 
     });
   }

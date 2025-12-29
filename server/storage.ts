@@ -401,6 +401,22 @@ export class DatabaseStorage {
     await ref.delete();
   }
 
+  async deleteAllAccountingEntries(userId: string): Promise<number> {
+    console.log('[storage.deleteAllAccountingEntries] Deleting all entries for userId:', userId);
+    const snapshot = await db.collection("accountingEntries")
+      .where("userId", "==", userId)
+      .get();
+    
+    const batch = db.batch();
+    snapshot.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+    
+    await batch.commit();
+    console.log('[storage.deleteAllAccountingEntries] Deleted', snapshot.docs.length, 'entries');
+    return snapshot.docs.length;
+  }
+
   // ===============================
   // CHAT MESSAGES
   // ===============================

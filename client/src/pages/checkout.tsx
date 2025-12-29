@@ -443,16 +443,20 @@ export default function CheckoutPage() {
         notes,
         paymentMethod,
         paymentIntentId,
-        items: cart.map(item => ({
-          productId: item.product.id,
-          productName: item.product.name,
-          quantity: item.quantity,
-          unitPrice: parseFloat(item.product.price),
-          totalPrice: parseFloat(item.product.price) * item.quantity,
-          userId: (item.product as any).userId, // Owner of the product
-          sellerName: (item.product as any).companyName || 'Unknown Seller',
-          sellerCurrency: (item.product as any).sellerCurrency || 'usd'
-        })),
+        items: cart.map(item => {
+          const userId = (item.product as any).userId;
+          console.log(`[CHECKOUT ITEM] Product: ${item.product.name}, userId (seller): ${userId}`);
+          return {
+            productId: item.product.id,
+            productName: item.product.name,
+            quantity: item.quantity,
+            unitPrice: parseFloat(item.product.price),
+            totalPrice: parseFloat(item.product.price) * item.quantity,
+            userId: userId, // Owner of the product (seller)
+            sellerName: (item.product as any).companyName || 'Unknown Seller',
+            sellerCurrency: (item.product as any).sellerCurrency || 'usd'
+          };
+        }),
         subtotal: cartTotal,
         discount,
         couponCode: appliedCoupon?.code,
@@ -477,6 +481,9 @@ export default function CheckoutPage() {
       queryClient.invalidateQueries({ queryKey: ['customer-orders'] });
       // Also invalidate seller orders for the enterprise side
       queryClient.invalidateQueries({ queryKey: ['seller-orders'] });
+      // Invalidate accounting queries so financial statements update with new sales
+      queryClient.invalidateQueries({ queryKey: ['accounting'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/accounting'] });
 
       toast({
         title: "Order Placed Successfully!",

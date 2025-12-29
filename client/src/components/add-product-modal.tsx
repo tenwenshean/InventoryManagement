@@ -125,6 +125,7 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicCategories.all });
       toast({
         title: "Success",
         description: "Category created successfully",
@@ -158,6 +159,7 @@ export default function AddProductModal({ isOpen, onClose }: AddProductModalProp
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicCategories.all });
       toast({
         title: "Success",
         description: "Category deleted successfully",

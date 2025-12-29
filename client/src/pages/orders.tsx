@@ -19,6 +19,16 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -42,7 +52,8 @@ import {
   Store,
   Ticket,
   Truck,
-  Printer
+  Printer,
+  Trash2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import CouponManagement from "@/components/coupon-management";
@@ -67,6 +78,9 @@ export default function Orders() {
   // Shipping dialog state
   const [shippingDialogOpen, setShippingDialogOpen] = useState(false);
   const [sellerPostcode, setSellerPostcode] = useState("");
+  
+  // Delete all orders dialog state
+  const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
 
   // Fetch user settings to get business address
   const { data: userSettings } = useQuery({
@@ -180,6 +194,30 @@ export default function Orders() {
     }
   });
 
+  // Handle delete all orders
+  const deleteAllOrdersMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('DELETE', '/api/seller/orders');
+      if (!response.ok) throw new Error('Failed to delete orders');
+      return response.json();
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['seller-orders'] });
+      toast({
+        title: 'Orders Deleted',
+        description: `Successfully deleted ${result.deletedCount} orders.`,
+      });
+      setDeleteAllDialogOpen(false);
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: 'Failed to delete orders. Please try again.',
+        variant: "destructive",
+      });
+    }
+  });
+
   const handleAcceptOrder = (order: any) => {
     setSelectedOrder(order);
     setAcceptDialogOpen(true);
@@ -261,6 +299,14 @@ export default function Orders() {
           <h1 className="text-3xl font-bold tracking-tight">Order Management</h1>
           <p className="text-gray-600 mt-1">Manage customer orders, refund requests, and coupons</p>
         </div>
+        <Button 
+          variant="destructive" 
+          onClick={() => setDeleteAllDialogOpen(true)}
+          disabled={!orders || orders.length === 0}
+        >
+          <Trash2 className="w-4 h-4 mr-2" />
+          Delete All Orders
+        </Button>
       </div>
 
       {/* Tabs */}
@@ -760,6 +806,29 @@ export default function Orders() {
         order={selectedOrder}
         sellerPostcode={sellerPostcode}
       />
+
+      {/* Delete All Orders Dialog */}
+      <AlertDialog open={deleteAllDialogOpen} onOpenChange={setDeleteAllDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete ALL orders?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action will permanently delete all {orders?.length || 0} orders. 
+              This cannot be undone. Are you sure you want to continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteAllOrdersMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteAllOrdersMutation.mutate()}
+              disabled={deleteAllOrdersMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteAllOrdersMutation.isPending ? "Deleting..." : "Delete All Orders"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
         </TabsContent>
 
         {/* Coupons Tab */}

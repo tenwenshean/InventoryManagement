@@ -38,6 +38,8 @@ export default function AccountingNew() {
   const incomeStatementRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState("balance-sheet");
   const [entryToDelete, setEntryToDelete] = useState<AccountingEntry | null>(null);
+  const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const [showCleanupDialog, setShowCleanupDialog] = useState(false);
   const [hasResolvedMonth, setHasResolvedMonth] = useState(false);
   const [companyName, setCompanyName] = useState("Your Company Name");
 
@@ -214,9 +216,10 @@ export default function AccountingNew() {
       // Wait a moment for server cache to clear
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Force refetch with cache busting
+      // Force refetch with cache busting - include sales summary to update financials
       await queryClient.refetchQueries({ queryKey: queryKeys.accounting.entries(selectedMonth), type: 'active' });
       await queryClient.refetchQueries({ queryKey: queryKeys.accounting.entriesRoot, type: 'active' });
+      await queryClient.invalidateQueries({ queryKey: ["/api/accounting/sales-summary"] });
       
       toast({
         title: "Entry deleted",
@@ -229,6 +232,80 @@ export default function AccountingNew() {
       toast({
         title: "Failed to delete",
         description: error instanceof Error ? error.message : "Could not delete this entry",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteAllEntriesMutation = useMutation({
+    mutationFn: async () => {
+      console.log('[DELETE ALL ENTRIES] Deleting all entries');
+      const res = await apiRequest("DELETE", "/api/accounting/entries");
+      if (!res.ok) throw new Error("Failed to delete all entries");
+      return res.json();
+    },
+    onSuccess: async (result) => {
+      console.log('[DELETE ALL ENTRIES] Success:', result);
+      
+      // Clear ALL cache
+      queryClient.clear();
+      
+      // Wait a moment for server cache to clear
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Force refetch
+      await queryClient.refetchQueries({ queryKey: queryKeys.accounting.entries(selectedMonth), type: 'active' });
+      await queryClient.refetchQueries({ queryKey: queryKeys.accounting.entriesRoot, type: 'active' });
+      await queryClient.invalidateQueries({ queryKey: ["/api/accounting/sales-summary"] });
+      
+      toast({
+        title: "All entries deleted",
+        description: `Successfully deleted ${result.deletedCount} journal entries`,
+      });
+      setShowDeleteAllDialog(false);
+    },
+    onError: (error) => {
+      console.error('[DELETE ALL ENTRIES] Error:', error);
+      toast({
+        title: "Failed to delete",
+        description: error instanceof Error ? error.message : "Could not delete entries",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const cleanupOrphanedMutation = useMutation({
+    mutationFn: async () => {
+      console.log('[CLEANUP] Cleaning up orphaned transactions');
+      const res = await apiRequest("DELETE", "/api/cleanup/orphaned-transactions");
+      if (!res.ok) throw new Error("Failed to cleanup orphaned transactions");
+      return res.json();
+    },
+    onSuccess: async (result) => {
+      console.log('[CLEANUP] Success:', result);
+      
+      // Clear ALL cache
+      queryClient.clear();
+      
+      // Wait a moment for server cache to clear
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Force refetch
+      await queryClient.refetchQueries({ queryKey: queryKeys.accounting.entries(selectedMonth), type: 'active' });
+      await queryClient.refetchQueries({ queryKey: queryKeys.accounting.entriesRoot, type: 'active' });
+      await queryClient.invalidateQueries({ queryKey: ["/api/accounting/sales-summary"] });
+      
+      toast({
+        title: "Cleanup Complete",
+        description: `Removed ${result.orphanedTransactionsDeleted} orphaned transactions and ${result.orphanedAccountingEntriesDeleted} accounting entries from deleted orders`,
+      });
+      setShowCleanupDialog(false);
+    },
+    onError: (error) => {
+      console.error('[CLEANUP] Error:', error);
+      toast({
+        title: "Cleanup Failed",
+        description: error instanceof Error ? error.message : "Could not cleanup transactions",
         variant: "destructive",
       });
     },
@@ -387,11 +464,15 @@ export default function AccountingNew() {
     const costOfSales: any[] = [];
     const operatingExpenses: any[] = [];
     
-    // Add inventory as a current asset
+    const hasJournalEntries = monthlyEntries.length > 0;
+    
+    // ALWAYS add inventory as a current asset - this represents real inventory value
+    // Inventory is a calculated asset from actual products, not a journal entry
     console.log('[FINANCIALS] Checking inventory:', { 
       hasSalesData: !!salesData, 
       inventoryValue: salesData?.inventoryValue,
-      assetsBeforeInventory: assets.length 
+      assetsBeforeInventory: assets.length,
+      hasJournalEntries
     });
     
     if (salesData?.inventoryValue !== undefined && salesData.inventoryValue >= 0) {
@@ -412,13 +493,16 @@ export default function AccountingNew() {
     // The revenue from sales is already included via the "Sales Revenue" journal entries
     // created when orders are placed.
 
-    if (salesData && salesData.totalCOGS > 0) {
+    // Add COGS from salesData (calculated from inventory transactions)
+    // This now only includes transactions from orders that still exist
+    // (orphaned transactions from deleted orders should be cleaned up)
+    if (salesData && salesData.totalCOGS > 0 && revenue.length > 0) {
       costOfSales.push({
-        name: "Purchases",
+        name: "Cost of Goods Sold",
         debit: salesData.totalCOGS,
         credit: 0,
         balance: salesData.totalCOGS,
-        description: "Cost of products sold",
+        description: "Cost of products sold (from inventory transactions)",
       });
     }
     
@@ -673,6 +757,22 @@ export default function AccountingNew() {
           <Button variant="outline" className="flex items-center gap-2" onClick={handlePrint}>
             <Printer size={16} />
             Print
+          </Button>
+          <Button 
+            variant="outline" 
+            className="flex items-center gap-2 text-orange-600 border-orange-300 hover:bg-orange-50" 
+            onClick={() => setShowCleanupDialog(true)}
+          >
+            <Trash2 size={16} />
+            Cleanup Old Data
+          </Button>
+          <Button 
+            variant="destructive" 
+            className="flex items-center gap-2" 
+            onClick={() => setShowDeleteAllDialog(true)}
+          >
+            <Trash2 size={16} />
+            Delete All
           </Button>
         </div>
       </header>
@@ -954,7 +1054,7 @@ export default function AccountingNew() {
                       className="border-t border-b-2 border-border"
                       style={{ backgroundColor: "#d4edda" }}
                     >
-                      <td className="py-2 font-semibold">GROSS PROFIT</td>
+                      <td className="py-2 font-semibold">NET PROFIT</td>
                       <td className="amount py-2 font-semibold">{formatCurrency(Math.abs(financials.grossProfit))}</td>
                     </tr>
                     
@@ -1101,6 +1201,51 @@ export default function AccountingNew() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteEntryMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete ALL journal entries?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action will permanently remove ALL your journal entries across all months. 
+              This cannot be undone. Are you sure you want to continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteAllEntriesMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteAllEntriesMutation.mutate()}
+              disabled={deleteAllEntriesMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteAllEntriesMutation.isPending ? "Deleting..." : "Delete All Entries"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showCleanupDialog} onOpenChange={setShowCleanupDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cleanup Old Transaction Data?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove inventory transactions and accounting entries from orders that were 
+              previously deleted. This helps fix incorrect COGS calculations caused by old data.
+              Your current orders and their data will NOT be affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cleanupOrphanedMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => cleanupOrphanedMutation.mutate()}
+              disabled={cleanupOrphanedMutation.isPending}
+              className="bg-orange-600 text-white hover:bg-orange-700"
+            >
+              {cleanupOrphanedMutation.isPending ? "Cleaning up..." : "Cleanup Old Data"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

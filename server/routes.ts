@@ -5,7 +5,7 @@ import { cache } from "./cache";
 import { auth, db } from "./db"; // ✅ fixed import
 import { mlService } from "./ml-service";
 import { emailService } from "./email-service";
-import { cacheMiddleware } from "./cache-middleware";
+import { cacheMiddleware, serverCache } from "./cache-middleware";
 import Stripe from "stripe";
 import {
   insertProductSchema,
@@ -109,6 +109,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const categoryData = insertCategorySchema.parse(req.body);
       const category = await storage.createCategory(categoryData, req.user.uid);
+      // Invalidate both enterprise and public categories cache
+      serverCache.deleteByPattern("/api/categories");
+      serverCache.deleteByPattern("/api/public/categories");
       res.status(201).json(category);
     } catch (error) {
       console.error("Error creating category:", error);
@@ -120,6 +123,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const categoryId = req.params.id;
       await storage.deleteCategory(categoryId);
+      // Invalidate both enterprise and public categories cache
+      serverCache.deleteByPattern("/api/categories");
+      serverCache.deleteByPattern("/api/public/categories");
       res.json({ message: "Category deleted successfully" });
     } catch (error) {
       console.error("Error deleting category:", error);
@@ -1334,6 +1340,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Public categories endpoint (no auth required)
   app.get("/api/public/categories", async (_req, res) => {
     try {
+      // Prevent browser/proxy caching for this endpoint
+      res.setHeader("Cache-Control", "no-store");
       const categories = await storage.getCategories();
       res.json(categories);
     } catch (error) {
@@ -2210,6 +2218,23 @@ Remember: You're helping a business owner understand their operations better. Be
     }
   });
 
+  // Delete all accounting entries for the authenticated user
+  app.delete("/api/accounting/entries", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.uid;
+      console.log('[DELETE ALL ENTRIES] Deleting all entries for user:', userId);
+      
+      const deletedCount = await storage.deleteAllAccountingEntries(userId);
+      cache.clear(userId);
+      
+      console.log('[DELETE ALL ENTRIES] Successfully deleted', deletedCount, 'entries');
+      res.json({ message: `Successfully deleted ${deletedCount} entries`, deletedCount });
+    } catch (error: any) {
+      console.error("Error deleting all accounting entries:", error);
+      res.status(500).json({ message: "Failed to delete accounting entries" });
+    }
+  });
+
   // Get sales summary for a specific month
   app.get("/api/accounting/sales-summary", isAuthenticated, async (req: any, res) => {
     try {
@@ -2811,18 +2836,28 @@ Remember: You're helping a business owner understand their operations better. Be
 
         console.log(`[CHECKOUT] Created transaction:`, transaction.id);
 
-        // Create accounting entry for revenue (for the product owner)
+        // Create accounting entry for revenue (for the product owner/seller)
         const revenue = unitPrice * quantity;
-        await storage.addAccountingEntry({
-          accountType: 'revenue',
-          accountName: 'Sales Revenue',
-          debitAmount: '0',
-          creditAmount: revenue.toString(),
-          description: `Sale of ${quantity}x ${product.name} - Order #${orderNumber}`,
-          transactionId: transaction.id
-        }, userId); // Use the product owner's userId
+        
+        // Get the seller's userId from the item or fall back to the product's userId
+        const sellerId = userId || (product as any).userId;
+        
+        console.log(`[CHECKOUT] Creating accounting entry - sellerId: ${sellerId}, productUserId: ${(product as any).userId}, itemUserId: ${userId}`);
+        
+        if (!sellerId) {
+          console.error(`[CHECKOUT] WARNING: No seller ID found for product ${product.name}. Accounting entry will not be created.`);
+        } else {
+          const accountingEntry = await storage.addAccountingEntry({
+            accountType: 'revenue',
+            accountName: 'Sales Revenue',
+            debitAmount: '0',
+            creditAmount: revenue.toString(),
+            description: `Sale of ${quantity}x ${product.name} - Order #${orderNumber}`,
+            transactionId: transaction.id
+          }, sellerId);
 
-        console.log(`[CHECKOUT] Created accounting entry for user ${userId}: $${revenue}`);
+          console.log(`[CHECKOUT] Created accounting entry for seller ${sellerId}: $${revenue}, entryId: ${accountingEntry.id}`);
+        }
       }
 
       console.log(`[CHECKOUT] Order ${orderNumber} completed successfully`);
@@ -3291,6 +3326,252 @@ Remember: You're helping a business owner understand their operations better. Be
       console.error('[COMPLETE ORDER] Error:', error);
       res.status(500).json({ 
         message: 'Failed to complete order',
+        error: error.message 
+      });
+    }
+  });
+
+  // Delete a specific order
+  app.delete("/api/orders/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const orderId = req.params.id;
+      const userId = req.user.uid;
+      
+      console.log('[DELETE ORDER] Deleting order:', orderId, 'for user:', userId);
+
+      // Get the order
+      const orderDoc = await db.collection('orders').doc(orderId).get();
+      
+      if (!orderDoc.exists) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+
+      const orderData = orderDoc.data();
+
+      // Verify user has permission (is seller or customer)
+      const isSeller = orderData?.items?.some((item: any) => item.sellerId === userId) || orderData?.sellerId === userId;
+      if (!isSeller && orderData?.customerId !== userId) {
+        return res.status(403).json({ message: 'Not authorized to delete this order' });
+      }
+
+      const orderNumber = orderData?.orderNumber;
+
+      // Delete associated inventory transactions (by order reference)
+      if (orderNumber) {
+        const txSnapshot = await db.collection('inventoryTransactions')
+          .where('reference', '==', orderNumber)
+          .get();
+        
+        const txBatch = db.batch();
+        const transactionIds: string[] = [];
+        txSnapshot.docs.forEach(doc => {
+          transactionIds.push(doc.id);
+          txBatch.delete(doc.ref);
+        });
+        
+        if (txSnapshot.docs.length > 0) {
+          await txBatch.commit();
+          console.log('[DELETE ORDER] Deleted', txSnapshot.docs.length, 'inventory transactions for order:', orderNumber);
+        }
+
+        // Delete associated accounting entries (by transactionId)
+        for (const txId of transactionIds) {
+          const accSnapshot = await db.collection('accountingEntries')
+            .where('transactionId', '==', txId)
+            .get();
+          
+          const accBatch = db.batch();
+          accSnapshot.docs.forEach(doc => accBatch.delete(doc.ref));
+          
+          if (accSnapshot.docs.length > 0) {
+            await accBatch.commit();
+            console.log('[DELETE ORDER] Deleted', accSnapshot.docs.length, 'accounting entries for transaction:', txId);
+          }
+        }
+      }
+
+      // Delete the order
+      await db.collection('orders').doc(orderId).delete();
+
+      console.log('[DELETE ORDER] Order deleted:', orderNumber || orderId);
+
+      // Clear relevant caches
+      cache.clear(userId);
+
+      res.json({
+        success: true,
+        message: 'Order and associated records deleted successfully',
+        orderId
+      });
+
+    } catch (error: any) {
+      console.error('[DELETE ORDER] Error:', error);
+      res.status(500).json({ 
+        message: 'Failed to delete order',
+        error: error.message 
+      });
+    }
+  });
+
+  // Delete all orders for the authenticated user (as seller)
+  app.delete("/api/seller/orders", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.uid;
+      
+      console.log('[DELETE ALL ORDERS] Deleting all orders for seller:', userId);
+
+      // Get all orders where user is the seller
+      const ordersSnapshot = await db.collection('orders').get();
+      
+      const orderNumbers: string[] = [];
+      const orderBatch = db.batch();
+      let deleteCount = 0;
+
+      ordersSnapshot.docs.forEach(doc => {
+        const orderData = doc.data();
+        // Check if order belongs to this seller (items have sellerId)
+        const belongsToSeller = orderData.items?.some((item: any) => item.sellerId === userId) ||
+                                orderData.sellerId === userId;
+        if (belongsToSeller) {
+          if (orderData.orderNumber) {
+            orderNumbers.push(orderData.orderNumber);
+          }
+          orderBatch.delete(doc.ref);
+          deleteCount++;
+        }
+      });
+
+      await orderBatch.commit();
+      console.log('[DELETE ALL ORDERS] Deleted', deleteCount, 'orders');
+
+      // Delete associated inventory transactions and accounting entries
+      let txDeleteCount = 0;
+      let accDeleteCount = 0;
+
+      for (const orderNumber of orderNumbers) {
+        // Delete inventory transactions
+        const txSnapshot = await db.collection('inventoryTransactions')
+          .where('reference', '==', orderNumber)
+          .get();
+        
+        for (const doc of txSnapshot.docs) {
+          const txId = doc.id;
+          
+          // Delete accounting entries for this transaction
+          const accSnapshot = await db.collection('accountingEntries')
+            .where('transactionId', '==', txId)
+            .get();
+          
+          for (const accDoc of accSnapshot.docs) {
+            await accDoc.ref.delete();
+            accDeleteCount++;
+          }
+          
+          await doc.ref.delete();
+          txDeleteCount++;
+        }
+      }
+
+      console.log('[DELETE ALL ORDERS] Deleted', txDeleteCount, 'inventory transactions and', accDeleteCount, 'accounting entries');
+
+      // Clear relevant caches
+      cache.clear(userId);
+
+      res.json({
+        success: true,
+        message: `Successfully deleted ${deleteCount} orders, ${txDeleteCount} transactions, ${accDeleteCount} accounting entries`,
+        deletedCount: deleteCount,
+        transactionsDeleted: txDeleteCount,
+        accountingEntriesDeleted: accDeleteCount
+      });
+
+    } catch (error: any) {
+      console.error('[DELETE ALL ORDERS] Error:', error);
+      res.status(500).json({ 
+        message: 'Failed to delete orders',
+        error: error.message 
+      });
+    }
+  });
+
+  // Clean up orphaned inventory transactions (from previously deleted orders)
+  app.delete("/api/cleanup/orphaned-transactions", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.uid;
+      
+      console.log('[CLEANUP] Cleaning up orphaned transactions for user:', userId);
+
+      // Get all existing order numbers for this user
+      const ordersSnapshot = await db.collection('orders').get();
+      const validOrderNumbers = new Set<string>();
+      
+      ordersSnapshot.docs.forEach(doc => {
+        const orderData = doc.data();
+        const belongsToUser = orderData.items?.some((item: any) => item.sellerId === userId) ||
+                              orderData.sellerId === userId ||
+                              orderData.customerId === userId;
+        if (belongsToUser && orderData.orderNumber) {
+          validOrderNumbers.add(orderData.orderNumber);
+        }
+      });
+
+      console.log('[CLEANUP] Valid order numbers:', validOrderNumbers.size);
+
+      // Get user's products
+      const products = await storage.getProducts(undefined, userId);
+      const productIds = products.map(p => p.id);
+
+      // Get all inventory transactions for user's products
+      let orphanedTxCount = 0;
+      let orphanedAccCount = 0;
+
+      for (const productId of productIds) {
+        const txSnapshot = await db.collection('inventoryTransactions')
+          .where('productId', '==', productId)
+          .where('type', '==', 'out')
+          .get();
+
+        for (const doc of txSnapshot.docs) {
+          const txData = doc.data();
+          const reference = txData.reference;
+          
+          // Check if this transaction's order still exists
+          if (reference && reference.startsWith('ORD-') && !validOrderNumbers.has(reference)) {
+            console.log('[CLEANUP] Found orphaned transaction:', doc.id, 'reference:', reference);
+            
+            // Delete associated accounting entries
+            const accSnapshot = await db.collection('accountingEntries')
+              .where('transactionId', '==', doc.id)
+              .get();
+            
+            for (const accDoc of accSnapshot.docs) {
+              await accDoc.ref.delete();
+              orphanedAccCount++;
+            }
+            
+            // Delete the orphaned transaction
+            await doc.ref.delete();
+            orphanedTxCount++;
+          }
+        }
+      }
+
+      console.log('[CLEANUP] Deleted', orphanedTxCount, 'orphaned transactions and', orphanedAccCount, 'accounting entries');
+
+      // Clear caches
+      cache.clear(userId);
+
+      res.json({
+        success: true,
+        message: `Cleaned up ${orphanedTxCount} orphaned transactions and ${orphanedAccCount} accounting entries`,
+        orphanedTransactionsDeleted: orphanedTxCount,
+        orphanedAccountingEntriesDeleted: orphanedAccCount
+      });
+
+    } catch (error: any) {
+      console.error('[CLEANUP] Error:', error);
+      res.status(500).json({ 
+        message: 'Failed to clean up orphaned transactions',
         error: error.message 
       });
     }

@@ -52,6 +52,17 @@ class ServerCache {
       }
     }
   }
+
+  // Delete cache entries matching a pattern (e.g., "/api/categories")
+  deleteByPattern(pattern: string) {
+    const entries = Array.from(this.cache.keys());
+    for (const key of entries) {
+      if (key.includes(pattern)) {
+        console.log(`[CACHE INVALIDATE] ${key}`);
+        this.cache.delete(key);
+      }
+    }
+  }
 }
 
 export const serverCache = new ServerCache();
