@@ -35,6 +35,8 @@ export default function AccountingNew() {
   const [selectedMonth, setSelectedMonth] = useState<string | undefined>(undefined);
   const [openDialog, setOpenDialog] = useState(false);
   const balanceSheetRef = useRef<HTMLDivElement>(null);
+  const incomeStatementRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState("balance-sheet");
   const [entryToDelete, setEntryToDelete] = useState<AccountingEntry | null>(null);
   const [hasResolvedMonth, setHasResolvedMonth] = useState(false);
   const [companyName, setCompanyName] = useState("Your Company Name");
@@ -484,7 +486,11 @@ export default function AccountingNew() {
   const activeMonth = selectedMonth as string;
 
   const handlePrint = () => {
-    if (!balanceSheetRef.current) return;
+    // Determine which ref to use based on active tab
+    const printRef = activeTab === "income-statement" ? incomeStatementRef : balanceSheetRef;
+    const title = activeTab === "income-statement" ? "Income Statement" : "Balance Sheet";
+    
+    if (!printRef.current) return;
     const w = window.open("", "_blank");
     if (!w) return;
     
@@ -516,8 +522,8 @@ export default function AccountingNew() {
       </style>
     `;
 
-    w.document.write(`<!DOCTYPE html><html><head><title>Financial Statements</title>${styles}</head><body>`);
-    w.document.write(balanceSheetRef.current.innerHTML);
+    w.document.write(`<!DOCTYPE html><html><head><title>${title}</title>${styles}</head><body>`);
+    w.document.write(printRef.current.innerHTML);
     w.document.write("</body></html>");
     w.document.close();
     setTimeout(() => w.print(), 300);
@@ -710,7 +716,7 @@ export default function AccountingNew() {
         )}
       </div>
 
-      <Tabs defaultValue="balance-sheet" className="space-y-4">
+      <Tabs defaultValue="balance-sheet" value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="balance-sheet">Balance Sheet</TabsTrigger>
           <TabsTrigger value="income-statement">Income Statement</TabsTrigger>
@@ -912,7 +918,7 @@ export default function AccountingNew() {
                 </div>
               </div>
 
-              <div className="space-y-8 rounded-xl border bg-background/60 p-6">
+              <div ref={incomeStatementRef} className="space-y-8 rounded-xl border bg-background/60 p-6">
                 <div className="header text-center">
                   <div className="company-name text-lg font-semibold tracking-wide">{companyName}</div>
                   <div className="statement-title text-2xl font-bold">INCOME STATEMENT</div>
