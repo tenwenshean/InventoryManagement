@@ -2579,7 +2579,7 @@ async function handleAcceptOrder(req, res, user, orderId) {
 
 // ===== COMPLETE ORDER HANDLER (Customer marks order as received) =====
 async function handleCompleteOrder(req, res, orderId) {
-  const { db, adminModule } = await initializeFirebase();
+  const { db } = await initializeFirebase();
   
   try {
     console.log('[COMPLETE ORDER] Marking order as completed:', orderId);
@@ -2601,11 +2601,12 @@ async function handleCompleteOrder(req, res, orderId) {
     }
 
     // Update order to completed
+    const now = new Date();
     await db.collection('orders').doc(orderId).update({
       status: 'completed',
-      completedAt: adminModule.default.firestore.FieldValue.serverTimestamp(),
+      completedAt: now,
       receivedByCustomer: true,
-      updatedAt: adminModule.default.firestore.FieldValue.serverTimestamp()
+      updatedAt: now
     });
 
     console.log('[COMPLETE ORDER] Order completed:', orderData.orderNumber);
